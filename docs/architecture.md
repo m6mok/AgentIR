@@ -13,15 +13,17 @@ semantic codec ─── alpha-normalize → reachable DAG → spec_hash
   ↓ identity lowering
 ImplIR ──────────── separate typed graph → verify → impl_hash
   ↓ exact rewrites or verifier-gated proposals
-CandidateForest ─── atomic revisions → proof debt/validation/guard → candidate_hash v1/v2
+CandidateForest ─── atomic revisions → proof debt/validation/guard → candidate_hash v1/v2/v3
+  ↓ proved exact anchor / selected member
+EqualityStore ───── whole-program nodes → trusted edges → bounded saturation → equality_hash
   ↓ SpecIR + ImplIR
 agentir-eval ────── deterministic CPU semantic/differential oracle
 
-agentir-core snapshot/SpecIR+candidate event logs
+agentir-core snapshot/SpecIR+candidate+equality event logs
   ↓
 agentir-store ───── version sniff → source checksum → migrate → replay
   ↓ save/migrate
-archive v5 ─────── checksum → temp write + sync → atomic rename
+archive v6 ─────── checksum → temp write + sync → atomic rename
 ```
 
 The dependency direction is one-way: `core` knows nothing about JSONL sessions, evaluation input encoding or filesystems; `eval` and `store` depend on `core`; `protocol` composes them; `cli` only streams lines.
@@ -31,6 +33,8 @@ The dependency direction is one-way: `core` knows nothing about JSONL sessions, 
 ImplIR is not an attribute-bearing SpecIR. Candidate identities, revisions, evidence and rewrite provenance evolve independently while the candidate retains one immutable frozen `spec_hash`. The candidate allocator is separate so adding Stage 2A cannot change historical SpecIR ID allocation or `content_hash` replay.
 
 Exact rules are registry-owned. Each accepted action verifies side conditions, stages the graph, re-runs the ImplIR verifier and appends a certificate whose hashes compose from identity lowering to current ImplIR. Stage 2B proposals cross a stricter boundary: the core normalizes and type-checks them, but records unproved meaning as ordered debt. Only compiler validation advances the proof frontier. Differential evaluation is confidence evidence only.
+
+Stage 2C shares that same production matcher/transform with a persistent exact equality space. Nodes are verified whole ImplIR programs hash-consed by `impl_hash`; edges are positive compiler-owned proofs. Saturation is deterministic and bounded, not an e-graph extractor or ranking/search layer. A selected node becomes a candidate only through explicit materialization using ordinary CandidateForest transactions.
 
 Conditional execution exists at candidate level, not inside ImplIR v1. The sole guard evaluates an i32 dependency cone and lazily selects either the speculative primary or an immutable proved fallback. See [stage-2b-scope.md](stage-2b-scope.md).
 
@@ -54,7 +58,7 @@ Unknown symbolic equality is not treated as proof. The operation is `conditional
 
 ## Semantics versions and budgets
 
-New SpecIR events use core semantics v2. Candidate proposal/validation events use candidate semantics v2 while legacy exact candidate events remain v1. Mixed histories replay each event under its own semantics; archive version remains a separate on-disk codec axis.
+New SpecIR events use core semantics v2. Candidate equality discharge/materialization uses candidate semantics v3 while legacy candidate events retain v1/v2. Equality events use equality semantics v1 and record their candidate-event dependency cursor. Mixed histories replay each event under its own semantics; archive version remains a separate on-disk codec axis.
 
 `ResourceLimits` is runtime policy outside canonical state. Transaction sizes are projected before graph cloning and ID allocation; evaluator output is projected before tensor results; archive counts are checked before replay. Archive replay uses hard safety caps rather than configurable interactive limits.
 
@@ -68,4 +72,4 @@ The core derives frames from the same verified program used by free transactions
 
 ## Persistence boundary
 
-The core snapshot contains the complete SpecIR revision DAG/allocator/events plus CandidateForest, proposals, proof debt, candidate allocator, EvidenceIR and candidate events. Loading never trusts serialized graphs directly: `agentir-store` checks the exact source codec/hash, migrates, replays SpecIR, verifies its hashes, then replays candidate semantics and verifies proposal/ImplIR/candidate/frontier/debt/guard/evidence chains. Only the complete verified workspace is published. See [persistence.md](persistence.md).
+The core snapshot contains the complete SpecIR revision DAG/allocator/events, CandidateForest/proposals/debt/evidence/events, and EqualityStore/spaces/revisions/events. Loading never trusts serialized graphs directly: `agentir-store` checks the exact source codec/hash, migrates, replays SpecIR, interleaves candidate/equality events at explicit dependency cursors and verifies all programs, hashes, proof edges, worklists, frontiers and evidence chains. Only the complete verified workspace is published. See [persistence.md](persistence.md).

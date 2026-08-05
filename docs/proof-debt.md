@@ -13,3 +13,5 @@ Statuses have deliberately different meanings:
 The candidate head is the newest accepted history. The proof frontier is the last consecutive trusted prefix and its terminal proved `impl_hash`; it may lag behind the head. Validation cannot skip, reorder or jump across open, unsupported or refuted debt. Multiple speculative steps are bounded and remain in acceptance order.
 
 Positive differential or property testing is confidence evidence only and never advances the frontier. A counterexample refutes the first affected unresolved item, preserves the frontier, rejects the candidate and blocks sealing. Forking preserves the selected revision's debt; recovery uses a proved ancestor before the speculative step.
+
+Stage 2C adds one more compiler-owned discharge path: a canonical positive proof through an exact equality space. The space root must match the debt's before hash, the selected member must match its after hash, and every path edge is rebuilt from the production registry. The check still processes only the next unresolved item. A missing path leaves debt open; evaluating an equality node, even successfully, is confidence only.

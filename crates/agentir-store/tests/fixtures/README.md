@@ -17,7 +17,9 @@
 - `corrupted-candidate-semantics-v4.json`, `corrupted-impl-hash-v4.json`, `corrupted-candidate-hash-v4.json`, `corrupted-spec-anchor-v4.json` and `corrupted-evidence-chain-v4.json` each retain a valid v4 envelope checksum while corrupting one candidate contract; all must fail before publication.
 - `future-v5.json` is the immutable Stage 2A future-version probe. In Stage 2B it is retained as a malformed-v5 codec regression input.
 - The v5 corpus is generated reproducibly with `cargo run -p agentir-store --example generate_v5_fixtures`. It covers a minimal workspace, exact v4 migration, open speculative debt, recognized promotion, guarded and sealed-guarded execution, refutation, mixed candidate semantics, and valid-envelope corruption at every new integrity boundary.
-- `future-v6.json` is the current unsupported future-version probe.
+- `future-v6.json` is the immutable Stage 2B future-version probe. Stage 2C retains its bytes as a malformed-v6 codec regression input.
+- The v6 corpus is generated reproducibly with `cargo run -p agentir-store --example generate_v6_fixtures`. It covers an empty equality store, root-only, partial, saturated and merged equality graphs, equality-backed discharge, materialization, mixed candidate semantics v1/v2/v3, and valid-envelope corruption at every Stage 2C integrity boundary.
+- `future-v7.json` is the current unsupported future-version probe.
 
 Pinned SHA-256 fixture bytes for the valid v4 corpus:
 
@@ -55,5 +57,29 @@ Pinned SHA-256 bytes for the corrupted v5 corpus:
 - `corrupted-candidate-hash-v2-v5.json`: `9b6c7d3d95394e16b926b1332f7556b1636a4eb41949ad08dc7a3703fd51c718`;
 - `corrupted-candidate-semantics-v2-v5.json`: `b7fc62546783cf545bf3de8127223143b778ffbc1e68b0b292502a3c8a7a8b2d`;
 - `future-v6.json`: `d8c46c798c5220c058408d6fb9ead73e6db5919e25a742b960b2a46741cfada0`.
+
+Pinned SHA-256 bytes for the valid v6 corpus:
+
+- `minimal-v6.json`: `37b3ce979c93cc55e4ac78b5d85be8639eded96ef43af98ffde24f8bd2f53e7f`;
+- `equality-root-v6.json`: `bbba60ec35a09843d348e561642ad93a2037bb4d675ada8774c40dfee6eddc4f`;
+- `equality-partially-expanded-v6.json`: `f25120f683dbb494598188e83850bcba176ad81ccb2db892530b23ec2980ca1a`;
+- `equality-saturated-v6.json`: `bce5c6523ff3cdcdc0923a4494b9d5253e2552a3d642c994bca1482ba890a61d`;
+- `equality-merged-paths-v6.json`: `fb99d73dde2b74d7054ee35acc5f8dc1a833a3f7160f583b78e23c24b2a392e7`;
+- `equality-discharged-v6.json`: `2ba14055d37f4f2a8c401adfa18521eb407dd4c11e2b41fec61ada13b2b88b89`;
+- `equality-materialized-v6.json`: `b76a27e44f8d1c01206229aa43a385fc3c41457f8ec22c5fc3482afa3be36830`;
+- `mixed-candidate-semantics-v6.json`: `96903437b4991d72454c6ef18d830d7433416c59b3623966210e7c4ecd77bdd4`.
+
+Pinned SHA-256 bytes for corrupted/future v6 corpus:
+
+- `corrupted-equality-node-hash-v6.json`: `f62ade68eb89b50623d827c3253bc6b01d419e862d6e7868ec6ebb40a4ff9d63`;
+- `corrupted-equality-edge-v6.json`: `8ff0806080772e34a55df425ac60ec8c9e7cda5930c00c1d853aae7e1c51303a`;
+- `corrupted-equality-rule-v6.json`: `8bfa3a42507c16eb1f4e70866ec507aa0741df41db99e5c3afaf2a6120f9326b`;
+- `corrupted-equality-side-condition-v6.json`: `e9890411ed4f403808654ccf2c52ed51cf1690a72ee3316315b343db6d7205e8`;
+- `corrupted-equality-anchor-v6.json`: `aa85fb2017b0bb52eea7817cce661e64486f10e8e91967d5fbc122021306ac5c`;
+- `corrupted-equality-status-v6.json`: `331aebacc87a8c06a87c4c5e38fe6f0c5d49b22d672d3aae6f91902fe8be260e`;
+- `corrupted-equality-hash-v6.json`: `75d23557e6a2edf1e77ff6f573f50c980cbd3db2e3dc25a500b6e237b9f82ea0`;
+- `corrupted-equality-evidence-v6.json`: `2bccc2767e4d3cae46f440df922e7dfcaae6c1e0e12aec6f8d97d83e62246b31`;
+- `corrupted-equality-event-order-v6.json`: `e6d85e42394777dace1189c46629b333e5602bc7907be7f719cb146082658928`;
+- `future-v7.json`: `279d049cc1519e432388037bc61aba41b37c9eaf6a79587321b581cc801274ed`.
 
 The compact one-line encoding is intentional: integrity hashes cover the exact deterministic body codec defined by each version's Rust structs. Historical future-version probes remain immutable regression inputs after their version becomes supported.

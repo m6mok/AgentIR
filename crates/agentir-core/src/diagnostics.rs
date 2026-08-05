@@ -102,6 +102,32 @@ pub enum ErrorCode {
     FallbackCycle,
     /// Open, unsupported, or refuted proof debt blocks sealing.
     CandidateHasProofDebt,
+    /// Requested exact equality space does not exist.
+    EqualitySpaceNotFound,
+    /// Requested immutable equality revision does not exist.
+    EqualityRevisionNotFound,
+    /// Requested equality semantic node does not exist.
+    EqualityNodeNotFound,
+    /// Equality creation requires a fully proved exact candidate anchor.
+    EqualityAnchorUnproved,
+    /// A guarded primary cannot become an unconditional equality root.
+    EqualityGuardedAnchorUnsupported,
+    /// Equality mutation was based on a stale equality head.
+    StaleEqualityBase,
+    /// Expected equality exact-state hash differs from current state.
+    EqualityHashMismatch,
+    /// An equality proof edge names an unknown compiler-owned rule.
+    EqualityRuleUntrusted,
+    /// A stored equality proof edge or explanation failed verification.
+    EqualityProofInvalid,
+    /// No trusted root-to-node equality path exists.
+    EqualityPathNotFound,
+    /// Equality-specific resource policy rejected an atomic operation.
+    EqualityResourceLimit,
+    /// A selected equality path could not be atomically materialized.
+    EqualityMaterializationFailed,
+    /// Stage 2C optimization events violate dependency order.
+    EqualityEventOrderInvalid,
 }
 
 /// Structured compiler error suitable for agent repair loops.

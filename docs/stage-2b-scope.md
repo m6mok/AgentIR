@@ -23,4 +23,4 @@ An exact seal requires every debt item proved in order. A guarded seal requires 
 
 ## Explicitly deferred
 
-Stage 2B has no approximate refinement, tolerances, agent certificates, general guard language, SMT, theorem prover, e-graph, saturation, population search, ranking, learned cost model, performance evidence, MemoryIR, bufferization, ScheduleIR, target lowering, GPU, LLVM or MLIR integration.
+Stage 2B itself has no approximate refinement, tolerances, agent certificates, general guard language, SMT, theorem prover, e-graph, saturation, population search, ranking, learned cost model, performance evidence, MemoryIR, bufferization, ScheduleIR, target lowering, GPU, LLVM or MLIR integration. Stage 2C subsequently adds bounded trusted whole-program saturation, but still no e-graph or search machinery.

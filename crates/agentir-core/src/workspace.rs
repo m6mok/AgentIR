@@ -5,17 +5,24 @@ use crate::{
     candidate::{
         CANDIDATE_SEMANTICS_VERSION, Candidate, CandidateCheckReport, CandidateContinuation,
         CandidateEvent, CandidateForest, CandidateRevision, CandidateTransaction,
-        DifferentialValidation, LEGACY_CANDIDATE_SEMANTICS_VERSION, ProposalRecord, RelationKind,
-        SpeculativeRewriteProposal, TranslationCheckReport,
+        DifferentialValidation, EQUALITY_CANDIDATE_SEMANTICS_VERSION,
+        LEGACY_CANDIDATE_SEMANTICS_VERSION, ProposalRecord, RelationKind,
+        SpeculativeRewriteProposal, TranslationCheckReport, VersionedCandidateEvent,
     },
     canonical::{content_hash, content_hash_with_limit},
     constraints::{ConstraintFacts, ConstraintQueryResult},
     continuation::{ContinuationFrame, InteractionMode, build_frame},
     diagnostics::{AgentError, AgentResult, ErrorCode},
+    equality::{
+        EQUALITY_SEMANTICS_VERSION, EqualityContinuation, EqualityDischargeResult, EqualityEvent,
+        EqualityExpansionResult, EqualityExplanation, EqualityHash, EqualityMaterializationResult,
+        EqualityQuery, EqualityStore, VersionedEqualityEvent,
+    },
     holes::{ExpectedEffects, Hole, HoleStatus},
     ids::{
-        ActionId, CandidateId, CandidateRevisionId, HoleId, IdAllocator, ObligationId, ProposalId,
-        RevisionId, ValueId, WorkspaceId,
+        ActionId, CandidateId, CandidateRevisionId, EqualityNodeId, EqualityRevisionId,
+        EqualitySpaceId, HoleId, IdAllocator, ObligationId, ProposalId, RevisionId, ValueId,
+        WorkspaceId,
     },
     ir::{
         BlockArgument, ConstantValue, Dimension, Opcode, Operation, Program, Region,
@@ -764,6 +771,7 @@ pub struct Workspace {
     allocator: IdAllocator,
     events: Vec<VersionedWorkspaceEvent>,
     candidates: CandidateForest,
+    equality: EqualityStore,
     limits: ResourceLimits,
 }
 
@@ -796,6 +804,7 @@ impl Workspace {
             allocator: IdAllocator::default(),
             events: Vec::new(),
             candidates: CandidateForest::default(),
+            equality: EqualityStore::default(),
             limits,
         })
     }
@@ -821,6 +830,12 @@ impl Workspace {
     #[must_use]
     pub const fn candidate_forest(&self) -> &CandidateForest {
         &self.candidates
+    }
+
+    /// Returns the persistent exact equality-space store.
+    #[must_use]
+    pub const fn equality_store(&self) -> &EqualityStore {
+        &self.equality
     }
 
     /// Returns the current head revision ID.
@@ -1677,84 +1692,425 @@ impl Workspace {
             .continuation(candidate, revision, &self.limits)
     }
 
-    fn replay_candidate_forest(&mut self, expected: &CandidateForest) -> AgentResult<()> {
-        for versioned in &expected.events {
-            if !matches!(
-                versioned.semantics_version,
-                LEGACY_CANDIDATE_SEMANTICS_VERSION | CANDIDATE_SEMANTICS_VERSION
-            ) {
-                return Err(AgentError::new(
-                    ErrorCode::PersistenceFormat,
-                    format!(
-                        "unsupported candidate semantics version {}",
-                        versioned.semantics_version
-                    ),
-                )
-                .with_detail("candidate_semantics_version", versioned.semantics_version));
+    /// Creates an exact equality space from one explicit proved candidate revision.
+    pub fn equality_create(
+        &mut self,
+        candidate: &CandidateId,
+        candidate_revision: &CandidateRevisionId,
+    ) -> AgentResult<EqualityQuery> {
+        let candidate_data = self.candidates.candidate(candidate)?;
+        let spec_revision = candidate_data.spec_revision.clone();
+        let (source, spec_hash) = self.frozen_candidate_source(&spec_revision)?;
+        self.equality.create(
+            &self.candidates,
+            candidate,
+            candidate_revision,
+            &source,
+            &spec_revision,
+            &spec_hash,
+            &self.limits,
+        )
+    }
+
+    /// Reads one immutable equality revision summary.
+    pub fn equality_query(
+        &self,
+        space: &EqualitySpaceId,
+        revision: &EqualityRevisionId,
+    ) -> AgentResult<EqualityQuery> {
+        self.equality.query(space, revision)
+    }
+
+    fn equality_source(&self, space: &EqualitySpaceId) -> AgentResult<(Program, SpecHash)> {
+        let spec_revision = self.equality.space(space)?.anchor.spec_revision.clone();
+        self.frozen_candidate_source(&spec_revision)
+    }
+
+    /// Expands a bounded number of deterministic equality work items.
+    pub fn equality_expand(
+        &mut self,
+        space: &EqualitySpaceId,
+        base_revision: &EqualityRevisionId,
+        expected_hash: &EqualityHash,
+        fuel: u64,
+    ) -> AgentResult<EqualityExpansionResult> {
+        let (source, _) = self.equality_source(space)?;
+        self.equality.expand(
+            space,
+            base_revision,
+            expected_hash,
+            fuel,
+            &source,
+            &self.limits,
+            u64::try_from(self.candidates.events.len()).unwrap_or(u64::MAX),
+        )
+    }
+
+    /// Saturates deterministically to fixpoint or explicit caller fuel.
+    pub fn equality_saturate(
+        &mut self,
+        space: &EqualitySpaceId,
+        base_revision: &EqualityRevisionId,
+        expected_hash: &EqualityHash,
+        fuel: u64,
+    ) -> AgentResult<EqualityExpansionResult> {
+        let (source, _) = self.equality_source(space)?;
+        self.equality.saturate(
+            space,
+            base_revision,
+            expected_hash,
+            fuel,
+            &source,
+            &self.limits,
+            u64::try_from(self.candidates.events.len()).unwrap_or(u64::MAX),
+        )
+    }
+
+    /// Builds the canonical trusted root-to-node equality explanation.
+    pub fn equality_explain(
+        &self,
+        space: &EqualitySpaceId,
+        revision: &EqualityRevisionId,
+        node: &EqualityNodeId,
+    ) -> AgentResult<EqualityExplanation> {
+        let (source, _) = self.equality_source(space)?;
+        self.equality
+            .explain(space, revision, node, &source, &self.limits)
+    }
+
+    /// Returns bounded deterministic next equality work.
+    pub fn equality_continuation(
+        &self,
+        space: &EqualitySpaceId,
+        revision: &EqualityRevisionId,
+    ) -> AgentResult<EqualityContinuation> {
+        self.equality.continuation(space, revision, &self.limits)
+    }
+
+    /// Returns one equality member implementation for reference evaluation.
+    pub fn equality_node_program(
+        &self,
+        space: &EqualitySpaceId,
+        revision: &EqualityRevisionId,
+        node: &EqualityNodeId,
+    ) -> AgentResult<&crate::impl_ir::ImplProgram> {
+        self.equality.node_program(space, revision, node)
+    }
+
+    /// Discharges ordered candidate proof debt using a trusted equality membership path.
+    #[allow(clippy::too_many_arguments)]
+    pub fn candidate_equality_check(
+        &mut self,
+        candidate: &CandidateId,
+        base_candidate_revision: &CandidateRevisionId,
+        proposal: &ProposalId,
+        space: &EqualitySpaceId,
+        equality_revision: &EqualityRevisionId,
+        expected_equality_hash: &EqualityHash,
+        target_node: &EqualityNodeId,
+    ) -> AgentResult<EqualityDischargeResult> {
+        let (source, spec_hash) = self.candidate_source(candidate)?;
+        self.equality.candidate_discharge(
+            &mut self.candidates,
+            candidate,
+            base_candidate_revision,
+            proposal,
+            space,
+            equality_revision,
+            expected_equality_hash,
+            target_node,
+            &source,
+            &spec_hash,
+            &self.limits,
+        )
+    }
+
+    /// Materializes one explicitly selected equality node as a new exact candidate fork.
+    pub fn equality_materialize(
+        &mut self,
+        space: &EqualitySpaceId,
+        equality_revision: &EqualityRevisionId,
+        expected_equality_hash: &EqualityHash,
+        target_node: &EqualityNodeId,
+    ) -> AgentResult<EqualityMaterializationResult> {
+        let (source, spec_hash) = self.equality_source(space)?;
+        self.equality.materialize(
+            &mut self.candidates,
+            space,
+            equality_revision,
+            expected_equality_hash,
+            target_node,
+            &source,
+            &spec_hash,
+            &self.limits,
+        )
+    }
+
+    fn replay_candidate_event(&mut self, versioned: &VersionedCandidateEvent) -> AgentResult<()> {
+        if !matches!(
+            versioned.semantics_version,
+            LEGACY_CANDIDATE_SEMANTICS_VERSION
+                | CANDIDATE_SEMANTICS_VERSION
+                | EQUALITY_CANDIDATE_SEMANTICS_VERSION
+        ) {
+            return Err(AgentError::new(
+                ErrorCode::PersistenceFormat,
+                format!(
+                    "unsupported candidate semantics version {}",
+                    versioned.semantics_version
+                ),
+            )
+            .with_detail("candidate_semantics_version", versioned.semantics_version));
+        }
+        match &versioned.event {
+            CandidateEvent::Created {
+                spec_revision,
+                relation,
+                ..
+            } => {
+                self.candidate_create(spec_revision, *relation)?;
             }
-            match &versioned.event {
-                CandidateEvent::Created {
-                    spec_revision,
-                    relation,
-                    ..
-                } => {
-                    self.candidate_create(spec_revision, *relation)?;
-                }
-                CandidateEvent::TransactionApplied { transaction, .. } => {
-                    self.candidate_apply(transaction)?;
-                }
-                CandidateEvent::Forked {
-                    parent_candidate,
-                    parent_revision,
-                    ..
-                } => {
-                    self.candidate_fork(parent_candidate, parent_revision)?;
-                }
-                CandidateEvent::Validated {
-                    candidate,
-                    base_revision,
-                    validation,
-                    ..
-                } => {
-                    self.candidate_record_validation(candidate, base_revision, validation.clone())?;
-                }
-                CandidateEvent::Sealed {
-                    candidate,
-                    base_revision,
-                    ..
-                } => {
-                    self.candidate_seal(candidate, base_revision)?;
-                }
-                CandidateEvent::ProposalAccepted {
-                    candidate,
-                    base_revision,
-                    proposal,
-                    ..
-                } => {
-                    self.candidate_propose(candidate, base_revision, proposal)?;
-                }
-                CandidateEvent::TranslationChecked {
-                    candidate,
-                    base_revision,
-                    proposal,
-                    ..
-                } => {
-                    self.candidate_translation_check(candidate, base_revision, proposal)?;
-                }
+            CandidateEvent::TransactionApplied { transaction, .. } => {
+                self.candidate_apply(transaction)?;
             }
-            if self.candidates.events.last() != Some(versioned) {
-                return Err(AgentError::new(
-                    ErrorCode::ReplayMismatch,
-                    "candidate event replay diverged",
-                )
-                .with_detail("expected_event", json!(versioned))
-                .with_detail("actual_event", json!(self.candidates.events.last())));
+            CandidateEvent::Forked {
+                parent_candidate,
+                parent_revision,
+                ..
+            } => {
+                self.candidate_fork(parent_candidate, parent_revision)?;
+            }
+            CandidateEvent::Validated {
+                candidate,
+                base_revision,
+                validation,
+                ..
+            } => {
+                self.candidate_record_validation(candidate, base_revision, validation.clone())?;
+            }
+            CandidateEvent::Sealed {
+                candidate,
+                base_revision,
+                ..
+            } => {
+                self.candidate_seal(candidate, base_revision)?;
+            }
+            CandidateEvent::ProposalAccepted {
+                candidate,
+                base_revision,
+                proposal,
+                ..
+            } => {
+                self.candidate_propose(candidate, base_revision, proposal)?;
+            }
+            CandidateEvent::TranslationChecked {
+                candidate,
+                base_revision,
+                proposal,
+                ..
+            } => {
+                self.candidate_translation_check(candidate, base_revision, proposal)?;
             }
         }
-        if &self.candidates != expected {
+        if self.candidates.events.last() != Some(versioned) {
+            return Err(AgentError::new(
+                ErrorCode::ReplayMismatch,
+                "candidate event replay diverged",
+            )
+            .with_detail("expected_event", json!(versioned))
+            .with_detail("actual_event", json!(self.candidates.events.last())));
+        }
+        Ok(())
+    }
+
+    fn replay_equality_event(&mut self, versioned: &VersionedEqualityEvent) -> AgentResult<()> {
+        if versioned.semantics_version != EQUALITY_SEMANTICS_VERSION {
+            return Err(AgentError::new(
+                ErrorCode::EqualityEventOrderInvalid,
+                format!(
+                    "unsupported equality semantics version {}",
+                    versioned.semantics_version
+                ),
+            ));
+        }
+        match &versioned.event {
+            EqualityEvent::Created {
+                candidate,
+                candidate_revision,
+                equality_space,
+                equality_revision,
+                equality_hash,
+            } => {
+                let result = self.equality_create(candidate, candidate_revision)?;
+                if result.equality_space != *equality_space
+                    || result.equality_revision != *equality_revision
+                    || result.equality_hash != *equality_hash
+                {
+                    return Err(AgentError::new(
+                        ErrorCode::ReplayMismatch,
+                        "equality creation replay diverged",
+                    ));
+                }
+            }
+            EqualityEvent::Expanded {
+                equality_space,
+                base_revision,
+                expected_equality_hash,
+                fuel,
+                equality_revision,
+                equality_hash,
+            } => {
+                let result = self.equality_expand(
+                    equality_space,
+                    base_revision,
+                    expected_equality_hash,
+                    *fuel,
+                )?;
+                if result.equality_revision != *equality_revision
+                    || result.equality_hash != *equality_hash
+                {
+                    return Err(AgentError::new(
+                        ErrorCode::ReplayMismatch,
+                        "equality expansion replay diverged",
+                    ));
+                }
+            }
+            EqualityEvent::Saturated {
+                equality_space,
+                base_revision,
+                expected_equality_hash,
+                fuel,
+                equality_revision,
+                equality_hash,
+            } => {
+                let result = self.equality_saturate(
+                    equality_space,
+                    base_revision,
+                    expected_equality_hash,
+                    *fuel,
+                )?;
+                if result.equality_revision != *equality_revision
+                    || result.equality_hash != *equality_hash
+                {
+                    return Err(AgentError::new(
+                        ErrorCode::ReplayMismatch,
+                        "equality saturation replay diverged",
+                    ));
+                }
+            }
+            EqualityEvent::CandidateDischarged {
+                candidate,
+                base_candidate_revision,
+                proposal,
+                equality_space,
+                equality_revision,
+                equality_hash,
+                target_node,
+                candidate_revision,
+                candidate_hash,
+            } => {
+                let result = self.candidate_equality_check(
+                    candidate,
+                    base_candidate_revision,
+                    proposal,
+                    equality_space,
+                    equality_revision,
+                    equality_hash,
+                    target_node,
+                )?;
+                if result.candidate_revision != *candidate_revision
+                    || result.candidate_hash != *candidate_hash
+                {
+                    return Err(AgentError::new(
+                        ErrorCode::ReplayMismatch,
+                        "equality-backed candidate replay diverged",
+                    ));
+                }
+            }
+            EqualityEvent::Materialized {
+                equality_space,
+                equality_revision,
+                equality_hash,
+                target_node,
+                candidate,
+                candidate_revision,
+                candidate_hash,
+            } => {
+                let result = self.equality_materialize(
+                    equality_space,
+                    equality_revision,
+                    equality_hash,
+                    target_node,
+                )?;
+                if result.candidate != *candidate
+                    || result.candidate_revision != *candidate_revision
+                    || result.candidate_hash != *candidate_hash
+                {
+                    return Err(AgentError::new(
+                        ErrorCode::ReplayMismatch,
+                        "equality materialization replay diverged",
+                    ));
+                }
+            }
+        }
+        if self.equality.events.last() != Some(versioned) {
+            return Err(AgentError::new(
+                ErrorCode::ReplayMismatch,
+                "equality event replay diverged",
+            )
+            .with_detail("expected_event", json!(versioned))
+            .with_detail("actual_event", json!(self.equality.events.last())));
+        }
+        Ok(())
+    }
+
+    fn replay_optimization_state(
+        &mut self,
+        expected_candidates: &CandidateForest,
+        expected_equality: &EqualityStore,
+    ) -> AgentResult<()> {
+        let mut candidate_cursor = 0_usize;
+        for equality_event in &expected_equality.events {
+            let required_cursor =
+                usize::try_from(equality_event.candidate_event_cursor).map_err(|_| {
+                    AgentError::new(
+                        ErrorCode::EqualityEventOrderInvalid,
+                        "equality candidate-event cursor does not fit this platform",
+                    )
+                })?;
+            if required_cursor < candidate_cursor
+                || required_cursor > expected_candidates.events.len()
+            {
+                return Err(AgentError::new(
+                    ErrorCode::EqualityEventOrderInvalid,
+                    "equality event candidate dependency cursor is invalid",
+                )
+                .with_detail("current_cursor", candidate_cursor as u64)
+                .with_detail("required_cursor", equality_event.candidate_event_cursor)
+                .with_detail(
+                    "candidate_event_count",
+                    expected_candidates.events.len() as u64,
+                ));
+            }
+            for event in &expected_candidates.events[candidate_cursor..required_cursor] {
+                self.replay_candidate_event(event)?;
+            }
+            candidate_cursor = required_cursor;
+            self.replay_equality_event(equality_event)?;
+        }
+        for event in &expected_candidates.events[candidate_cursor..] {
+            self.replay_candidate_event(event)?;
+        }
+        if &self.candidates != expected_candidates {
             return Err(AgentError::new(
                 ErrorCode::ReplayMismatch,
                 "replayed CandidateForest differs from snapshot",
+            ));
+        }
+        if &self.equality != expected_equality {
+            return Err(AgentError::new(
+                ErrorCode::ReplayMismatch,
+                "replayed EqualityStore differs from snapshot",
             ));
         }
         let revisions = &self.revisions;
@@ -1775,6 +2131,24 @@ impl Workspace {
                 Ok((source.program.clone(), spec_hash))
             },
             &self.limits,
+        )?;
+        self.equality.verify_all(
+            |revision| {
+                let source = revisions.get(revision).ok_or_else(|| {
+                    AgentError::new(
+                        ErrorCode::RevisionNotFound,
+                        format!("equality anchor revision `{revision}` does not exist"),
+                    )
+                })?;
+                let spec_hash = source.spec_hash.clone().ok_or_else(|| {
+                    AgentError::new(
+                        ErrorCode::SpecHashMismatch,
+                        format!("equality anchor revision `{revision}` has no spec_hash"),
+                    )
+                })?;
+                Ok((source.program.clone(), spec_hash))
+            },
+            &self.limits,
         )
     }
 
@@ -1789,6 +2163,7 @@ impl Workspace {
             allocator: self.allocator.clone(),
             events: self.events.clone(),
             candidate_forest: self.candidates.clone(),
+            equality_store: self.equality.clone(),
         }
     }
 
@@ -1834,6 +2209,12 @@ impl Workspace {
             ResourceKind::CandidateEventsPerArchive,
             as_u64(snapshot.candidate_forest.events.len()),
             "candidate snapshot replay preflight",
+        )?;
+        BudgetCheck::against(
+            &ResourceLimits::hard_safety_caps(),
+            ResourceKind::EqualityEvents,
+            as_u64(snapshot.equality_store.events.len()),
+            "equality snapshot replay preflight",
         )?;
         let replay_actions = snapshot.events.iter().fold(0_u64, |total, versioned| {
             total.saturating_add(match &versioned.event {
@@ -2044,7 +2425,7 @@ impl Workspace {
             revision.semantic_canonical_version = version;
         }
 
-        replayed.replay_candidate_forest(&snapshot.candidate_forest)?;
+        replayed.replay_optimization_state(&snapshot.candidate_forest, &snapshot.equality_store)?;
 
         let report = ReplayReport {
             workspace: snapshot.workspace.clone(),
@@ -2056,12 +2437,15 @@ impl Workspace {
             candidates_verified: snapshot.candidate_forest.candidates.len(),
             candidate_events_replayed: snapshot.candidate_forest.events.len(),
             evidence_records_verified: snapshot.candidate_forest.evidence.len(),
+            equality_spaces_verified: snapshot.equality_store.spaces.len(),
+            equality_events_replayed: snapshot.equality_store.events.len(),
         };
         replayed.revisions = snapshot.revisions;
         replayed.head = snapshot.head;
         replayed.allocator = snapshot.allocator;
         replayed.events = snapshot.events;
         replayed.candidates = snapshot.candidate_forest;
+        replayed.equality = snapshot.equality_store;
         replayed.limits = ResourceLimits::default();
         Ok((replayed, report))
     }

@@ -1,19 +1,23 @@
 # Glossary
 
 - **ActionIR** — typed algebra of graph edits submitted by an agent.
-- **Archive** — checksummed versioned workspace encoding; v1/v2/v3/v4 are immutable legacy inputs and v5 is current.
+- **Archive** — checksummed versioned workspace encoding; v1/v2/v3/v4/v5 are immutable legacy inputs and v6 is current.
 - **Archive hash** — version-specific integrity hash of a concrete archive body.
 - **Canonical state** — deterministic serialized `Program` used for the history-sensitive `content_hash` and replay.
 - **Compiler core** — transport-independent verifier and workspace state machine.
 - **Compiler semantics version** — event-level selector for historical transaction inference and obligation behavior; independent of archive format.
-- **Candidate semantics version** — independent selector for CandidateForest event replay; exact history uses v1 and Stage 2B proposal/validation history uses v2.
+- **Candidate semantics version** — independent selector for CandidateForest event replay; legacy exact history uses v1, Stage 2B proposal/validation uses v2 and equality-linked revisions use v3.
 - **Candidate** — one persistent ImplIR branch anchored to an immutable frozen `spec_hash`.
-- **Candidate hash** — per-revision v1/v2 history-sensitive exact identity including IDs, proof state and evidence references.
+- **Candidate hash** — per-revision v1/v2/v3 history-sensitive exact identity including IDs, proof state and evidence references.
 - **CandidateForest** — independent collection of immutable candidate revision DAGs, EvidenceIR and candidate allocator/event state.
 - **ConstraintFacts** — deterministic derived equality/static-binding model used to query and discharge shape relations.
 - **ContinuationFrame** — parameteric description of legal next choices for a focused task.
 - **Hole** — missing pure value with a persistent ID and required type/shape.
 - **EvidenceIR** — deterministic correctness/confidence records with hashes, method, parameters, result and provenance.
+- **Equality edge** — compiler-owned positive proof that one whole ImplIR program reaches another through one exact production rewrite.
+- **Equality hash** — canonical identity of an equality anchor, hash-consed nodes, proof edges, worklist and status, independent of batching history.
+- **Equality node** — one fully verified whole-program ImplIR member, hash-consed by `impl_hash`.
+- **Equality space** — bounded persistent positive proof graph rooted at one fully proved unconditional candidate revision.
 - **Guarded fallback** — candidate-level compiler guard selecting a conditional primary or immutable proved exact fallback lazily.
 - **Impl hash** — history-independent identity of reachable typed ImplIR semantics.
 - **ImplIR** — separate typed functional graph describing one implementation of frozen SpecIR.
@@ -32,4 +36,4 @@
 - **Semantic canonical form** — versioned, alpha-normalized output-reachable representation of frozen SpecIR.
 - **Spec hash** — domain-separated SHA-256 identity of semantic canonical form, independent of compiler IDs and construction history.
 - **Temporary binding** — `$name` usable only within one transaction.
-- **Workspace** — SpecIR revision DAG plus independent CandidateForest and compiler-owned allocators; it may be persisted only after complete replay verification.
+- **Workspace** — SpecIR revision DAG plus independent CandidateForest, EqualityStore and compiler-owned allocators; it may be persisted only after complete replay verification.

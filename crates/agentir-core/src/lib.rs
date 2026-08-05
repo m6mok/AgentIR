@@ -1,4 +1,4 @@
-//! Transport-independent reference compiler core for AgentIR through Stage 2B.
+//! Transport-independent reference compiler core for AgentIR through Stage 2C.
 //!
 //! The crate owns canonical SpecIR state, type and shape checking, atomic
 //! ActionIR transactions, immutable revisions, typed holes, ImplIR candidates,
@@ -14,6 +14,7 @@ pub mod canonical;
 pub mod constraints;
 pub mod continuation;
 pub mod diagnostics;
+pub mod equality;
 pub mod holes;
 pub mod ids;
 pub mod impl_ir;

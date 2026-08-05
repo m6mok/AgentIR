@@ -1,4 +1,4 @@
-# ImplIR through Stage 2B
+# ImplIR through Stage 2C
 
 ImplIR is a separate functional typed graph describing one implementation of a frozen SpecIR contract. It reuses the implemented pure opcode/type semantics, but its operations (`iop*`), values (`iv*`), regions, outputs and source links are distinct Rust types. It is not a `Program` alias and no flag turns SpecIR into ImplIR.
 
@@ -7,6 +7,8 @@ ImplIR is a separate functional typed graph describing one implementation of a f
 The ImplIR verifier checks SSA uniqueness and dependency order, references, arity/inference, scalar constants, region arguments/captures/local SSA/yield, external interfaces, source links and resource budgets. An internal adapter lets the reference evaluator share the already-defined pure opcode semantics without collapsing the two data models.
 
 Stage 2B does not change ImplIR semantics or its hash. Proposal fragments are normalized and checked through the same verifier-owned type inference before compiler IDs are allocated. The accepted replacement rewires uses of one result; the old target may remain unreachable and is ignored by `impl_hash` until a trusted prune rule removes it. Guard and fallback remain candidate-level state so lazy control flow does not enter ImplIR v1.
+
+Stage 2C likewise leaves ImplIR semantics/hash v1 unchanged. Equality nodes store verified whole `ImplProgram` snapshots and use `impl_hash` only as their semantic hash-cons key; equality state, proof edges and worklists remain separate metadata.
 
 ## `impl_hash`
 

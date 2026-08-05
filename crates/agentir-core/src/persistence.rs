@@ -9,6 +9,7 @@ use crate::{
         EvidenceKind, EvidenceProvenance, EvidenceRecord, EvidenceResult,
         LEGACY_CANDIDATE_CANONICAL_VERSION, RelationKind, VersionedCandidateEvent,
     },
+    equality::EqualityStore,
     ids::{
         CandidateId, CandidateObligationId, CandidateRevisionId, EvidenceId, IdAllocator,
         RevisionId, TransactionId, WorkspaceId,
@@ -27,7 +28,10 @@ pub const CORE_SEMANTICS_VERSION: u32 = 2;
 pub const LEGACY_CORE_SEMANTICS_VERSION: u32 = 1;
 
 /// Current schema version for compiler-core workspace snapshots.
-pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 5;
+pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 6;
+
+/// Immutable Stage 2B snapshot schema migrated explicitly to v6.
+pub const LEGACY_WORKSPACE_SNAPSHOT_V5_VERSION: u32 = 5;
 
 /// Immutable Stage 2A snapshot schema migrated explicitly to v5.
 pub const LEGACY_WORKSPACE_SNAPSHOT_V4_VERSION: u32 = 4;
@@ -92,6 +96,27 @@ pub struct WorkspaceSnapshot {
     /// Ordered state-changing history used for deterministic replay.
     pub events: Vec<VersionedWorkspaceEvent>,
     /// Independent candidate forest, allocator, EvidenceIR, and candidate event log.
+    pub candidate_forest: CandidateForest,
+    /// Independent exact equality spaces and dependency-ordered Stage 2C event log.
+    pub equality_store: EqualityStore,
+}
+
+/// Immutable compiler-core snapshot schema embedded in archive format version 5.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LegacyWorkspaceSnapshotV5 {
+    /// Legacy schema discriminator, which must equal five.
+    pub schema_version: u32,
+    /// Workspace identity.
+    pub workspace: WorkspaceId,
+    /// Current SpecIR head revision.
+    pub head: RevisionId,
+    /// Immutable SpecIR revisions.
+    pub revisions: BTreeMap<RevisionId, Revision>,
+    /// SpecIR compiler allocator.
+    pub allocator: IdAllocator,
+    /// Semantics-versioned SpecIR event log.
+    pub events: Vec<VersionedWorkspaceEvent>,
+    /// Stage 2B CandidateForest, including exact and speculative histories.
     pub candidate_forest: CandidateForest,
 }
 
@@ -577,7 +602,7 @@ fn migrate_candidate_event(event: LegacyCandidateEventV1) -> CandidateEvent {
 /// Purely migrates immutable snapshot schema v4 to v5 without recalculating legacy hashes.
 pub fn migrate_snapshot_v4(
     snapshot: LegacyWorkspaceSnapshotV4,
-) -> crate::AgentResult<WorkspaceSnapshot> {
+) -> crate::AgentResult<LegacyWorkspaceSnapshotV5> {
     if snapshot.schema_version != LEGACY_WORKSPACE_SNAPSHOT_V4_VERSION {
         return Err(crate::AgentError::new(
             crate::ErrorCode::PersistenceFormat,
@@ -630,6 +655,8 @@ pub fn migrate_snapshot_v4(
                             proof_debt: Vec::new(),
                             translation_results: Vec::new(),
                             guarded_fallback: None,
+                            equality_proofs: Vec::new(),
+                            equality_materializations: Vec::new(),
                         },
                     )
                 })
@@ -683,8 +710,8 @@ pub fn migrate_snapshot_v4(
             event: migrate_candidate_event(event.event),
         })
         .collect();
-    Ok(WorkspaceSnapshot {
-        schema_version: WORKSPACE_SNAPSHOT_VERSION,
+    Ok(LegacyWorkspaceSnapshotV5 {
+        schema_version: LEGACY_WORKSPACE_SNAPSHOT_V5_VERSION,
         workspace: snapshot.workspace,
         head: snapshot.head,
         revisions: snapshot.revisions,
@@ -704,6 +731,31 @@ pub fn migrate_snapshot_v4(
             ),
             events,
         },
+    })
+}
+
+/// Purely migrates immutable snapshot schema v5 to v6 with an empty equality store.
+pub fn migrate_snapshot_v5(
+    snapshot: LegacyWorkspaceSnapshotV5,
+) -> crate::AgentResult<WorkspaceSnapshot> {
+    if snapshot.schema_version != LEGACY_WORKSPACE_SNAPSHOT_V5_VERSION {
+        return Err(crate::AgentError::new(
+            crate::ErrorCode::PersistenceFormat,
+            format!(
+                "legacy workspace snapshot version {} is unsupported; expected {}",
+                snapshot.schema_version, LEGACY_WORKSPACE_SNAPSHOT_V5_VERSION
+            ),
+        ));
+    }
+    Ok(WorkspaceSnapshot {
+        schema_version: WORKSPACE_SNAPSHOT_VERSION,
+        workspace: snapshot.workspace,
+        head: snapshot.head,
+        revisions: snapshot.revisions,
+        allocator: snapshot.allocator,
+        events: snapshot.events,
+        candidate_forest: snapshot.candidate_forest,
+        equality_store: EqualityStore::default(),
     })
 }
 
@@ -728,4 +780,8 @@ pub struct ReplayReport {
     pub candidate_events_replayed: usize,
     /// Number of evidence records verified through exact candidate state.
     pub evidence_records_verified: usize,
+    /// Number of exact equality spaces independently replayed and verified.
+    pub equality_spaces_verified: usize,
+    /// Number of dependency-ordered Stage 2C events replayed.
+    pub equality_events_replayed: usize,
 }

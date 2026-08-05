@@ -68,8 +68,8 @@ An optional `allow_branch: true` explicitly permits a transaction based on a non
 ## Commands
 
 - `workspace.open`: optional `workspace`; returns root `r0`.
-- `workspace.save`: workspace and destination `path`; writes an atomic archive v5.
-- `workspace.load`: archive v1/v2/v3/v4/v5 `path` and optional `replace`; verifies, migrates and replays before inserting.
+- `workspace.save`: workspace and destination `path`; writes an atomic archive v6.
+- `workspace.load`: archive v1/v2/v3/v4/v5/v6 `path` and optional `replace`; verifies, migrates and replays before inserting.
 - `workspace.verify_archive`: verifies checksum and replay without retaining the workspace.
 - `workspace.migrate_archive`: verifies `source_path`, migrates in memory and atomically writes `destination_path`; existing destinations require `overwrite: true`.
 - `spec.apply` and `transaction.apply`: workspace, base revision, actions and optional client transaction ID.
@@ -91,6 +91,14 @@ An optional `allow_branch: true` explicitly permits a transaction based on a non
 - `candidate.validate`: fixed seed and bounded cases; creates confidence evidence only.
 - `candidate.seal`: seals only a fully proved exact or verified guarded candidate.
 - `candidate.continuation`: separate trusted rewrite matches and one bounded speculative escape schema.
+- `equality.create`: creates a root-only space from an explicit fully proved unconditional candidate revision.
+- `equality.query`: reads one immutable equality revision and exact state hash.
+- `equality.expand` / `equality.saturate`: require explicit base revision, expected hash and positive fuel; publish one atomic equality revision.
+- `equality.explain`: rebuilds the canonical trusted root-to-member path.
+- `equality.evaluate`: evaluates one member as a semantic oracle; it never proves equality.
+- `equality.materialize`: explicitly forks the anchor and replays the selected proof path through ordinary candidate rewrites.
+- `equality.continuation`: returns bounded deterministic production matches without mutation.
+- `candidate.equality_check`: discharges the next matching debt item from a core-built equality path.
 
 The complete SAXPY command sequence is [examples/saxpy.jsonl](../examples/saxpy.jsonl).
 
@@ -110,7 +118,7 @@ In a fresh CLI process, restore it:
 
 The result contains archive metadata and a replay report. `replace` defaults to `false`, so an archive cannot silently overwrite an already open workspace with the same ID.
 
-Load responses also contain a migration report. V5 reports `workspace_archive_v5_noop`; v4 reports `workspace_archive_v4_to_v5`; older sources report the explicit suffix of the v1 → v2 → v3 → v4 → v5 chain.
+Load responses also contain a migration report. V6 reports `workspace_archive_v6_noop`; v5 reports `workspace_archive_v5_to_v6`; older sources report the explicit suffix of the v1 → v2 → v3 → v4 → v5 → v6 chain.
 
 ## Candidate rewrite
 
@@ -161,5 +169,7 @@ Top-level requests, ActionIR variants, transactions and inline-region objects re
 - `RESOURCE_LIMIT_EXCEEDED` with `resource`, `configured_limit`, `attempted`, `context` and a repair recommendation.
 
 Candidate failures additionally use `PROPOSAL_NOT_FOUND`, `INVALID_PROPOSAL`, `SPECULATIVE_OPT_IN_REQUIRED`, `PROOF_DEBT_LIMIT_EXCEEDED`, `TRANSLATION_UNSUPPORTED`, `OBLIGATION_REFUTED`, `GUARD_INVALID`, `FALLBACK_INVALID`, `FALLBACK_CYCLE` and `CANDIDATE_HAS_PROOF_DEBT`. Structured details identify the proposal/target/obligation, expected and actual hashes, failed side condition and deterministic repair where applicable.
+
+Equality failures use stable codes for missing spaces/revisions/nodes, stale equality bases/hashes, unproved or guarded anchors, invalid proof edges/paths, debt endpoint mismatches and materialization failures. Clients supply only identities, bases, hashes, fuel and selected nodes; no request accepts a trusted edge, side condition or correctness certificate.
 
 Resource limits are policy, not SpecIR. Archive replay uses hard safety caps; normal protocol work uses configurable interactive defaults documented in [resource-budgets.md](resource-budgets.md).

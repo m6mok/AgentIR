@@ -7,12 +7,15 @@ Start with the root [README](../README.md), then choose the document matching th
 - [Stage 1 scope](stage-1-scope.md) — implemented contract, invariants and explicit non-goals.
 - [Stage 2A scope](stage-2a-scope.md) — exact candidate foundation and explicit boundary.
 - [Stage 2B scope](stage-2b-scope.md) — bounded speculative candidates and trust boundary.
+- [Stage 2C scope](stage-2c-scope.md) — bounded exact equality exploration and Stage 2 completion boundary.
 - [ImplIR](implir.md) — separate implementation graph, identity lowering, verifier and hash.
 - [CandidateForest](candidate-forest.md) — candidate branches, revisions, transactions and continuations.
 - [Equivalence and EvidenceIR](equivalence-and-evidence.md) — trusted proof composition and confidence evidence.
 - [Speculative rewrites](speculative-rewrites.md) — proposal fragment, classification and proposal hash.
 - [Proof debt](proof-debt.md) — ordered obligations, proof frontier, testing and refutation.
 - [Translation validation](translation-validation.md) — compiler-owned exact proof paths.
+- [Exact equality space](equality-space.md) — whole-program nodes, deterministic saturation and materialization.
+- [Equality proofs](equality-proofs.md) — canonical explanations, debt discharge and replay trust boundary.
 - [Guarded fallback](guarded-fallback.md) — restricted self-division rule and lazy execution.
 - [JSONL protocol](protocol.md) — commands, references, regions, errors and response envelopes.
 - [Persistence and replay](persistence.md) — archive format, save/load lifecycle and integrity model.

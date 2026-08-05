@@ -32,7 +32,27 @@ Process locking remains deferred until concurrent workspace access is required. 
 - candidate hash/semantics v2 and mixed v1/v2 replay;
 - archive/snapshot v5 and explicit exact v4 migration.
 
-Approximate refinement, e-graph/equality-space exploration, search policy and ranking remain separate future work; none may weaken exact certificates.
+Approximate refinement, e-graphs, search policy and ranking remain separate future work; none may weaken exact certificates.
+
+## Completed Stage 2: ImplIR, proof debt and exact equality space
+
+Completion mapping from the 0.1 reference specification:
+
+- CandidateForest and compiler-owned known rewrites → Stage 2A;
+- reference equivalence chains and checking → Stage 2A/2B;
+- speculative rewrites and persistent proof debt → Stage 2B;
+- e-graph-like bounded exact equality space → Stage 2C.
+
+### Stage 2C: exact equality space
+
+- persistent whole-program equality nodes hash-consed by `impl_hash`;
+- compiler-owned positive proof edges from the shared exact production rewrite engine;
+- deterministic bounded expansion, saturation, continuation and canonical explanations;
+- equality membership discharge for ordered proof debt and explicit candidate materialization;
+- candidate hash/semantics v3 with mixed v1/v2/v3 replay;
+- archive/snapshot v6 with equality events, immutable v5 migration and corruption fixtures.
+
+Stage 2 is complete at the exact-only boundary. The equality space is not an e-graph, extractor, ranker or search policy, and it adds no approximate relation.
 
 ## Stage 3: MemoryIR
 

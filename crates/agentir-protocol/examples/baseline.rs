@@ -11,7 +11,10 @@ use agentir_core::{
     canonical::canonical_bytes,
     constraints::ConstraintFacts,
     continuation::InteractionMode,
-    ids::{CandidateId, CandidateRevisionId, ImplOperationId, ImplValueId, ProposalId},
+    ids::{
+        CandidateId, CandidateRevisionId, EqualityNodeId, EqualityRevisionId, EqualitySpaceId,
+        ImplOperationId, ImplValueId, ProposalId,
+    },
     impl_ir::{canonicalize_impl_with_limit, identity_lower},
     ir::ConstantValue,
     resources::ResourceLimits,
@@ -21,8 +24,8 @@ use agentir_core::{
 };
 use agentir_store::{
     WorkspaceArchiveV1, WorkspaceArchiveV2, WorkspaceArchiveV3, WorkspaceArchiveV4,
-    load_workspace_bytes, migrate_archive_v1_to_v2, migrate_archive_v2_to_v3,
-    migrate_archive_v3_to_v4, migrate_archive_v4_to_v5,
+    WorkspaceArchiveV5, load_workspace_bytes, migrate_archive_v1_to_v2, migrate_archive_v2_to_v3,
+    migrate_archive_v3_to_v4, migrate_archive_v4_to_v5, migrate_archive_v5_to_v6,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -611,6 +614,131 @@ fn insert_proof_debt(step_count: usize) -> Workspace {
     workspace
 }
 
+fn constant_equality_chain(step_count: usize) -> Workspace {
+    let id = WorkspaceId::new(format!("equality-chain-{step_count}"));
+    let mut workspace = Workspace::new(id.clone()).unwrap();
+    let mut actions = vec![
+        Action::CreateConstant {
+            bind: "$acc0".to_owned(),
+            ty: "i32".parse().unwrap(),
+            value: json!(1),
+        },
+        Action::CreateConstant {
+            bind: "$one".to_owned(),
+            ty: "i32".parse().unwrap(),
+            value: json!(1),
+        },
+    ];
+    for index in 0..step_count {
+        actions.push(Action::CreateOp {
+            bind: format!("$acc{}", index + 1),
+            opcode: "add".to_owned(),
+            operands: vec![format!("$acc{index}"), "$one".to_owned()],
+            attributes: BTreeMap::new(),
+            region: None,
+        });
+    }
+    actions.push(Action::SetOutput {
+        name: "out".to_owned(),
+        value: format!("$acc{step_count}"),
+    });
+    let built = workspace
+        .apply(&Transaction {
+            workspace: id.clone(),
+            base_revision: RevisionId::new("r0"),
+            actions,
+            client_transaction_id: None,
+            allow_branch: false,
+        })
+        .unwrap();
+    workspace
+        .apply(&Transaction {
+            workspace: id,
+            base_revision: built.revision,
+            actions: vec![Action::FreezeSpec],
+            client_transaction_id: None,
+            allow_branch: false,
+        })
+        .unwrap();
+    let candidate = workspace
+        .candidate_create(&RevisionId::new("r2"), RelationKind::EquivalentToSpec)
+        .unwrap();
+    workspace
+        .equality_create(&candidate.candidate, &candidate.candidate_revision)
+        .unwrap();
+    workspace
+}
+
+fn saturated_equality_chain(step_count: usize) -> Workspace {
+    let mut workspace = constant_equality_chain(step_count);
+    let root = workspace
+        .equality_query(
+            &EqualitySpaceId::new("eqs1"),
+            &EqualityRevisionId::new("er1"),
+        )
+        .unwrap();
+    workspace
+        .equality_saturate(
+            &root.equality_space,
+            &root.equality_revision,
+            &root.equality_hash,
+            u64::try_from(step_count).unwrap().saturating_add(1),
+        )
+        .unwrap();
+    workspace
+}
+
+fn prepared_equality_discharge() -> Workspace {
+    let mut workspace = load_workspace_bytes(include_bytes!(
+        "../../agentir-store/tests/fixtures/equality-saturated-v6.json"
+    ))
+    .unwrap()
+    .workspace;
+    let identity = workspace
+        .candidate_revision(&CandidateId::new("c1"), &CandidateRevisionId::new("cr1"))
+        .unwrap()
+        .clone();
+    let operands = identity.impl_program.operations[&ImplOperationId::new("iop7")]
+        .operands
+        .clone();
+    workspace
+        .candidate_propose(
+            &CandidateId::new("c1"),
+            &CandidateRevisionId::new("cr1"),
+            &SpeculativeRewriteProposal {
+                target: ImplOperationId::new("iop7"),
+                replacement: ProposedImplFragment {
+                    inputs: vec![
+                        ProposalInput {
+                            bind: "$left".to_owned(),
+                            value: operands[0].clone(),
+                        },
+                        ProposalInput {
+                            bind: "$right".to_owned(),
+                            value: operands[1].clone(),
+                        },
+                    ],
+                    operations: vec![ProposalOperation {
+                        bind: "$constant".to_owned(),
+                        opcode: "constant".to_owned(),
+                        operands: Vec::new(),
+                        attributes: BTreeMap::new(),
+                        constant: Some(ConstantValue::I32 { value: 25 }),
+                        region: None,
+                    }],
+                    result: ProposalResult {
+                        value: "$constant".to_owned(),
+                    },
+                },
+                expected_before_impl_hash: identity.impl_hash,
+                allow_speculative: true,
+                claimed_rule: None,
+            },
+        )
+        .unwrap();
+    workspace
+}
+
 fn main() {
     let mut timings = BTreeMap::<String, Measurement>::new();
     for count in [1_usize, 10, 100] {
@@ -770,6 +898,28 @@ fn main() {
                                 ResourceLimits::default().candidate_canonical_bytes,
                             )
                             .unwrap(),
+                        )
+                    })
+                },
+                json!({"operations": count}),
+            ),
+        );
+    }
+    for count in [10_usize, 100, 1_000] {
+        let candidate = candidate_workspaces.get(&count).unwrap();
+        timings.insert(
+            format!("equality_creation_{count}_operations"),
+            measure(
+                || {
+                    let mut workspace = candidate.clone();
+                    elapsed_ns(|| {
+                        black_box(
+                            workspace
+                                .equality_create(
+                                    &CandidateId::new("c1"),
+                                    &CandidateRevisionId::new("cr1"),
+                                )
+                                .unwrap(),
                         )
                     })
                 },
@@ -1306,6 +1456,342 @@ fn main() {
         ),
     );
 
+    let equality_root_bytes =
+        include_bytes!("../../agentir-store/tests/fixtures/equality-root-v6.json");
+    let equality_partial_bytes =
+        include_bytes!("../../agentir-store/tests/fixtures/equality-partially-expanded-v6.json");
+    let equality_saturated_bytes =
+        include_bytes!("../../agentir-store/tests/fixtures/equality-saturated-v6.json");
+    let equality_root = load_workspace_bytes(equality_root_bytes).unwrap().workspace;
+    let equality_root_query = equality_root
+        .equality_query(
+            &EqualitySpaceId::new("eqs1"),
+            &EqualityRevisionId::new("er1"),
+        )
+        .unwrap();
+    timings.insert(
+        "equality_one_step_expansion".to_owned(),
+        measure(
+            || {
+                let mut workspace = equality_root.clone();
+                elapsed_ns(|| {
+                    black_box(
+                        workspace
+                            .equality_expand(
+                                &equality_root_query.equality_space,
+                                &equality_root_query.equality_revision,
+                                &equality_root_query.equality_hash,
+                                1,
+                            )
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"work_items": 1}),
+        ),
+    );
+    for steps in [1_usize, 10, 100] {
+        let root = constant_equality_chain(steps);
+        let query = root
+            .equality_query(
+                &EqualitySpaceId::new("eqs1"),
+                &EqualityRevisionId::new("er1"),
+            )
+            .unwrap();
+        timings.insert(
+            format!("equality_expansion_{steps}_steps"),
+            measure(
+                || {
+                    let mut workspace = root.clone();
+                    elapsed_ns(|| {
+                        black_box(
+                            workspace
+                                .equality_saturate(
+                                    &query.equality_space,
+                                    &query.equality_revision,
+                                    &query.equality_hash,
+                                    u64::try_from(steps).unwrap(),
+                                )
+                                .unwrap(),
+                        )
+                    })
+                },
+                json!({"work_items": steps}),
+            ),
+        );
+    }
+    timings.insert(
+        "equality_node_hash_cons_lookup".to_owned(),
+        measure(
+            || {
+                let mut workspace = equality_root.clone();
+                elapsed_ns(|| {
+                    black_box(
+                        workspace
+                            .equality_saturate(
+                                &equality_root_query.equality_space,
+                                &equality_root_query.equality_revision,
+                                &equality_root_query.equality_hash,
+                                100,
+                            )
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"semantic_nodes": 5, "merged_results": 1}),
+        ),
+    );
+    timings.insert(
+        "equality_edge_deduplication".to_owned(),
+        measure(
+            || {
+                let mut workspace = equality_root.clone();
+                elapsed_ns(|| {
+                    black_box(
+                        workspace
+                            .equality_saturate(
+                                &equality_root_query.equality_space,
+                                &equality_root_query.equality_revision,
+                                &equality_root_query.equality_hash,
+                                100,
+                            )
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"proof_edges": 5}),
+        ),
+    );
+    timings.insert(
+        "equality_saturation_to_fixed_point".to_owned(),
+        measure(
+            || {
+                let mut workspace = equality_root.clone();
+                elapsed_ns(|| {
+                    black_box(
+                        workspace
+                            .equality_saturate(
+                                &equality_root_query.equality_space,
+                                &equality_root_query.equality_revision,
+                                &equality_root_query.equality_hash,
+                                100,
+                            )
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"semantic_nodes": 5, "proof_edges": 5}),
+        ),
+    );
+    let equality_partial = load_workspace_bytes(equality_partial_bytes)
+        .unwrap()
+        .workspace;
+    let equality_partial_query = equality_partial
+        .equality_query(
+            &EqualitySpaceId::new("eqs1"),
+            &EqualityRevisionId::new("er2"),
+        )
+        .unwrap();
+    timings.insert(
+        "equality_resumed_saturation".to_owned(),
+        measure(
+            || {
+                let mut workspace = equality_partial.clone();
+                elapsed_ns(|| {
+                    black_box(
+                        workspace
+                            .equality_saturate(
+                                &equality_partial_query.equality_space,
+                                &equality_partial_query.equality_revision,
+                                &equality_partial_query.equality_hash,
+                                100,
+                            )
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"already_processed": 1, "remaining_work": 2}),
+        ),
+    );
+    let equality_saturated = load_workspace_bytes(equality_saturated_bytes)
+        .unwrap()
+        .workspace;
+    timings.insert(
+        "equality_hash_query".to_owned(),
+        measure(
+            || {
+                elapsed_ns(|| {
+                    for _ in 0..1_000 {
+                        black_box(
+                            equality_saturated
+                                .equality_query(
+                                    &EqualitySpaceId::new("eqs1"),
+                                    &EqualityRevisionId::new("er2"),
+                                )
+                                .unwrap()
+                                .equality_hash,
+                        );
+                    }
+                })
+            },
+            json!({"queries": 1_000, "semantic_nodes": 5}),
+        ),
+    );
+
+    for depth in [1_usize, 10, 100] {
+        let workspace = saturated_equality_chain(depth);
+        let target = EqualityNodeId::new(format!("en{}", depth + 1));
+        timings.insert(
+            format!("equality_proof_explanation_{depth}_edges"),
+            measure(
+                || {
+                    elapsed_ns(|| {
+                        black_box(
+                            workspace
+                                .equality_explain(
+                                    &EqualitySpaceId::new("eqs1"),
+                                    &EqualityRevisionId::new("er2"),
+                                    &target,
+                                )
+                                .unwrap(),
+                        )
+                    })
+                },
+                json!({"proof_edges": depth}),
+            ),
+        );
+    }
+
+    let equality_discharge = prepared_equality_discharge();
+    let equality_discharge_query = equality_discharge
+        .equality_query(
+            &EqualitySpaceId::new("eqs1"),
+            &EqualityRevisionId::new("er2"),
+        )
+        .unwrap();
+    timings.insert(
+        "equality_backed_debt_discharge".to_owned(),
+        measure(
+            || {
+                let mut workspace = equality_discharge.clone();
+                elapsed_ns(|| {
+                    black_box(
+                        workspace
+                            .candidate_equality_check(
+                                &CandidateId::new("c1"),
+                                &CandidateRevisionId::new("cr2"),
+                                &ProposalId::new("p1"),
+                                &equality_discharge_query.equality_space,
+                                &equality_discharge_query.equality_revision,
+                                &equality_discharge_query.equality_hash,
+                                &EqualityNodeId::new("en5"),
+                            )
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"proof_edges": 3, "proof_debt": 1}),
+        ),
+    );
+    timings.insert(
+        "equality_materialization".to_owned(),
+        measure(
+            || {
+                let mut workspace = equality_saturated.clone();
+                let query = workspace
+                    .equality_query(
+                        &EqualitySpaceId::new("eqs1"),
+                        &EqualityRevisionId::new("er2"),
+                    )
+                    .unwrap();
+                elapsed_ns(|| {
+                    black_box(
+                        workspace
+                            .equality_materialize(
+                                &query.equality_space,
+                                &query.equality_revision,
+                                &query.equality_hash,
+                                &EqualityNodeId::new("en5"),
+                            )
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"proof_edges": 3}),
+        ),
+    );
+
+    let equality_root_revision = equality_root
+        .equality_store()
+        .revision(
+            &EqualitySpaceId::new("eqs1"),
+            &EqualityRevisionId::new("er1"),
+        )
+        .unwrap();
+    let equality_saturated_revision = equality_saturated
+        .equality_store()
+        .revision(
+            &EqualitySpaceId::new("eqs1"),
+            &EqualityRevisionId::new("er2"),
+        )
+        .unwrap();
+    let equality_explanation = equality_saturated
+        .equality_explain(
+            &EqualitySpaceId::new("eqs1"),
+            &EqualityRevisionId::new("er2"),
+            &EqualityNodeId::new("en5"),
+        )
+        .unwrap();
+    canonical_sizes.insert(
+        "equality_root".to_owned(),
+        serde_json::to_vec(equality_root_revision).unwrap().len(),
+    );
+    canonical_sizes.insert(
+        "equality_nodes".to_owned(),
+        serde_json::to_vec(&equality_saturated_revision.nodes)
+            .unwrap()
+            .len(),
+    );
+    canonical_sizes.insert(
+        "equality_edges".to_owned(),
+        serde_json::to_vec(&equality_saturated_revision.edges)
+            .unwrap()
+            .len(),
+    );
+    canonical_sizes.insert(
+        "equality_worklist".to_owned(),
+        serde_json::to_vec(
+            &equality_partial
+                .equality_store()
+                .revision(
+                    &EqualitySpaceId::new("eqs1"),
+                    &EqualityRevisionId::new("er2"),
+                )
+                .unwrap()
+                .worklist,
+        )
+        .unwrap()
+        .len(),
+    );
+    canonical_sizes.insert(
+        "equality_proof_explanation".to_owned(),
+        serde_json::to_vec(&equality_explanation).unwrap().len(),
+    );
+    let equality_discharged_bytes =
+        include_bytes!("../../agentir-store/tests/fixtures/equality-discharged-v6.json");
+    let equality_discharged = load_workspace_bytes(equality_discharged_bytes)
+        .unwrap()
+        .workspace;
+    let equality_candidate_v3 = equality_discharged
+        .candidate_revision(&CandidateId::new("c1"), &CandidateRevisionId::new("cr3"))
+        .unwrap();
+    canonical_sizes.insert(
+        "candidate_v3_equality_proof".to_owned(),
+        serde_json::to_vec(&equality_candidate_v3.equality_proofs)
+            .unwrap()
+            .len(),
+    );
+
     let legacy_v1: WorkspaceArchiveV1 = serde_json::from_slice(include_bytes!(
         "../../agentir-store/tests/fixtures/minimal-v1.json"
     ))
@@ -1478,6 +1964,41 @@ fn main() {
                     })
                 },
                 json!({"archive_bytes": bytes.len(), "loads": 25}),
+            ),
+        );
+        canonical_sizes.insert(format!("archive_{name}"), bytes.len());
+    }
+    let legacy_v5_bytes = include_bytes!("../../agentir-store/tests/fixtures/minimal-v5.json");
+    let legacy_v5: WorkspaceArchiveV5 = serde_json::from_slice(legacy_v5_bytes).unwrap();
+    timings.insert(
+        "archive_v5_to_v6_migration".to_owned(),
+        measure(
+            || {
+                elapsed_ns(|| {
+                    for _ in 0..25 {
+                        black_box(migrate_archive_v5_to_v6(legacy_v5.clone()).unwrap());
+                    }
+                })
+            },
+            json!({"candidate_events": legacy_v5.snapshot.candidate_forest.events.len(), "migrations": 25}),
+        ),
+    );
+    for (name, bytes) in [
+        ("v6_replay_root_only", equality_root_bytes.as_slice()),
+        ("v6_replay_expanded", equality_partial_bytes.as_slice()),
+        ("v6_replay_saturated", equality_saturated_bytes.as_slice()),
+        ("v6_replay_discharged", equality_discharged_bytes.as_slice()),
+        (
+            "v6_replay_materialized",
+            include_bytes!("../../agentir-store/tests/fixtures/equality-materialized-v6.json")
+                .as_slice(),
+        ),
+    ] {
+        timings.insert(
+            name.to_owned(),
+            measure(
+                || elapsed_ns(|| black_box(load_workspace_bytes(bytes).unwrap())),
+                json!({"archive_bytes": bytes.len(), "loads": 1}),
             ),
         );
         canonical_sizes.insert(format!("archive_{name}"), bytes.len());

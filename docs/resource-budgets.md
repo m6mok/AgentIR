@@ -49,6 +49,14 @@
 | counterexample bytes | 1 MiB | 8 MiB |
 | candidate-semantics-v2 events | 100,000 | 250,000 |
 | generated speculative case size | 10,000 | 100,000 |
+| equality spaces/revisions per workspace | 1,024 / 100,000 | 100,000 / 250,000 |
+| equality nodes/edges per space | 10,000 / 100,000 | 100,000 / 1,000,000 |
+| equality pending work/matches per node | 10,000 / 10,000 | 100,000 / 100,000 |
+| equality expansion steps/saturation fuel | 1,024 / 10,000 | 100,000 / 100,000 |
+| equality explanation depth/path edges | 1,024 / 1,024 | 100,000 / 100,000 |
+| equality materialization steps/events | 1,024 / 100,000 | 100,000 / 250,000 |
+| equality canonical/archive bytes | 64 MiB / 64 MiB | 128 MiB / 128 MiB |
+| equality evaluation cases/elements | 1 / 50,000,000 | 1 / 500,000,000 |
 
 The hard profile is used only while verifying/migrating/replaying persisted state. Lower interactive configuration therefore cannot arbitrarily make an archive unreplayable when it remains inside hard safety caps. A loaded workspace receives normal interactive defaults after successful publication.
 
@@ -68,7 +76,9 @@ The hard profile is used only while verifying/migrating/replaying persisted stat
 - Proposal byte/action/fragment limits are checked before normalization, graph cloning and persistent ID allocation; projected debt/depth is checked before commit.
 - Candidate canonical-v2 size, translation attempts, guard dependencies, fallback recursion and counterexample bytes are checked at their respective trust boundaries.
 - Store checks candidate event/revision/evidence counts before candidate replay, which always uses hard safety caps.
+- Equality creation/expansion stages its local allocator and complete revision before publication; match, node, edge, worklist, canonical-byte and event bounds are checked before commit.
+- Explanation, debt discharge, evaluation and materialization independently bound traversal, proof path, tensor elements and replayed rewrite steps.
 
 At exact limit the workload is accepted. Limit plus one returns `RESOURCE_LIMIT_EXCEEDED` with the resource kind, configured limit, attempted/actual value, context and a repair. Because graph/allocator/head state is staged, budget rejection is fully atomic.
 
-These are robustness limits, not a multi-tenant security sandbox. Stage 2B still has no process isolation, authentication, locking or production server boundary.
+These are robustness limits, not a multi-tenant security sandbox. Stage 2C still has no process isolation, authentication, locking or production server boundary.

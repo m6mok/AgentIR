@@ -1,6 +1,6 @@
 # Equivalence and EvidenceIR
 
-Stage 2B still accepts only `EquivalentToSpec`. Approximate `RefinesSpecWithinTolerance` returns `UNSUPPORTED_REFINEMENT`; tolerances and approximate math are deferred.
+Stage 2C still accepts only `EquivalentToSpec`. Approximate `RefinesSpecWithinTolerance` returns `UNSUPPORTED_REFINEMENT`; tolerances and approximate math are deferred.
 
 The correctness chain has this form:
 
@@ -14,8 +14,8 @@ SpecIR(spec_hash)
 
 The first edge is a compiler-owned identity-lowering certificate. Later edges come only from the exact known-rewrite registry. Every edge records its rule, before/after `impl_hash`, targets, discharged side conditions, ImplIR semantics version and correctness EvidenceIR ID. Verification recomputes identity lowering, checks every edge/evidence record and requires the terminal hash to equal current ImplIR. A broken hash, missing evidence, unknown rule or damaged certificate leaves equivalence unproved and blocks load/seal.
 
-Correctness evidence includes identity lowering, known rewrite certificates, canonical-identity validation, recognized production rewrites, guarded rewrite certificates and compositional verification. Confidence evidence includes fixed-seed speculative differential/property tests and counterexample search. No observed counterexample increases confidence, but testing never changes an open equivalence obligation to `proved`. A first deterministic counterexample marks the affected debt refuted and the candidate rejected.
+Correctness evidence includes identity lowering, known rewrite certificates, canonical-identity validation, recognized production rewrites, guarded rewrite certificates, equality membership paths, explicit materialization provenance and compositional verification. Confidence evidence includes fixed-seed speculative differential/property tests and counterexample search. No observed counterexample increases confidence, but testing never changes an open equivalence obligation to `proved`. A first deterministic counterexample marks the affected debt refuted and the candidate rejected.
 
-Evidence records contain the SpecIR anchor, proposal/obligation where applicable, candidate/revision, input/output implementation hashes, candidate/ImplIR semantics versions, stable validator method/version, normalized parameters, deterministic result, optional first counterexample and compiler provenance. Wall-clock time is absent from semantic and exact candidate hashes. Performance evidence is not present in Stage 2B.
+Evidence records contain the SpecIR anchor, proposal/obligation where applicable, candidate/revision, input/output implementation hashes, candidate/ImplIR/equality semantics versions, stable validator method/version, normalized parameters, deterministic result, optional first counterexample and compiler provenance. Wall-clock time is absent from semantic and exact candidate hashes. Performance evidence is not present in Stage 2C.
 
-A proposal record is provenance, not EvidenceIR correctness. The proof frontier advances only across an ordered prefix discharged by compiler-owned certificates. Guarded exactness composes a conditionally valid primary with a fully proved lazy fallback; agent-supplied certificates and guards are not protocol inputs. See [translation-validation.md](translation-validation.md) and [guarded-fallback.md](guarded-fallback.md).
+A proposal record is provenance, not EvidenceIR correctness. The proof frontier advances only across an ordered prefix discharged by compiler-owned certificates, including a verified equality path whose endpoints match the next debt item. Guarded exactness composes a conditionally valid primary with a fully proved lazy fallback; agent-supplied certificates, equality edges and guards are not protocol inputs. See [translation-validation.md](translation-validation.md), [equality-proofs.md](equality-proofs.md) and [guarded-fallback.md](guarded-fallback.md).

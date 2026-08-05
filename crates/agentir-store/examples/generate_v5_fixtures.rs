@@ -10,7 +10,7 @@ use agentir_core::{
     resources::ResourceLimits,
 };
 use agentir_store::{
-    ARCHIVE_FORMAT_VERSION, ARCHIVE_KIND, WorkspaceArchiveV5, load_workspace_bytes,
+    ARCHIVE_KIND, LEGACY_ARCHIVE_FORMAT_V5, WorkspaceArchiveV5, load_workspace_bytes,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -321,7 +321,7 @@ struct Body<'a> {
     format: &'a str,
     format_version: u32,
     compiler_version: &'a str,
-    snapshot: &'a agentir_core::persistence::WorkspaceSnapshot,
+    snapshot: &'a agentir_core::persistence::LegacyWorkspaceSnapshotV5,
 }
 
 fn rehash(archive: &mut WorkspaceArchiveV5) -> Vec<u8> {
@@ -344,7 +344,16 @@ fn rehash(archive: &mut WorkspaceArchiveV5) -> Vec<u8> {
 }
 
 fn deterministic_archive(workspace: &Workspace, normalize_timestamps: bool) -> Vec<u8> {
-    let mut snapshot = workspace.snapshot();
+    let current = workspace.snapshot();
+    let mut snapshot = agentir_core::persistence::LegacyWorkspaceSnapshotV5 {
+        schema_version: agentir_core::persistence::LEGACY_WORKSPACE_SNAPSHOT_V5_VERSION,
+        workspace: current.workspace,
+        head: current.head,
+        revisions: current.revisions,
+        allocator: current.allocator,
+        events: current.events,
+        candidate_forest: current.candidate_forest,
+    };
     if normalize_timestamps {
         for (index, revision) in snapshot.revisions.values_mut().enumerate() {
             revision.created_at_unix_ms = index as u128;
@@ -352,7 +361,7 @@ fn deterministic_archive(workspace: &Workspace, normalize_timestamps: bool) -> V
     }
     let mut archive = WorkspaceArchiveV5 {
         format: ARCHIVE_KIND.to_owned(),
-        format_version: ARCHIVE_FORMAT_VERSION,
+        format_version: LEGACY_ARCHIVE_FORMAT_V5,
         compiler_version: env!("CARGO_PKG_VERSION").to_owned(),
         snapshot,
         archive_hash: String::new(),
@@ -484,9 +493,5 @@ fn main() {
         |archive| {
             archive.snapshot.candidate_forest.events[1].semantics_version = 99;
         },
-    );
-    write(
-        "future-v6.json",
-        b"{\"format\":\"agentir.workspace\",\"format_version\":6}\n",
     );
 }

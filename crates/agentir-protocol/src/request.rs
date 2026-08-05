@@ -4,9 +4,10 @@ use agentir_core::{
     actions::Action,
     candidate::{CandidateAction, ProposedImplFragment, RelationKind},
     continuation::InteractionMode,
+    equality::EqualityHash,
     ids::{
-        CandidateId, CandidateRevisionId, HoleId, ImplOperationId, ProposalId, RevisionId,
-        WorkspaceId,
+        CandidateId, CandidateRevisionId, EqualityNodeId, EqualityRevisionId, EqualitySpaceId,
+        HoleId, ImplOperationId, ProposalId, RevisionId, WorkspaceId,
     },
     impl_ir::ImplHash,
 };
@@ -69,7 +70,7 @@ pub enum Request {
         /// Archive path to verify without retaining the workspace.
         path: String,
     },
-    /// Verifies and migrates one archive into a current v5 destination.
+    /// Verifies and migrates one archive into a current v6 destination.
     #[serde(rename = "workspace.migrate_archive")]
     WorkspaceMigrateArchive {
         /// Correlation ID echoed in the response.
@@ -377,6 +378,142 @@ pub enum Request {
         /// Parameter names to exact JSON scalar/tensor values.
         inputs: BTreeMap<String, Value>,
     },
+    /// Creates a root-only exact equality space from one proved candidate revision.
+    #[serde(rename = "equality.create")]
+    EqualityCreate {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Exact candidate anchor.
+        candidate: CandidateId,
+        /// Explicit immutable proved candidate revision.
+        candidate_revision: CandidateRevisionId,
+    },
+    /// Reads one immutable equality revision summary.
+    #[serde(rename = "equality.query")]
+    EqualityQuery {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Exact equality space.
+        equality_space: EqualitySpaceId,
+        /// Explicit immutable equality revision.
+        equality_revision: EqualityRevisionId,
+    },
+    /// Expands a bounded number of canonical equality work items.
+    #[serde(rename = "equality.expand")]
+    EqualityExpand {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Exact equality space.
+        equality_space: EqualitySpaceId,
+        /// Explicit current equality base revision.
+        base_equality_revision: EqualityRevisionId,
+        /// Required exact base-state hash.
+        expected_equality_hash: EqualityHash,
+        /// Explicit positive caller work-item fuel.
+        fuel: u64,
+    },
+    /// Saturates deterministically to fixpoint or bounded caller fuel.
+    #[serde(rename = "equality.saturate")]
+    EqualitySaturate {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Exact equality space.
+        equality_space: EqualitySpaceId,
+        /// Explicit current equality base revision.
+        base_equality_revision: EqualityRevisionId,
+        /// Required exact base-state hash.
+        expected_equality_hash: EqualityHash,
+        /// Explicit positive caller work-item fuel.
+        fuel: u64,
+    },
+    /// Rebuilds the canonical trusted root-to-node explanation.
+    #[serde(rename = "equality.explain")]
+    EqualityExplain {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Exact equality space.
+        equality_space: EqualitySpaceId,
+        /// Explicit immutable equality revision.
+        equality_revision: EqualityRevisionId,
+        /// Selected equality member.
+        node: EqualityNodeId,
+    },
+    /// Evaluates one equality member as a reference semantic oracle only.
+    #[serde(rename = "equality.evaluate")]
+    EqualityEvaluate {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Exact equality space.
+        equality_space: EqualitySpaceId,
+        /// Explicit immutable equality revision.
+        equality_revision: EqualityRevisionId,
+        /// Selected equality member.
+        node: EqualityNodeId,
+        /// Parameter names to exact JSON scalar/tensor values.
+        inputs: BTreeMap<String, Value>,
+    },
+    /// Materializes one explicitly selected equality member as a candidate fork.
+    #[serde(rename = "equality.materialize")]
+    EqualityMaterialize {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Exact equality space.
+        equality_space: EqualitySpaceId,
+        /// Explicit immutable equality revision.
+        equality_revision: EqualityRevisionId,
+        /// Required exact equality-state hash.
+        expected_equality_hash: EqualityHash,
+        /// Explicit selected equality member; no ranking is performed.
+        node: EqualityNodeId,
+    },
+    /// Returns bounded deterministic next equality work without mutation.
+    #[serde(rename = "equality.continuation")]
+    EqualityContinuation {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Exact equality space.
+        equality_space: EqualitySpaceId,
+        /// Explicit immutable equality revision.
+        equality_revision: EqualityRevisionId,
+    },
+    /// Discharges the next matching candidate debt with a core-built equality path.
+    #[serde(rename = "candidate.equality_check")]
+    CandidateEqualityCheck {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Candidate containing ordered proof debt.
+        candidate: CandidateId,
+        /// Explicit immutable candidate base revision.
+        base_candidate_revision: CandidateRevisionId,
+        /// Proposal attached to the next unresolved obligation.
+        proposal: ProposalId,
+        /// Exact equality space used as proof source.
+        equality_space: EqualitySpaceId,
+        /// Explicit immutable equality revision.
+        equality_revision: EqualityRevisionId,
+        /// Required exact equality-state hash.
+        expected_equality_hash: EqualityHash,
+        /// Selected member whose hash must match the debt target.
+        target_node: EqualityNodeId,
+    },
 }
 
 const fn default_validation_cases() -> u64 {
@@ -413,7 +550,16 @@ impl Request {
             | Self::CandidatePropose { request_id, .. }
             | Self::CandidateProposalQuery { request_id, .. }
             | Self::CandidateTranslationCheck { request_id, .. }
-            | Self::CandidateEvaluate { request_id, .. } => request_id,
+            | Self::CandidateEvaluate { request_id, .. }
+            | Self::EqualityCreate { request_id, .. }
+            | Self::EqualityQuery { request_id, .. }
+            | Self::EqualityExpand { request_id, .. }
+            | Self::EqualitySaturate { request_id, .. }
+            | Self::EqualityExplain { request_id, .. }
+            | Self::EqualityEvaluate { request_id, .. }
+            | Self::EqualityMaterialize { request_id, .. }
+            | Self::EqualityContinuation { request_id, .. }
+            | Self::CandidateEqualityCheck { request_id, .. } => request_id,
         }
     }
 }

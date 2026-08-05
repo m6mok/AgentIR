@@ -49,6 +49,10 @@ identifier!(ImplValueId);
 identifier!(EvidenceId);
 identifier!(CandidateObligationId);
 identifier!(ProposalId);
+identifier!(EqualitySpaceId);
+identifier!(EqualityRevisionId);
+identifier!(EqualityNodeId);
+identifier!(EqualityEdgeId);
 
 /// Monotonic identifier allocator owned by one workspace.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

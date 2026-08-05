@@ -123,6 +123,40 @@ pub enum ResourceKind {
     CandidateSemanticsV2Events,
     /// Generated speculative property-case size.
     GeneratedSpeculativeCaseSize,
+    /// Persistent exact equality spaces retained by one workspace.
+    EqualitySpacesPerWorkspace,
+    /// Immutable equality revisions retained by one workspace.
+    EqualityRevisionsPerWorkspace,
+    /// Semantic implementation nodes retained by one equality space.
+    EqualityNodesPerSpace,
+    /// Trusted proof edges retained by one equality space.
+    EqualityEdgesPerSpace,
+    /// Pending deterministic node work items retained by one equality space.
+    EqualityPendingWorkItems,
+    /// Equality node work items expanded by one request.
+    EqualityExpansionStepsPerRequest,
+    /// Caller fuel accepted by one saturation request.
+    EqualitySaturationFuel,
+    /// Trusted production matches enumerated for one equality node.
+    EqualityMatchesPerNode,
+    /// Maximum edge depth explored by one canonical proof explanation.
+    EqualityExplanationDepth,
+    /// Maximum trusted edges returned by one equality proof path.
+    EqualityProofPathEdges,
+    /// Maximum trusted rewrite steps replayed by one materialization.
+    EqualityMaterializationSteps,
+    /// Stage 2C optimization events retained by one workspace/archive.
+    EqualityEvents,
+    /// Bytes in one equality exact-state canonical encoding.
+    EqualityCanonicalBytes,
+    /// Bytes attributed to equality state in one archive.
+    EqualityArchiveBytes,
+    /// Reference evaluation cases for equality nodes.
+    EqualityEvaluationCases,
+    /// Reference evaluation elements for equality nodes.
+    EqualityEvaluationElements,
+    /// Exact candidate canonical-v3 bytes.
+    CandidateCanonicalV3Bytes,
 }
 
 /// Configurable interactive limits. These values never enter graph or archive hashes.
@@ -242,6 +276,40 @@ pub struct ResourceLimits {
     pub candidate_semantics_v2_events: u64,
     /// Maximum generated speculative property-case size.
     pub generated_speculative_case_size: u64,
+    /// Maximum exact equality spaces retained by one workspace.
+    pub equality_spaces_per_workspace: u64,
+    /// Maximum immutable equality revisions retained by one workspace.
+    pub equality_revisions_per_workspace: u64,
+    /// Maximum semantic nodes retained by one equality space.
+    pub equality_nodes_per_space: u64,
+    /// Maximum trusted edges retained by one equality space.
+    pub equality_edges_per_space: u64,
+    /// Maximum pending node work items retained by one equality space.
+    pub equality_pending_work_items: u64,
+    /// Maximum node work items expanded by one request.
+    pub equality_expansion_steps_per_request: u64,
+    /// Maximum explicit caller fuel for saturation.
+    pub equality_saturation_fuel: u64,
+    /// Maximum production matches inspected for one node.
+    pub equality_matches_per_node: u64,
+    /// Maximum explanation search depth.
+    pub equality_explanation_depth: u64,
+    /// Maximum edges in one returned proof path.
+    pub equality_proof_path_edges: u64,
+    /// Maximum rewrite steps in one materialization.
+    pub equality_materialization_steps: u64,
+    /// Maximum Stage 2C optimization events.
+    pub equality_events: u64,
+    /// Maximum equality canonical bytes.
+    pub equality_canonical_bytes: u64,
+    /// Maximum equality bytes retained by one archive.
+    pub equality_archive_bytes: u64,
+    /// Maximum cases consumed by one equality evaluation request.
+    pub equality_evaluation_cases: u64,
+    /// Maximum elements consumed by one equality evaluation request.
+    pub equality_evaluation_elements: u64,
+    /// Maximum candidate canonical-v3 bytes.
+    pub candidate_canonical_v3_bytes: u64,
 }
 
 impl Default for ResourceLimits {
@@ -304,6 +372,23 @@ impl Default for ResourceLimits {
             counterexample_bytes: 1024 * 1024,
             candidate_semantics_v2_events: 100_000,
             generated_speculative_case_size: 10_000,
+            equality_spaces_per_workspace: 1_024,
+            equality_revisions_per_workspace: 100_000,
+            equality_nodes_per_space: 10_000,
+            equality_edges_per_space: 100_000,
+            equality_pending_work_items: 10_000,
+            equality_expansion_steps_per_request: 1_024,
+            equality_saturation_fuel: 10_000,
+            equality_matches_per_node: 10_000,
+            equality_explanation_depth: 1_024,
+            equality_proof_path_edges: 1_024,
+            equality_materialization_steps: 1_024,
+            equality_events: 100_000,
+            equality_canonical_bytes: 64 * 1024 * 1024,
+            equality_archive_bytes: 64 * 1024 * 1024,
+            equality_evaluation_cases: 1,
+            equality_evaluation_elements: 50_000_000,
+            candidate_canonical_v3_bytes: 64 * 1024 * 1024,
         }
     }
 }
@@ -370,6 +455,23 @@ impl ResourceLimits {
             counterexample_bytes: 8 * 1024 * 1024,
             candidate_semantics_v2_events: 250_000,
             generated_speculative_case_size: 100_000,
+            equality_spaces_per_workspace: 100_000,
+            equality_revisions_per_workspace: 250_000,
+            equality_nodes_per_space: 100_000,
+            equality_edges_per_space: 1_000_000,
+            equality_pending_work_items: 100_000,
+            equality_expansion_steps_per_request: 100_000,
+            equality_saturation_fuel: 100_000,
+            equality_matches_per_node: 100_000,
+            equality_explanation_depth: 100_000,
+            equality_proof_path_edges: 100_000,
+            equality_materialization_steps: 100_000,
+            equality_events: 250_000,
+            equality_canonical_bytes: 128 * 1024 * 1024,
+            equality_archive_bytes: 128 * 1024 * 1024,
+            equality_evaluation_cases: 1,
+            equality_evaluation_elements: 500_000_000,
+            candidate_canonical_v3_bytes: 128 * 1024 * 1024,
         }
     }
 
@@ -434,6 +536,25 @@ impl ResourceLimits {
             ResourceKind::CounterexampleBytes => self.counterexample_bytes,
             ResourceKind::CandidateSemanticsV2Events => self.candidate_semantics_v2_events,
             ResourceKind::GeneratedSpeculativeCaseSize => self.generated_speculative_case_size,
+            ResourceKind::EqualitySpacesPerWorkspace => self.equality_spaces_per_workspace,
+            ResourceKind::EqualityRevisionsPerWorkspace => self.equality_revisions_per_workspace,
+            ResourceKind::EqualityNodesPerSpace => self.equality_nodes_per_space,
+            ResourceKind::EqualityEdgesPerSpace => self.equality_edges_per_space,
+            ResourceKind::EqualityPendingWorkItems => self.equality_pending_work_items,
+            ResourceKind::EqualityExpansionStepsPerRequest => {
+                self.equality_expansion_steps_per_request
+            }
+            ResourceKind::EqualitySaturationFuel => self.equality_saturation_fuel,
+            ResourceKind::EqualityMatchesPerNode => self.equality_matches_per_node,
+            ResourceKind::EqualityExplanationDepth => self.equality_explanation_depth,
+            ResourceKind::EqualityProofPathEdges => self.equality_proof_path_edges,
+            ResourceKind::EqualityMaterializationSteps => self.equality_materialization_steps,
+            ResourceKind::EqualityEvents => self.equality_events,
+            ResourceKind::EqualityCanonicalBytes => self.equality_canonical_bytes,
+            ResourceKind::EqualityArchiveBytes => self.equality_archive_bytes,
+            ResourceKind::EqualityEvaluationCases => self.equality_evaluation_cases,
+            ResourceKind::EqualityEvaluationElements => self.equality_evaluation_elements,
+            ResourceKind::CandidateCanonicalV3Bytes => self.candidate_canonical_v3_bytes,
         }
     }
 }

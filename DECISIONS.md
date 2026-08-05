@@ -211,3 +211,43 @@ Potential persistent references inside generic semantic attributes are rejected 
 ## ADR-039: Stage 2B excludes approximation and search machinery
 
 **Decision.** Stage 2B adds bounded speculative history, not approximate refinement, tolerances, SMT, e-graphs, saturation, ranking, beam/population search, learned cost models or performance/hardware evidence. MemoryIR, ScheduleIR and GPU/LLVM/MLIR lowering remain later independent stages.
+
+## ADR-040: Equality nodes are whole verified ImplIR programs
+
+**Decision.** Stage 2C stores one complete verified `ImplProgram` per equality node. It does not introduce expression e-classes, congruence closure or a second IR. Equality spaces are anchored to one fully proved unconditional candidate revision and represent positive reachability under trusted exact rewrites.
+
+**Why.** Whole-program nodes reuse the existing verifier, semantic hash and proof contracts while keeping the first saturation layer small enough to replay exhaustively.
+
+## ADR-041: Equality is positive-only trusted saturation
+
+**Decision.** An edge exists only when the compiler applies a production exact rewrite and discharges its side conditions. Absence of a node/path means unresolved, not disequal or refuted. Saturation is fuel/resource bounded and `fixed_point` refers only to the reachable space under the current registry.
+
+## ADR-042: Candidate and equality use one production rewrite engine
+
+**Decision.** Known candidate rewrites, translation recognition, continuations and equality expansion share stable target locators, match enumeration and transforms. No equality-only rewrite implementation or agent-supplied rule/certificate path exists.
+
+**Why.** A single engine prevents a proof edge from describing behavior different from the transaction used to materialize it.
+
+## ADR-043: Equality nodes hash-cons by impl_hash
+
+**Decision.** `impl_hash` is the unique semantic node key. Independent rewrite orders that reach the same reachable typed implementation merge into one node, while distinct trusted proof descriptors remain as deduplicated edges. Self edges are suppressed.
+
+**Why.** `impl_hash` already excludes IDs, provenance and unreachable nodes while preserving the exact interface, types, regions, ordered operands, constraints and numeric contract needed for this identity.
+
+## ADR-044: Candidate canonical/hash and semantics v3
+
+**Decision.** Candidate v1/v2 codecs and hashes remain immutable. Revisions containing equality membership or materialization records use domain `agentir.candidate.exact.v3\0` and candidate semantics v3. V3 covers equality space/revision/hash, endpoint hashes, canonical path digest, ordered proof edge IDs and linked evidence/materialization provenance.
+
+## ADR-045: Equality event dependencies require archive v6
+
+**Decision.** Equality events use independent semantics v1 and record the candidate-event cursor on which they depend. Replay interleaves candidate/equality histories at those cursors. Archive/snapshot v6 adds EqualityStore and native equality state; explicit v5 → v6 migration verifies immutable v5 and adds an empty store without changing legacy bytes or hashes.
+
+## ADR-046: Equality members materialize only through explicit candidate transactions
+
+**Decision.** The compiler never extracts or ranks an equality member. `equality.materialize` names one node, forks the immutable anchor and replays its canonical trusted path through ordinary `CandidateAction::ApplyKnownRewrite`, then verifies the terminal `impl_hash`. Equality-local IDs are not copied into CandidateForest.
+
+**Why.** Reusing the atomic CandidateForest engine preserves allocation, verification, evidence and replay invariants and makes selection policy an explicit client concern.
+
+## ADR-047: Stage 2 completes at the exact-only equality boundary
+
+**Decision.** Stage 2C contains deterministic bounded equality exploration, proof explanation, debt discharge and explicit materialization. It contains no approximate relation, e-graph, extractor, ranking, beam/population search, learned cost model, performance evidence, MemoryIR, ScheduleIR or target lowering. Stage 3 begins with MemoryIR.

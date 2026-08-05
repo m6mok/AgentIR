@@ -29,10 +29,12 @@ Stage 2A keeps schema v2 and adds identity lowering/candidate creation/ImplIR ca
 
 Stage 2B also keeps schema v2. It measures proposal normalization/hash at 10/100/1,000 operations, speculative transaction apply, debt insertion at 1/10/100 steps, frontier and hash-v2 verification, known/identity/unsupported/guarded validation, true and false guarded evaluation, refutation publication, speculative continuation escape, v4 → v5 migration, and v5 replay for exact/speculative/guarded/refuted histories. Separate byte records cover proposal canonical form, candidate exact v1/v2, proof debt and archive v5.
 
+Stage 2C retains schema v2 and adds equality creation for 10/100/1,000-operation roots; one-step and 1/10/100-step expansion; hash-cons merge and edge-dedup paths; fixed-point and resumed saturation; repeated equality-hash queries; 1/10/100-edge explanations; equality debt discharge and explicit materialization; v5 → v6 migration; and v6 replay for root/expanded/saturated/discharged/materialized histories. Byte records cover equality roots/nodes/edges/worklists/explanations, candidate v3 equality proof state and the corresponding archive v6 states.
+
 ## Stage 1.1 reference
 
 The pre-change single-shot run at commit `5a838d8540f57d7e171c1e333cd008957c1c60cd` on macOS/aarch64 recorded the following nanoseconds: transaction apply `{1: 215416, 10: 53708, 100: 395333}`, shape query 100k `1715750`, exact serialization 10k `16144584`, semantic canonicalization `{10: 27917, 100: 176500, 1000: 1984458}`, spec-hash query 1k `140525208`, continuation 10k `26016667`, SAXPY `{4: 75500, 1024: 493334, 65536: 31123458}`, v1→v2 migration 100 `7238292`, and v2 replay 100 `6368333`.
 
 Those values were single-shot, some include setup effects, and they are not directly comparable to median schema-v2 records. They are historical orientation, not a performance contract.
 
-The SAXPY and candidate evaluators are deterministic CPU semantic oracles. Their numbers say nothing about GPU code generation, device throughput, kernels, transfers or launch overhead; Stage 2B contains no GPU backend.
+The SAXPY, candidate and equality evaluators are deterministic CPU semantic oracles. Their numbers say nothing about GPU code generation, device throughput, kernels, transfers or launch overhead; Stage 2C contains no GPU backend.

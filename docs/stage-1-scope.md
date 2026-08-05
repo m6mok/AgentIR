@@ -20,7 +20,7 @@ Stage 1 tests whether an LLM-facing compiler can work through small typed transa
 10. No open hole or proof obligation may enter a frozen/deployable specification.
 11. Traversal, wire output, `content_hash`, semantic canonical bytes and `spec_hash` are deterministic.
 12. Arithmetic has defined reference behavior and no hidden undefined behavior.
-13. Archive v1/v2/v3 is validated by its immutable codec before pure migration to v4.
+13. Every legacy archive version is validated by its immutable codec before crossing explicit pure migrations to current v6.
 14. A solver result is sound; `unknown` is neither false nor proved.
 15. Legacy events replay with semantics v1 and new events record semantics v2.
 16. Resource rejection is atomic and budgets do not enter program identities.
@@ -37,6 +37,6 @@ Protocol: `workspace.open`, `spec.apply`, `spec.check`, `spec.freeze`, `transact
 
 ## Explicit non-goals
 
-GPU code generation, LLVM/MLIR, MemoryIR/ScheduleIR, autotuning, distributed runtime, MCP server, UI, arbitrary textual syntax, SMT solving and production database/security are outside Stage 1. Separate exact/speculative ImplIR CandidateForest layers now exist through Stage 2B, but they do not retroactively widen the SpecIR contract.
+GPU code generation, LLVM/MLIR, MemoryIR/ScheduleIR, autotuning, distributed runtime, MCP server, UI, arbitrary textual syntax, SMT solving and production database/security are outside Stage 1. Separate ImplIR, CandidateForest and exact EqualityStore layers now exist through Stage 2C, but they do not retroactively widen the SpecIR contract.
 
 For the exact source requirements, see [reference/stage-1-brief.md](reference/stage-1-brief.md), which takes precedence over the broader [AgentIR 0.1 draft](reference/agentir-spec-0.1.md) for this prototype.

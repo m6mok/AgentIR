@@ -501,6 +501,140 @@ impl Engine {
                 )?)
                 .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
             }
+            Request::EqualityCreate {
+                workspace,
+                candidate,
+                candidate_revision,
+                ..
+            } => serde_json::to_value(
+                self.workspace_mut(&workspace)?
+                    .equality_create(&candidate, &candidate_revision)?,
+            )
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::EqualityQuery {
+                workspace,
+                equality_space,
+                equality_revision,
+                ..
+            } => serde_json::to_value(
+                self.workspace(&workspace)?
+                    .equality_query(&equality_space, &equality_revision)?,
+            )
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::EqualityExpand {
+                workspace,
+                equality_space,
+                base_equality_revision,
+                expected_equality_hash,
+                fuel,
+                ..
+            } => serde_json::to_value(self.workspace_mut(&workspace)?.equality_expand(
+                &equality_space,
+                &base_equality_revision,
+                &expected_equality_hash,
+                fuel,
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::EqualitySaturate {
+                workspace,
+                equality_space,
+                base_equality_revision,
+                expected_equality_hash,
+                fuel,
+                ..
+            } => serde_json::to_value(self.workspace_mut(&workspace)?.equality_saturate(
+                &equality_space,
+                &base_equality_revision,
+                &expected_equality_hash,
+                fuel,
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::EqualityExplain {
+                workspace,
+                equality_space,
+                equality_revision,
+                node,
+                ..
+            } => serde_json::to_value(self.workspace(&workspace)?.equality_explain(
+                &equality_space,
+                &equality_revision,
+                &node,
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::EqualityEvaluate {
+                workspace,
+                equality_space,
+                equality_revision,
+                node,
+                inputs,
+                ..
+            } => {
+                BudgetCheck::against(
+                    &self.limits,
+                    ResourceKind::EqualityEvaluationCases,
+                    1,
+                    "equality reference evaluation",
+                )?;
+                let mut evaluation_limits = self.limits.clone();
+                evaluation_limits.total_evaluation_elements = evaluation_limits
+                    .total_evaluation_elements
+                    .min(evaluation_limits.equality_evaluation_elements);
+                let program = self.workspace(&workspace)?.equality_node_program(
+                    &equality_space,
+                    &equality_revision,
+                    &node,
+                )?;
+                serde_json::to_value(agentir_eval::evaluate_impl_with_limits(
+                    program,
+                    &inputs,
+                    &evaluation_limits,
+                )?)
+                .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
+            }
+            Request::EqualityMaterialize {
+                workspace,
+                equality_space,
+                equality_revision,
+                expected_equality_hash,
+                node,
+                ..
+            } => serde_json::to_value(self.workspace_mut(&workspace)?.equality_materialize(
+                &equality_space,
+                &equality_revision,
+                &expected_equality_hash,
+                &node,
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::EqualityContinuation {
+                workspace,
+                equality_space,
+                equality_revision,
+                ..
+            } => serde_json::to_value(
+                self.workspace(&workspace)?
+                    .equality_continuation(&equality_space, &equality_revision)?,
+            )
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::CandidateEqualityCheck {
+                workspace,
+                candidate,
+                base_candidate_revision,
+                proposal,
+                equality_space,
+                equality_revision,
+                expected_equality_hash,
+                target_node,
+                ..
+            } => serde_json::to_value(self.workspace_mut(&workspace)?.candidate_equality_check(
+                &candidate,
+                &base_candidate_revision,
+                &proposal,
+                &equality_space,
+                &equality_revision,
+                &expected_equality_hash,
+                &target_node,
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
         }
     }
 
