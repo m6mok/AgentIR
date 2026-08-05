@@ -1,0 +1,3 @@
+{"command":"workspace.open","request_id":"open","workspace":"w1"}
+{"command":"spec.apply","request_id":"invalid","workspace":"w1","base_revision":"r0","actions":[{"kind":"create_parameter","bind":"$x","name":"x","type":"f32"},{"kind":"create_parameter","bind":"$flag","name":"flag","type":"bool"},{"kind":"create_op","bind":"$bad","opcode":"add","operands":["$x","$flag"]}]}
+{"command":"program.query","request_id":"unchanged","workspace":"w1","revision":"r0","view":"summary"}

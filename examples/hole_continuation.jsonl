@@ -1,0 +1,4 @@
+{"command":"workspace.open","request_id":"open","workspace":"w1"}
+{"command":"spec.apply","request_id":"partial","workspace":"w1","base_revision":"r0","actions":[{"kind":"define_dimension","bind":"$N","name":"N","constraints":["N >= 0"]},{"kind":"create_parameter","bind":"$x","name":"x","type":"tensor<f32,[N]>"},{"kind":"create_parameter","bind":"$flag","name":"flag","type":"bool"},{"kind":"create_hole","bind":"$result","expected_type":"tensor<f32,[N]>"},{"kind":"set_output","name":"out","value":"$result"}]}
+{"command":"continuation.get","request_id":"continue","workspace":"w1","revision":"r1","hole":"h1","mode":"hybrid"}
+{"command":"spec.freeze","request_id":"blocked","workspace":"w1","base_revision":"r1"}

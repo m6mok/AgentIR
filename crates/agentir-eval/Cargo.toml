@@ -1,0 +1,16 @@
+[package]
+name = "agentir-eval"
+description = "Deterministic CPU reference interpreter for AgentIR SpecIR"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+agentir-core = { path = "../agentir-core" }
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
+

@@ -1,0 +1,5 @@
+{"command":"workspace.open","request_id":"open","workspace":"w1"}
+{"command":"spec.apply","request_id":"base","workspace":"w1","base_revision":"r0","actions":[{"kind":"create_parameter","bind":"$x","name":"x","type":"f32"},{"kind":"set_output","name":"out","value":"$x"}]}
+{"command":"revision.fork","request_id":"left","workspace":"w1","base_revision":"r1"}
+{"command":"revision.fork","request_id":"right","workspace":"w1","base_revision":"r1"}
+{"command":"revision.diff","request_id":"diff","workspace":"w1","from":"r1","to":"r3"}

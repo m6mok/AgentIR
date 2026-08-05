@@ -1,0 +1,18 @@
+[package]
+name = "agentir-cli"
+description = "JSON Lines command-line frontend for AgentIR"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "agentir"
+path = "src/main.rs"
+
+[dependencies]
+agentir-protocol = { path = "../agentir-protocol" }
+serde_json.workspace = true
+
+[lints]
+workspace = true

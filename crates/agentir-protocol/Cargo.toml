@@ -1,0 +1,17 @@
+[package]
+name = "agentir-protocol"
+description = "JSON protocol and stateful request engine for AgentIR"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+agentir-core = { path = "../agentir-core" }
+agentir-eval = { path = "../agentir-eval" }
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
+
