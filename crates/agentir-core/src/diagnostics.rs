@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::BTreeMap, error::Error, fmt};
 
-/// Stable Stage 1 diagnostic codes.
+/// Stable compiler diagnostic codes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ErrorCode {
@@ -60,6 +60,28 @@ pub enum ErrorCode {
     ConstraintContradiction,
     /// A configured or hard resource budget was exceeded.
     ResourceLimitExceeded,
+    /// Requested implementation candidate does not exist.
+    CandidateNotFound,
+    /// Requested immutable candidate revision does not exist.
+    CandidateRevisionNotFound,
+    /// Candidate creation requires a complete frozen SpecIR revision.
+    SpecNotFrozen,
+    /// A candidate anchor does not match its frozen specification.
+    SpecHashMismatch,
+    /// The separate ImplIR graph failed verification.
+    ImplVerificationFailed,
+    /// A compiler-owned exact rewrite has no match at the requested target.
+    RewriteNotApplicable,
+    /// A rewrite hash or side-condition precondition failed.
+    RewritePreconditionFailed,
+    /// The compositional equivalence chain is absent or invalid.
+    EquivalenceNotProved,
+    /// Correctness or confidence evidence is malformed or inconsistent.
+    EvidenceInvalid,
+    /// A sealed candidate cannot be edited.
+    CandidateSealed,
+    /// Stage 2A accepts exact equivalence only.
+    UnsupportedRefinement,
 }
 
 /// Structured compiler error suitable for agent repair loops.

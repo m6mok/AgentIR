@@ -2,6 +2,7 @@
 
 use crate::{
     actions::Transaction,
+    candidate::CandidateForest,
     ids::{IdAllocator, RevisionId, TransactionId, WorkspaceId},
     ir::Program,
     revision::{Revision, StatusSummary},
@@ -16,7 +17,10 @@ pub const CORE_SEMANTICS_VERSION: u32 = 2;
 pub const LEGACY_CORE_SEMANTICS_VERSION: u32 = 1;
 
 /// Current schema version for compiler-core workspace snapshots.
-pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 3;
+pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 4;
+
+/// Immutable Stage 1.2 snapshot schema migrated explicitly to v4.
+pub const LEGACY_WORKSPACE_SNAPSHOT_V3_VERSION: u32 = 3;
 
 /// Immutable Stage 1.1 snapshot schema migrated explicitly to v3.
 pub const LEGACY_WORKSPACE_SNAPSHOT_V2_VERSION: u32 = 2;
@@ -73,6 +77,25 @@ pub struct WorkspaceSnapshot {
     /// Compiler ID counters needed to avoid identity reuse after restore.
     pub allocator: IdAllocator,
     /// Ordered state-changing history used for deterministic replay.
+    pub events: Vec<VersionedWorkspaceEvent>,
+    /// Independent candidate forest, allocator, EvidenceIR, and candidate event log.
+    pub candidate_forest: CandidateForest,
+}
+
+/// Immutable compiler-core snapshot schema embedded in archive format version 3.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LegacyWorkspaceSnapshotV3 {
+    /// Legacy schema discriminator, which must equal three.
+    pub schema_version: u32,
+    /// Workspace identity.
+    pub workspace: WorkspaceId,
+    /// Current SpecIR head revision.
+    pub head: RevisionId,
+    /// Immutable SpecIR revisions.
+    pub revisions: BTreeMap<RevisionId, Revision>,
+    /// Legacy SpecIR compiler allocator.
+    pub allocator: IdAllocator,
+    /// Semantics-versioned SpecIR event log.
     pub events: Vec<VersionedWorkspaceEvent>,
 }
 
@@ -173,10 +196,10 @@ pub fn migrate_snapshot_v1(
     })
 }
 
-/// Purely migrates snapshot schema v2 to v3 by tagging every legacy event.
+/// Purely migrates snapshot schema v2 to immutable v3 by tagging every legacy event.
 pub fn migrate_snapshot_v2(
     snapshot: LegacyWorkspaceSnapshotV2,
-) -> crate::AgentResult<WorkspaceSnapshot> {
+) -> crate::AgentResult<LegacyWorkspaceSnapshotV3> {
     if snapshot.schema_version != LEGACY_WORKSPACE_SNAPSHOT_V2_VERSION {
         return Err(crate::AgentError::new(
             crate::ErrorCode::PersistenceFormat,
@@ -186,8 +209,8 @@ pub fn migrate_snapshot_v2(
             ),
         ));
     }
-    Ok(WorkspaceSnapshot {
-        schema_version: WORKSPACE_SNAPSHOT_VERSION,
+    Ok(LegacyWorkspaceSnapshotV3 {
+        schema_version: LEGACY_WORKSPACE_SNAPSHOT_V3_VERSION,
         workspace: snapshot.workspace,
         head: snapshot.head,
         revisions: snapshot.revisions,
@@ -200,6 +223,30 @@ pub fn migrate_snapshot_v2(
                 event,
             })
             .collect(),
+    })
+}
+
+/// Purely migrates immutable snapshot schema v3 to v4 with an empty candidate forest.
+pub fn migrate_snapshot_v3(
+    snapshot: LegacyWorkspaceSnapshotV3,
+) -> crate::AgentResult<WorkspaceSnapshot> {
+    if snapshot.schema_version != LEGACY_WORKSPACE_SNAPSHOT_V3_VERSION {
+        return Err(crate::AgentError::new(
+            crate::ErrorCode::PersistenceFormat,
+            format!(
+                "legacy workspace snapshot version {} is unsupported; expected {}",
+                snapshot.schema_version, LEGACY_WORKSPACE_SNAPSHOT_V3_VERSION
+            ),
+        ));
+    }
+    Ok(WorkspaceSnapshot {
+        schema_version: WORKSPACE_SNAPSHOT_VERSION,
+        workspace: snapshot.workspace,
+        head: snapshot.head,
+        revisions: snapshot.revisions,
+        allocator: snapshot.allocator,
+        events: snapshot.events,
+        candidate_forest: CandidateForest::default(),
     })
 }
 
@@ -218,4 +265,10 @@ pub struct ReplayReport {
     pub content_hashes_verified: usize,
     /// Number of frozen revision semantic hashes independently recomputed.
     pub spec_hashes_verified: usize,
+    /// Number of independent candidate branches verified.
+    pub candidates_verified: usize,
+    /// Number of candidate events replayed with candidate semantics v1.
+    pub candidate_events_replayed: usize,
+    /// Number of evidence records verified through exact candidate state.
+    pub evidence_records_verified: usize,
 }

@@ -2,8 +2,9 @@
 
 use agentir_core::{
     actions::Action,
+    candidate::{CandidateAction, RelationKind},
     continuation::InteractionMode,
-    ids::{HoleId, RevisionId, WorkspaceId},
+    ids::{CandidateId, CandidateRevisionId, HoleId, RevisionId, WorkspaceId},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -201,6 +202,118 @@ pub enum Request {
         #[serde(default)]
         mode: InteractionMode,
     },
+    /// Creates an identity ImplIR candidate for a complete frozen SpecIR.
+    #[serde(rename = "candidate.create")]
+    CandidateCreate {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Frozen SpecIR revision used as immutable anchor.
+        spec_revision: RevisionId,
+        /// Exact relation; approximate refinement is rejected in Stage 2A.
+        #[serde(default)]
+        relation: RelationKind,
+    },
+    /// Reads one candidate branch or immutable candidate revision.
+    #[serde(rename = "candidate.query")]
+    CandidateQuery {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Candidate branch.
+        candidate: CandidateId,
+        /// Candidate revision; defaults to branch head.
+        #[serde(default)]
+        candidate_revision: Option<CandidateRevisionId>,
+    },
+    /// Verifies ImplIR and the exact compositional proof chain.
+    #[serde(rename = "candidate.check")]
+    CandidateCheck {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Candidate branch.
+        candidate: CandidateId,
+        /// Candidate revision; defaults to branch head.
+        #[serde(default)]
+        candidate_revision: Option<CandidateRevisionId>,
+    },
+    /// Atomically applies compiler-known exact rewrites.
+    #[serde(rename = "candidate.apply")]
+    CandidateApply {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Candidate branch.
+        candidate: CandidateId,
+        /// Explicit immutable base candidate revision.
+        base_candidate_revision: CandidateRevisionId,
+        /// Ordered trusted rewrite actions.
+        actions: Vec<CandidateAction>,
+    },
+    /// Forks one candidate revision into a new branch identity.
+    #[serde(rename = "candidate.fork")]
+    CandidateFork {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Parent candidate.
+        candidate: CandidateId,
+        /// Parent candidate revision.
+        base_candidate_revision: CandidateRevisionId,
+    },
+    /// Runs fixed-seed bounded differential confidence validation.
+    #[serde(rename = "candidate.validate")]
+    CandidateValidate {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Candidate branch.
+        candidate: CandidateId,
+        /// Explicit immutable base candidate revision.
+        base_candidate_revision: CandidateRevisionId,
+        /// Fixed generator seed.
+        #[serde(default)]
+        seed: u64,
+        /// Bounded case count.
+        #[serde(default = "default_validation_cases")]
+        cases: u64,
+    },
+    /// Seals a proved exact candidate.
+    #[serde(rename = "candidate.seal")]
+    CandidateSeal {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Candidate branch.
+        candidate: CandidateId,
+        /// Explicit immutable base candidate revision.
+        base_candidate_revision: CandidateRevisionId,
+    },
+    /// Enumerates a bounded deterministic known-rewrite continuation.
+    #[serde(rename = "candidate.continuation")]
+    CandidateContinuation {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Candidate branch.
+        candidate: CandidateId,
+        /// Candidate revision; defaults to branch head.
+        #[serde(default)]
+        candidate_revision: Option<CandidateRevisionId>,
+    },
+}
+
+const fn default_validation_cases() -> u64 {
+    16
 }
 
 impl Request {
@@ -221,7 +334,15 @@ impl Request {
             | Self::ProgramEvaluate { request_id, .. }
             | Self::RevisionFork { request_id, .. }
             | Self::RevisionDiff { request_id, .. }
-            | Self::ContinuationGet { request_id, .. } => request_id,
+            | Self::ContinuationGet { request_id, .. }
+            | Self::CandidateCreate { request_id, .. }
+            | Self::CandidateQuery { request_id, .. }
+            | Self::CandidateCheck { request_id, .. }
+            | Self::CandidateApply { request_id, .. }
+            | Self::CandidateFork { request_id, .. }
+            | Self::CandidateValidate { request_id, .. }
+            | Self::CandidateSeal { request_id, .. }
+            | Self::CandidateContinuation { request_id, .. } => request_id,
         }
     }
 }

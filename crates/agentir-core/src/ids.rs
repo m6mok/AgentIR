@@ -42,6 +42,12 @@ identifier!(DimensionId);
 identifier!(HoleId);
 identifier!(ObligationId);
 identifier!(ContinuationFrameId);
+identifier!(CandidateId);
+identifier!(CandidateRevisionId);
+identifier!(ImplOperationId);
+identifier!(ImplValueId);
+identifier!(EvidenceId);
+identifier!(CandidateObligationId);
 
 /// Monotonic identifier allocator owned by one workspace.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -25,10 +25,12 @@ The harness retains Stage 1.1 workloads:
 
 Stage 1.2 adds constraint insertion/query at 10/100/1,000 facts, transitive discharge, contradiction detection, resource-rejection fast path, v2 → v3 migration, v3 replay and mixed-semantics replay. Canonical byte sizes are not timings and appear in a separate object.
 
+Stage 2A keeps schema v2 and adds identity lowering/candidate creation/ImplIR canonicalization for 10/100/1,000 operations; candidate fork/apply/seal; known-rewrite and constant-fold match scans; continuation generation; repeated `impl_hash`/`candidate_hash` queries; equivalence-chain verification; fixed-seed differential validation; v3 → v4 migration; and v4 replay with and without candidate history. Byte sizes separately report SpecIR semantic, ImplIR semantic, exact candidate state and archive encodings.
+
 ## Stage 1.1 reference
 
 The pre-change single-shot run at commit `5a838d8540f57d7e171c1e333cd008957c1c60cd` on macOS/aarch64 recorded the following nanoseconds: transaction apply `{1: 215416, 10: 53708, 100: 395333}`, shape query 100k `1715750`, exact serialization 10k `16144584`, semantic canonicalization `{10: 27917, 100: 176500, 1000: 1984458}`, spec-hash query 1k `140525208`, continuation 10k `26016667`, SAXPY `{4: 75500, 1024: 493334, 65536: 31123458}`, v1→v2 migration 100 `7238292`, and v2 replay 100 `6368333`.
 
 Those values were single-shot, some include setup effects, and they are not directly comparable to median schema-v2 records. They are historical orientation, not a performance contract.
 
-The SAXPY evaluator is a deterministic CPU semantic oracle. Its numbers say nothing about GPU code generation, device throughput, kernels, transfers or launch overhead; Stage 1.2 contains no GPU backend.
+The SAXPY and candidate evaluators are deterministic CPU semantic oracles. Their numbers say nothing about GPU code generation, device throughput, kernels, transfers or launch overhead; Stage 2A contains no GPU backend.

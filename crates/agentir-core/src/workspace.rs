@@ -2,12 +2,20 @@
 
 use crate::{
     actions::{Action, ActionClassification, RegionSpec, Transaction},
+    candidate::{
+        CANDIDATE_SEMANTICS_VERSION, Candidate, CandidateCheckReport, CandidateContinuation,
+        CandidateEvent, CandidateForest, CandidateRevision, CandidateTransaction,
+        DifferentialValidation, RelationKind,
+    },
     canonical::{content_hash, content_hash_with_limit},
     constraints::{ConstraintFacts, ConstraintQueryResult},
     continuation::{ContinuationFrame, InteractionMode, build_frame},
     diagnostics::{AgentError, AgentResult, ErrorCode},
     holes::{ExpectedEffects, Hole, HoleStatus},
-    ids::{ActionId, HoleId, IdAllocator, ObligationId, RevisionId, ValueId, WorkspaceId},
+    ids::{
+        ActionId, CandidateId, CandidateRevisionId, HoleId, IdAllocator, ObligationId, RevisionId,
+        ValueId, WorkspaceId,
+    },
     ir::{
         BlockArgument, ConstantValue, Dimension, Opcode, Operation, Program, Region,
         RegionOperation, RegionValue, ValueDef, ValueOrigin,
@@ -754,6 +762,7 @@ pub struct Workspace {
     head: RevisionId,
     allocator: IdAllocator,
     events: Vec<VersionedWorkspaceEvent>,
+    candidates: CandidateForest,
     limits: ResourceLimits,
 }
 
@@ -785,6 +794,7 @@ impl Workspace {
             head: root,
             allocator: IdAllocator::default(),
             events: Vec::new(),
+            candidates: CandidateForest::default(),
             limits,
         })
     }
@@ -804,6 +814,12 @@ impl Workspace {
     #[must_use]
     pub const fn id(&self) -> &WorkspaceId {
         &self.id
+    }
+
+    /// Returns the independent persistent candidate forest.
+    #[must_use]
+    pub const fn candidate_forest(&self) -> &CandidateForest {
+        &self.candidates
     }
 
     /// Returns the current head revision ID.
@@ -1496,6 +1512,211 @@ impl Workspace {
         Ok(revision_id)
     }
 
+    fn frozen_candidate_source(&self, revision: &RevisionId) -> AgentResult<(Program, SpecHash)> {
+        let source = self.revision(revision)?;
+        if !source.program.frozen {
+            return Err(AgentError::new(
+                ErrorCode::SpecNotFrozen,
+                format!("revision `{revision}` is not a frozen SpecIR"),
+            ));
+        }
+        let spec_hash = source.spec_hash.clone().ok_or_else(|| {
+            AgentError::new(
+                ErrorCode::SpecHashMismatch,
+                format!("frozen revision `{revision}` has no valid spec_hash"),
+            )
+        })?;
+        Ok((source.program.clone(), spec_hash))
+    }
+
+    fn candidate_source(&self, candidate: &CandidateId) -> AgentResult<(Program, SpecHash)> {
+        let spec_revision = self.candidates.candidate(candidate)?.spec_revision.clone();
+        self.frozen_candidate_source(&spec_revision)
+    }
+
+    /// Creates a separate identity ImplIR candidate for a frozen SpecIR revision.
+    pub fn candidate_create(
+        &mut self,
+        spec_revision: &RevisionId,
+        relation: RelationKind,
+    ) -> AgentResult<CandidateCheckReport> {
+        let (source, spec_hash) = self.frozen_candidate_source(spec_revision)?;
+        self.candidates.create(
+            spec_revision.clone(),
+            spec_hash,
+            &source,
+            relation,
+            &self.limits,
+        )
+    }
+
+    /// Returns one persistent candidate branch.
+    pub fn candidate_query(&self, candidate: &CandidateId) -> AgentResult<&Candidate> {
+        self.candidates.candidate(candidate)
+    }
+
+    /// Returns one immutable candidate revision.
+    pub fn candidate_revision(
+        &self,
+        candidate: &CandidateId,
+        revision: &CandidateRevisionId,
+    ) -> AgentResult<&CandidateRevision> {
+        self.candidates.revision(candidate, revision)
+    }
+
+    /// Verifies one candidate revision against its frozen SpecIR anchor.
+    pub fn candidate_check(
+        &self,
+        candidate: &CandidateId,
+        revision: &CandidateRevisionId,
+    ) -> AgentResult<CandidateCheckReport> {
+        let (source, _) = self.candidate_source(candidate)?;
+        self.candidates
+            .check(candidate, revision, &source, &self.limits)
+    }
+
+    /// Applies an atomic trusted rewrite transaction to one candidate branch.
+    pub fn candidate_apply(
+        &mut self,
+        transaction: &CandidateTransaction,
+    ) -> AgentResult<CandidateCheckReport> {
+        let (source, spec_hash) = self.candidate_source(&transaction.candidate)?;
+        self.candidates
+            .apply(transaction, &source, &spec_hash, &self.limits)
+    }
+
+    /// Forks one candidate revision into a new editable branch identity.
+    pub fn candidate_fork(
+        &mut self,
+        candidate: &CandidateId,
+        revision: &CandidateRevisionId,
+    ) -> AgentResult<CandidateCheckReport> {
+        let (source, spec_hash) = self.candidate_source(candidate)?;
+        self.candidates
+            .fork(candidate, revision, &source, &spec_hash, &self.limits)
+    }
+
+    /// Records deterministic differential confidence evidence.
+    pub fn candidate_record_validation(
+        &mut self,
+        candidate: &CandidateId,
+        base_revision: &CandidateRevisionId,
+        validation: DifferentialValidation,
+    ) -> AgentResult<CandidateCheckReport> {
+        let (source, spec_hash) = self.candidate_source(candidate)?;
+        self.candidates.record_validation(
+            candidate,
+            base_revision,
+            validation,
+            &source,
+            &spec_hash,
+            &self.limits,
+        )
+    }
+
+    /// Seals a fully verified exact candidate; repeated seal is idempotent.
+    pub fn candidate_seal(
+        &mut self,
+        candidate: &CandidateId,
+        base_revision: &CandidateRevisionId,
+    ) -> AgentResult<CandidateCheckReport> {
+        let (source, spec_hash) = self.candidate_source(candidate)?;
+        self.candidates
+            .seal(candidate, base_revision, &source, &spec_hash, &self.limits)
+    }
+
+    /// Generates a bounded deterministic known-rewrite continuation.
+    pub fn candidate_continuation(
+        &self,
+        candidate: &CandidateId,
+        revision: &CandidateRevisionId,
+    ) -> AgentResult<CandidateContinuation> {
+        self.candidates
+            .continuation(candidate, revision, &self.limits)
+    }
+
+    fn replay_candidate_forest(&mut self, expected: &CandidateForest) -> AgentResult<()> {
+        for versioned in &expected.events {
+            if versioned.semantics_version != CANDIDATE_SEMANTICS_VERSION {
+                return Err(AgentError::new(
+                    ErrorCode::PersistenceFormat,
+                    format!(
+                        "unsupported candidate semantics version {}",
+                        versioned.semantics_version
+                    ),
+                )
+                .with_detail("candidate_semantics_version", versioned.semantics_version));
+            }
+            match &versioned.event {
+                CandidateEvent::Created {
+                    spec_revision,
+                    relation,
+                    ..
+                } => {
+                    self.candidate_create(spec_revision, *relation)?;
+                }
+                CandidateEvent::TransactionApplied { transaction, .. } => {
+                    self.candidate_apply(transaction)?;
+                }
+                CandidateEvent::Forked {
+                    parent_candidate,
+                    parent_revision,
+                    ..
+                } => {
+                    self.candidate_fork(parent_candidate, parent_revision)?;
+                }
+                CandidateEvent::Validated {
+                    candidate,
+                    base_revision,
+                    validation,
+                    ..
+                } => {
+                    self.candidate_record_validation(candidate, base_revision, validation.clone())?;
+                }
+                CandidateEvent::Sealed {
+                    candidate,
+                    base_revision,
+                    ..
+                } => {
+                    self.candidate_seal(candidate, base_revision)?;
+                }
+            }
+            if self.candidates.events.last() != Some(versioned) {
+                return Err(AgentError::new(
+                    ErrorCode::ReplayMismatch,
+                    "candidate event replay diverged",
+                )
+                .with_detail("expected_event", json!(versioned))
+                .with_detail("actual_event", json!(self.candidates.events.last())));
+            }
+        }
+        if &self.candidates != expected {
+            return Err(AgentError::new(
+                ErrorCode::ReplayMismatch,
+                "replayed CandidateForest differs from snapshot",
+            ));
+        }
+        let revisions = &self.revisions;
+        self.candidates.verify_all(
+            |revision| {
+                let source = revisions.get(revision).ok_or_else(|| {
+                    AgentError::new(
+                        ErrorCode::RevisionNotFound,
+                        format!("candidate anchor revision `{revision}` does not exist"),
+                    )
+                })?;
+                let spec_hash = source.spec_hash.clone().ok_or_else(|| {
+                    AgentError::new(
+                        ErrorCode::SpecHashMismatch,
+                        format!("candidate anchor revision `{revision}` has no spec_hash"),
+                    )
+                })?;
+                Ok((source.program.clone(), spec_hash))
+            },
+            &self.limits,
+        )
+    }
+
     /// Captures all state required to resume and replay this workspace.
     #[must_use]
     pub fn snapshot(&self) -> WorkspaceSnapshot {
@@ -1506,6 +1727,7 @@ impl Workspace {
             revisions: self.revisions.clone(),
             allocator: self.allocator.clone(),
             events: self.events.clone(),
+            candidate_forest: self.candidates.clone(),
         }
     }
 
@@ -1545,6 +1767,12 @@ impl Workspace {
             ResourceKind::EventsPerArchive,
             as_u64(snapshot.events.len()),
             "snapshot replay preflight",
+        )?;
+        BudgetCheck::against(
+            &ResourceLimits::hard_safety_caps(),
+            ResourceKind::CandidateEventsPerArchive,
+            as_u64(snapshot.candidate_forest.events.len()),
+            "candidate snapshot replay preflight",
         )?;
         let replay_actions = snapshot.events.iter().fold(0_u64, |total, versioned| {
             total.saturating_add(match &versioned.event {
@@ -1755,6 +1983,8 @@ impl Workspace {
             revision.semantic_canonical_version = version;
         }
 
+        replayed.replay_candidate_forest(&snapshot.candidate_forest)?;
+
         let report = ReplayReport {
             workspace: snapshot.workspace.clone(),
             head: snapshot.head.clone(),
@@ -1762,11 +1992,15 @@ impl Workspace {
             events_replayed: snapshot.events.len(),
             content_hashes_verified,
             spec_hashes_verified,
+            candidates_verified: snapshot.candidate_forest.candidates.len(),
+            candidate_events_replayed: snapshot.candidate_forest.events.len(),
+            evidence_records_verified: snapshot.candidate_forest.evidence.len(),
         };
         replayed.revisions = snapshot.revisions;
         replayed.head = snapshot.head;
         replayed.allocator = snapshot.allocator;
         replayed.events = snapshot.events;
+        replayed.candidates = snapshot.candidate_forest;
         replayed.limits = ResourceLimits::default();
         Ok((replayed, report))
     }

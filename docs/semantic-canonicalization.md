@@ -1,14 +1,16 @@
 # Semantic canonicalization
 
-Stage 1.1 introduced two deliberately different frozen-SpecIR identities, and Stage 1.2 preserves their codecs unchanged. `content_hash` remains the exact, history-sensitive identity of one `Program` snapshot and continues to protect replay and provenance. `spec_hash` identifies the semantic canonical form of a complete frozen specification. The archive envelope has a third value, `archive_hash`, which protects one concrete versioned on-disk encoding.
+Stage 1.1 introduced two deliberately different frozen-SpecIR identities, and Stage 2A preserves their codecs unchanged. Stage 2A adds two more candidate-layer contracts; the archive envelope remains separate.
 
 | Hash | Covers | Excludes | Primary use |
 | --- | --- | --- | --- |
 | `content_hash` | Full `Program`, including compiler IDs, obligations and provenance | Revision timestamp | exact revision replay |
 | `spec_hash` | Versioned reachable computation, external interface, inferred types, constraints and `NumericContract` | compiler IDs, history, provenance, diagnostics, unused internal graph | future ImplIR contract anchor |
+| `impl_hash` | Reachable typed ImplIR semantics, external interface, constraints and `NumericContract` | ImplIR/candidate/evidence IDs, source links, history, unreachable nodes | implementation semantic identity |
+| `candidate_hash` | Exact candidate revision, IDs, anchor, ImplIR, proof chain and evidence references | timestamps and resource policy | candidate replay and provenance |
 | `archive_hash` | Version-specific archive body and snapshot | the `archive_hash` field itself | corruption and codec verification |
 
-None of these values substitutes for another. In particular, archive migration preserves every legacy `content_hash`, computes missing `spec_hash` values for frozen revisions, and produces a new `archive_hash` only when it writes the current v3 archive.
+None substitutes for another. Migration preserves legacy `content_hash`/`spec_hash`; v3 → v4 adds empty candidate state and a new envelope hash without creating candidates.
 
 ## Semantic canonical form v1
 
@@ -48,4 +50,4 @@ Semantic canonicalization establishes history independence for the same ordered 
 - different reassociations;
 - different `NumericContract` values.
 
-There is no e-graph, rewrite prover or optimizer in Stage 1.2. Constraint discharge changes proof state in exact `Program` history, but the semantic codec still excludes obligations and deduplicates canonical constraints. A later ImplIR candidate will cite `spec_hash` as the immutable contract it implements or refines.
+Stage 2A has a deliberately small compiler-owned exact rewrite registry, not an e-graph or speculative optimizer. Constraint discharge changes exact SpecIR history, while every candidate cites `spec_hash` and proves exact equivalence through an independent certificate chain. See [implir.md](implir.md) and [equivalence-and-evidence.md](equivalence-and-evidence.md).

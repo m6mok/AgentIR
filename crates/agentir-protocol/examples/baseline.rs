@@ -2,17 +2,23 @@
 
 use agentir_core::{
     Action, HoleId, RevisionId, Transaction, Workspace, WorkspaceId,
+    candidate::{
+        CandidateAction, CandidateAllocator, CandidateTransaction, FOLD_SCALAR_CONSTANTS_RULE,
+        RelationKind,
+    },
     canonical::canonical_bytes,
     constraints::ConstraintFacts,
     continuation::InteractionMode,
+    ids::{CandidateId, CandidateRevisionId, ImplOperationId},
+    impl_ir::{canonicalize_impl_with_limit, identity_lower},
     resources::ResourceLimits,
     semantic::canonicalize_spec,
     shapes::{ShapeConstraint, same_shape},
     types::Shape,
 };
 use agentir_store::{
-    WorkspaceArchiveV1, WorkspaceArchiveV2, load_workspace_bytes, migrate_archive_v1_to_v2,
-    migrate_archive_v2_to_v3,
+    WorkspaceArchiveV1, WorkspaceArchiveV2, WorkspaceArchiveV3, load_workspace_bytes,
+    migrate_archive_v1_to_v2, migrate_archive_v2_to_v3, migrate_archive_v3_to_v4,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -276,6 +282,82 @@ fn resource_rejection() -> u128 {
     elapsed_ns(|| black_box(workspace.apply(&transaction).unwrap_err()))
 }
 
+fn identity_candidate(operation_count: usize) -> Workspace {
+    let mut workspace = frozen_chain(operation_count);
+    let revision = workspace.head().clone();
+    workspace
+        .candidate_create(&revision, RelationKind::EquivalentToSpec)
+        .unwrap();
+    workspace
+}
+
+fn constant_match_candidate(match_count: usize) -> Workspace {
+    let id = WorkspaceId::new(format!("constant-matches-{match_count}"));
+    let mut workspace = Workspace::new(id.clone()).unwrap();
+    let mut actions = vec![
+        Action::CreateConstant {
+            bind: "$left".to_owned(),
+            ty: "i32".parse().unwrap(),
+            value: json!(2),
+        },
+        Action::CreateConstant {
+            bind: "$right".to_owned(),
+            ty: "i32".parse().unwrap(),
+            value: json!(3),
+        },
+    ];
+    for index in 0..match_count {
+        actions.push(Action::CreateOp {
+            bind: format!("$sum{index}"),
+            opcode: "add".to_owned(),
+            operands: vec!["$left".to_owned(), "$right".to_owned()],
+            attributes: BTreeMap::new(),
+            region: None,
+        });
+        actions.push(Action::SetOutput {
+            name: format!("out{index}"),
+            value: format!("$sum{index}"),
+        });
+    }
+    let built = workspace
+        .apply(&Transaction {
+            workspace: id.clone(),
+            base_revision: RevisionId::new("r0"),
+            actions,
+            client_transaction_id: None,
+            allow_branch: false,
+        })
+        .unwrap();
+    workspace
+        .apply(&Transaction {
+            workspace: id,
+            base_revision: built.revision,
+            actions: vec![Action::FreezeSpec],
+            client_transaction_id: None,
+            allow_branch: false,
+        })
+        .unwrap();
+    let revision = workspace.head().clone();
+    workspace
+        .candidate_create(&revision, RelationKind::EquivalentToSpec)
+        .unwrap();
+    workspace
+}
+
+fn apply_one_constant_fold(workspace: &mut Workspace) {
+    workspace
+        .candidate_apply(&CandidateTransaction {
+            candidate: CandidateId::new("c1"),
+            base_revision: CandidateRevisionId::new("cr1"),
+            actions: vec![CandidateAction::ApplyKnownRewrite {
+                rule: FOLD_SCALAR_CONSTANTS_RULE.to_owned(),
+                target: ImplOperationId::new("iop3"),
+                expected_before_impl_hash: None,
+            }],
+        })
+        .unwrap();
+}
+
 fn main() {
     let mut timings = BTreeMap::<String, Measurement>::new();
     for count in [1_usize, 10, 100] {
@@ -378,6 +460,261 @@ fn main() {
         ),
     );
 
+    let candidate_workspaces = [10_usize, 100, 1_000]
+        .into_iter()
+        .map(|count| (count, identity_candidate(count)))
+        .collect::<BTreeMap<_, _>>();
+    for (count, frozen) in &semantic_workspaces {
+        let source = &frozen.revision(frozen.head()).unwrap().program;
+        timings.insert(
+            format!("identity_lowering_{count}_operations"),
+            measure(
+                || {
+                    let mut allocator = CandidateAllocator::default();
+                    elapsed_ns(|| black_box(identity_lower(source, &mut allocator).unwrap()))
+                },
+                json!({"operations": count}),
+            ),
+        );
+        timings.insert(
+            format!("candidate_create_{count}_operations"),
+            measure(
+                || {
+                    let mut workspace = frozen.clone();
+                    let revision = workspace.head().clone();
+                    elapsed_ns(|| {
+                        black_box(
+                            workspace
+                                .candidate_create(&revision, RelationKind::EquivalentToSpec)
+                                .unwrap(),
+                        )
+                    })
+                },
+                json!({"operations": count}),
+            ),
+        );
+        let candidate = candidate_workspaces.get(count).unwrap();
+        let revision = candidate
+            .candidate_revision(&CandidateId::new("c1"), &CandidateRevisionId::new("cr1"))
+            .unwrap();
+        let impl_canonical = canonicalize_impl_with_limit(
+            &revision.impl_program,
+            ResourceLimits::default().candidate_canonical_bytes,
+        )
+        .unwrap();
+        canonical_sizes.insert(
+            format!("impl_canonical_{count}_operations"),
+            impl_canonical.bytes.len(),
+        );
+        timings.insert(
+            format!("impl_canonicalization_{count}_operations"),
+            measure(
+                || {
+                    elapsed_ns(|| {
+                        black_box(
+                            canonicalize_impl_with_limit(
+                                &revision.impl_program,
+                                ResourceLimits::default().candidate_canonical_bytes,
+                            )
+                            .unwrap(),
+                        )
+                    })
+                },
+                json!({"operations": count}),
+            ),
+        );
+    }
+
+    let candidate_100 = candidate_workspaces.get(&100).unwrap();
+    let candidate_100_revision = candidate_100
+        .candidate_revision(&CandidateId::new("c1"), &CandidateRevisionId::new("cr1"))
+        .unwrap();
+    canonical_sizes.insert(
+        "exact_candidate_state_100_operations".to_owned(),
+        serde_json::to_vec(candidate_100_revision).unwrap().len(),
+    );
+    timings.insert(
+        "repeated_impl_hash_query".to_owned(),
+        measure(
+            || {
+                elapsed_ns(|| {
+                    for _ in 0..1_000 {
+                        black_box(&candidate_100_revision.impl_hash);
+                    }
+                })
+            },
+            json!({"operations": 100, "queries": 1_000}),
+        ),
+    );
+    timings.insert(
+        "candidate_hash_query".to_owned(),
+        measure(
+            || {
+                elapsed_ns(|| {
+                    for _ in 0..1_000 {
+                        black_box(&candidate_100_revision.candidate_hash);
+                    }
+                })
+            },
+            json!({"operations": 100, "queries": 1_000}),
+        ),
+    );
+    timings.insert(
+        "candidate_fork".to_owned(),
+        measure(
+            || {
+                let mut workspace = candidate_100.clone();
+                elapsed_ns(|| {
+                    black_box(
+                        workspace
+                            .candidate_fork(
+                                &CandidateId::new("c1"),
+                                &CandidateRevisionId::new("cr1"),
+                            )
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"operations": 100}),
+        ),
+    );
+    timings.insert(
+        "equivalence_chain_verification".to_owned(),
+        measure(
+            || {
+                elapsed_ns(|| {
+                    black_box(
+                        candidate_100
+                            .candidate_check(
+                                &CandidateId::new("c1"),
+                                &CandidateRevisionId::new("cr1"),
+                            )
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"proof_edges": 1, "operations": 100}),
+        ),
+    );
+
+    let fold_candidate = constant_match_candidate(1);
+    timings.insert(
+        "candidate_transaction_apply".to_owned(),
+        measure(
+            || {
+                let mut workspace = fold_candidate.clone();
+                elapsed_ns(|| apply_one_constant_fold(&mut workspace))
+            },
+            json!({"rewrite_actions": 1}),
+        ),
+    );
+    timings.insert(
+        "candidate_seal".to_owned(),
+        measure(
+            || {
+                let mut workspace = fold_candidate.clone();
+                elapsed_ns(|| {
+                    black_box(
+                        workspace
+                            .candidate_seal(
+                                &CandidateId::new("c1"),
+                                &CandidateRevisionId::new("cr1"),
+                            )
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"proof_edges": 1}),
+        ),
+    );
+    timings.insert(
+        "differential_validation_small".to_owned(),
+        measure(
+            || {
+                let spec = &fold_candidate
+                    .revision(&RevisionId::new("r2"))
+                    .unwrap()
+                    .program;
+                let implementation = &fold_candidate
+                    .candidate_revision(&CandidateId::new("c1"), &CandidateRevisionId::new("cr1"))
+                    .unwrap()
+                    .impl_program;
+                elapsed_ns(|| {
+                    black_box(
+                        agentir_eval::differential_validate(
+                            spec,
+                            implementation,
+                            17,
+                            16,
+                            &ResourceLimits::default(),
+                        )
+                        .unwrap(),
+                    )
+                })
+            },
+            json!({"cases": 16}),
+        ),
+    );
+    for count in [10_usize, 100, 1_000] {
+        let workspace = constant_match_candidate(count);
+        timings.insert(
+            format!("constant_fold_{count}_match_scan"),
+            measure(
+                || {
+                    elapsed_ns(|| {
+                        let continuation = workspace
+                            .candidate_continuation(
+                                &CandidateId::new("c1"),
+                                &CandidateRevisionId::new("cr1"),
+                            )
+                            .unwrap();
+                        assert_eq!(continuation.matches.len(), count);
+                        black_box(continuation)
+                    })
+                },
+                json!({"matches": count}),
+            ),
+        );
+        if count == 100 {
+            timings.insert(
+                "known_rewrite_applicability_scan".to_owned(),
+                measure(
+                    || {
+                        elapsed_ns(|| {
+                            black_box(
+                                workspace
+                                    .candidate_continuation(
+                                        &CandidateId::new("c1"),
+                                        &CandidateRevisionId::new("cr1"),
+                                    )
+                                    .unwrap(),
+                            )
+                        })
+                    },
+                    json!({"operations": 102, "matches": 100}),
+                ),
+            );
+            timings.insert(
+                "candidate_continuation_generation".to_owned(),
+                measure(
+                    || {
+                        elapsed_ns(|| {
+                            black_box(
+                                workspace
+                                    .candidate_continuation(
+                                        &CandidateId::new("c1"),
+                                        &CandidateRevisionId::new("cr1"),
+                                    )
+                                    .unwrap(),
+                            )
+                        })
+                    },
+                    json!({"matches": 100}),
+                ),
+            );
+        }
+    }
+
     for count in [10_usize, 100, 1_000] {
         timings.insert(
             format!("constraint_fact_insertion_{count}"),
@@ -456,6 +793,20 @@ fn main() {
         ),
     );
     let v3_bytes = include_bytes!("../../agentir-store/tests/fixtures/saxpy-v3.json");
+    let legacy_v3: WorkspaceArchiveV3 = serde_json::from_slice(v3_bytes).unwrap();
+    timings.insert(
+        "archive_v3_to_v4_migration".to_owned(),
+        measure(
+            || {
+                elapsed_ns(|| {
+                    for _ in 0..100 {
+                        black_box(migrate_archive_v3_to_v4(legacy_v3.clone()).unwrap());
+                    }
+                })
+            },
+            json!({"events": legacy_v3.snapshot.events.len(), "migrations": 100}),
+        ),
+    );
     timings.insert(
         "archive_v3_load_replay".to_owned(),
         measure(
@@ -482,6 +833,44 @@ fn main() {
             },
             json!({"archive_bytes": mixed_bytes.len(), "semantics_versions": [1, 2], "loads": 100}),
         ),
+    );
+    let v4_without_candidates =
+        include_bytes!("../../agentir-store/tests/fixtures/saxpy-frozen-v4.json");
+    let v4_with_candidates =
+        include_bytes!("../../agentir-store/tests/fixtures/candidate-rewrite-sealed-v4.json");
+    timings.insert(
+        "archive_v4_load_replay_without_candidates".to_owned(),
+        measure(
+            || {
+                elapsed_ns(|| {
+                    for _ in 0..100 {
+                        black_box(load_workspace_bytes(v4_without_candidates).unwrap());
+                    }
+                })
+            },
+            json!({"archive_bytes": v4_without_candidates.len(), "loads": 100}),
+        ),
+    );
+    timings.insert(
+        "archive_v4_load_replay_with_candidate_history".to_owned(),
+        measure(
+            || {
+                elapsed_ns(|| {
+                    for _ in 0..100 {
+                        black_box(load_workspace_bytes(v4_with_candidates).unwrap());
+                    }
+                })
+            },
+            json!({"archive_bytes": v4_with_candidates.len(), "loads": 100}),
+        ),
+    );
+    canonical_sizes.insert(
+        "archive_v4_without_candidates".to_owned(),
+        v4_without_candidates.len(),
+    );
+    canonical_sizes.insert(
+        "archive_v4_with_candidate_history".to_owned(),
+        v4_with_candidates.len(),
     );
 
     let saxpy = load_workspace_bytes(v3_bytes).unwrap();

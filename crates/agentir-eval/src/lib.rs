@@ -4,8 +4,10 @@
 #![warn(missing_docs)]
 
 use agentir_core::{
+    candidate::DifferentialValidation,
     diagnostics::{AgentError, AgentResult, ErrorCode},
     ids::ValueId,
+    impl_ir::{ImplProgram, impl_as_program},
     ir::{ConstantValue, Opcode, Operation, Program, Region, RegionValue, ValueOrigin},
     resources::{BudgetCheck, ResourceKind, ResourceLimits},
     types::{DimExpr, ScalarType, Type},
@@ -957,5 +959,283 @@ pub fn evaluate_with_limits(
     Ok(EvaluationResult {
         outputs,
         dimensions,
+    })
+}
+
+/// Evaluates a verified separate ImplIR graph using the same strict reference semantics.
+pub fn evaluate_impl_with_limits(
+    program: &ImplProgram,
+    inputs: &BTreeMap<String, JsonValue>,
+    limits: &ResourceLimits,
+) -> AgentResult<EvaluationResult> {
+    evaluate_with_limits(&impl_as_program(program), inputs, limits)
+}
+
+fn next_random(state: &mut u64) -> u64 {
+    *state = state
+        .wrapping_mul(6_364_136_223_846_793_005)
+        .wrapping_add(1_442_695_040_888_963_407);
+    *state
+}
+
+fn solve_dimensions(program: &Program, state: &mut u64) -> AgentResult<BTreeMap<String, usize>> {
+    let mut dimensions = program
+        .dimension_names
+        .keys()
+        .map(|name| {
+            let value = usize::try_from(next_random(state) % 3 + 1).expect("small extent");
+            (name.clone(), value)
+        })
+        .collect::<BTreeMap<_, _>>();
+    for _ in 0..program.constraints.len().saturating_add(1) {
+        for constraint in &program.constraints {
+            let agentir_core::shapes::ShapeConstraint::Equal { left, right } = constraint else {
+                continue;
+            };
+            for (left, right) in left.0.iter().zip(&right.0) {
+                match (left, right) {
+                    (DimExpr::Symbol(symbol), DimExpr::Static(value))
+                    | (DimExpr::Static(value), DimExpr::Symbol(symbol)) => {
+                        dimensions.insert(
+                            symbol.clone(),
+                            usize::try_from(*value)
+                                .map_err(|_| mismatch("constraint static extent exceeds usize"))?,
+                        );
+                    }
+                    (DimExpr::Symbol(left), DimExpr::Symbol(right)) => {
+                        let value = dimensions
+                            .get(left)
+                            .copied()
+                            .or_else(|| dimensions.get(right).copied())
+                            .unwrap_or(1);
+                        dimensions.insert(left.clone(), value);
+                        dimensions.insert(right.clone(), value);
+                    }
+                    (
+                        DimExpr::Affine {
+                            coefficient,
+                            symbol,
+                            constant,
+                        },
+                        DimExpr::Static(value),
+                    )
+                    | (
+                        DimExpr::Static(value),
+                        DimExpr::Affine {
+                            coefficient,
+                            symbol,
+                            constant,
+                        },
+                    ) if *coefficient != 0 => {
+                        let numerator = i128::from(*value) - i128::from(*constant);
+                        let coefficient = i128::from(*coefficient);
+                        if numerator >= 0 && numerator % coefficient == 0 {
+                            dimensions.insert(
+                                symbol.clone(),
+                                usize::try_from(numerator / coefficient).map_err(|_| {
+                                    mismatch("constraint affine extent exceeds usize")
+                                })?,
+                            );
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    Ok(dimensions)
+}
+
+fn concrete_shape(ty: &Type, dimensions: &BTreeMap<String, usize>) -> AgentResult<Vec<usize>> {
+    let Type::Tensor { shape, .. } = ty else {
+        return Ok(Vec::new());
+    };
+    shape
+        .0
+        .iter()
+        .map(|dimension| {
+            usize::try_from(concrete_dimension(dimension, dimensions)?)
+                .map_err(|_| mismatch("generated extent exceeds usize"))
+        })
+        .collect()
+}
+
+fn generated_scalar(ty: ScalarType, state: &mut u64) -> JsonValue {
+    match ty {
+        ScalarType::Bool => JsonValue::Bool(next_random(state) & 1 == 0),
+        ScalarType::I32 | ScalarType::Index => {
+            json!(i32::try_from(next_random(state) % 5).expect("small value") - 2)
+        }
+        ScalarType::F32 => {
+            let choices = [-0.0_f32, 0.0, 0.5, -1.0, 2.0];
+            let index =
+                usize::try_from(next_random(state) % choices.len() as u64).expect("bounded index");
+            json!(choices[index])
+        }
+    }
+}
+
+fn generated_tensor(element: ScalarType, shape: &[usize], state: &mut u64) -> JsonValue {
+    if let Some((extent, rest)) = shape.split_first() {
+        JsonValue::Array(
+            (0..*extent)
+                .map(|_| generated_tensor(element, rest, state))
+                .collect(),
+        )
+    } else {
+        generated_scalar(element, state)
+    }
+}
+
+fn generate_inputs(
+    program: &Program,
+    state: &mut u64,
+    limits: &ResourceLimits,
+    accumulated_elements: &mut u64,
+) -> AgentResult<BTreeMap<String, JsonValue>> {
+    let dimensions = solve_dimensions(program, state)?;
+    program
+        .parameters
+        .iter()
+        .map(|(name, value)| {
+            let ty = &program
+                .values
+                .get(value)
+                .ok_or_else(|| mismatch("parameter value is missing"))?
+                .ty;
+            let input = match ty {
+                Type::Scalar(scalar) => generated_scalar(*scalar, state),
+                Type::Tensor { element, .. } => {
+                    let shape = concrete_shape(ty, &dimensions)?;
+                    let elements = shape.iter().try_fold(1_u64, |total, extent| {
+                        total
+                            .checked_mul(u64::try_from(*extent).unwrap_or(u64::MAX))
+                            .ok_or_else(|| mismatch("generated tensor element count overflow"))
+                    })?;
+                    *accumulated_elements = accumulated_elements.saturating_add(elements);
+                    BudgetCheck::against(
+                        limits,
+                        ResourceKind::DifferentialTensorElements,
+                        *accumulated_elements,
+                        "candidate differential inputs before tensor allocation",
+                    )?;
+                    generated_tensor(*element, &shape, state)
+                }
+            };
+            Ok((name.clone(), input))
+        })
+        .collect()
+}
+
+fn exact_json(ty: &Type, left: &JsonValue, right: &JsonValue) -> bool {
+    match ty {
+        Type::Scalar(ScalarType::Bool) => left.as_bool() == right.as_bool(),
+        Type::Scalar(ScalarType::I32 | ScalarType::Index) => left.as_i64() == right.as_i64(),
+        Type::Scalar(ScalarType::F32) => {
+            left.as_f64().map(|value| (value as f32).to_bits())
+                == right.as_f64().map(|value| (value as f32).to_bits())
+        }
+        Type::Tensor { element, .. } => {
+            let (Some(left), Some(right)) = (left.as_array(), right.as_array()) else {
+                return false;
+            };
+            left.len() == right.len()
+                && left.iter().zip(right).all(|(left, right)| {
+                    exact_json(&Type::Scalar(*element), left, right)
+                        || exact_json(
+                            &Type::Tensor {
+                                element: *element,
+                                shape: agentir_core::types::Shape(Vec::new()),
+                            },
+                            left,
+                            right,
+                        )
+                })
+        }
+    }
+}
+
+fn equivalent_results(
+    program: &Program,
+    left: &EvaluationResult,
+    right: &EvaluationResult,
+) -> bool {
+    left.dimensions == right.dimensions
+        && left.outputs.len() == right.outputs.len()
+        && program.outputs.iter().all(|(name, value)| {
+            let Some(ty) = program.values.get(value).map(|value| &value.ty) else {
+                return false;
+            };
+            left.outputs
+                .get(name)
+                .zip(right.outputs.get(name))
+                .is_some_and(|(left, right)| exact_json(ty, left, right))
+        })
+}
+
+/// Runs fixed-seed bounded SpecIR/ImplIR differential validation.
+///
+/// Testing is confidence evidence only; callers must not use this result to prove
+/// `EquivalentToSpec`.
+pub fn differential_validate(
+    spec: &Program,
+    implementation: &ImplProgram,
+    seed: u64,
+    cases: u64,
+    limits: &ResourceLimits,
+) -> AgentResult<DifferentialValidation> {
+    let generated_case_size = u64::try_from(spec.operations.len())
+        .unwrap_or(u64::MAX)
+        .saturating_add(u64::try_from(implementation.operations.len()).unwrap_or(u64::MAX));
+    BudgetCheck::against(
+        limits,
+        ResourceKind::GeneratedCandidateCaseSize,
+        generated_case_size,
+        "candidate differential graph case before input generation",
+    )?;
+    BudgetCheck::against(
+        limits,
+        ResourceKind::DifferentialCases,
+        cases,
+        "candidate differential validation before generation",
+    )?;
+    if cases == 0 {
+        return Err(AgentError::new(
+            ErrorCode::InvalidRequest,
+            "candidate differential validation requires at least one case",
+        ));
+    }
+    let mut state = seed;
+    let mut accumulated_elements = 0_u64;
+    for case in 0..cases {
+        let inputs = generate_inputs(spec, &mut state, limits, &mut accumulated_elements)?;
+        let spec_result = evaluate_with_limits(spec, &inputs, limits);
+        let impl_result = evaluate_impl_with_limits(implementation, &inputs, limits);
+        let matches = match (&spec_result, &impl_result) {
+            (Ok(left), Ok(right)) => equivalent_results(spec, left, right),
+            (Err(left), Err(right)) => left.code == right.code,
+            _ => false,
+        };
+        if !matches {
+            return Ok(DifferentialValidation {
+                seed,
+                requested_cases: cases,
+                executed_cases: case + 1,
+                passed: false,
+                counterexample: Some(json!({
+                    "case": case,
+                    "inputs": inputs,
+                    "spec_result": spec_result.map_err(|error| error.code),
+                    "impl_result": impl_result.map_err(|error| error.code),
+                })),
+            });
+        }
+    }
+    Ok(DifferentialValidation {
+        seed,
+        requested_cases: cases,
+        executed_cases: cases,
+        passed: true,
+        counterexample: None,
     })
 }

@@ -9,12 +9,14 @@
 #![warn(missing_docs)]
 
 pub mod actions;
+pub mod candidate;
 pub mod canonical;
 pub mod constraints;
 pub mod continuation;
 pub mod diagnostics;
 pub mod holes;
 pub mod ids;
+pub mod impl_ir;
 pub mod ir;
 pub mod obligations;
 pub mod persistence;
@@ -29,5 +31,5 @@ pub mod workspace;
 
 pub use actions::{Action, Transaction};
 pub use diagnostics::{AgentError, AgentResult, ErrorCode};
-pub use ids::{HoleId, RevisionId, WorkspaceId};
+pub use ids::{CandidateId, CandidateRevisionId, HoleId, RevisionId, WorkspaceId};
 pub use workspace::Workspace;

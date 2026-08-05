@@ -8,8 +8,9 @@ pub mod response;
 
 use agentir_core::{
     actions::{Action, Transaction},
+    candidate::CandidateTransaction,
     diagnostics::{AgentError, AgentResult, ErrorCode},
-    ids::{RevisionId, WorkspaceId},
+    ids::{CandidateId, CandidateRevisionId, RevisionId, WorkspaceId},
     resources::{BudgetCheck, ResourceKind, ResourceLimits},
     workspace::Workspace,
 };
@@ -73,6 +74,21 @@ impl Engine {
     ) -> AgentResult<RevisionId> {
         let workspace = self.workspace(workspace)?;
         Ok(revision.unwrap_or_else(|| workspace.head().clone()))
+    }
+
+    fn selected_candidate_revision(
+        &self,
+        workspace: &WorkspaceId,
+        candidate: &CandidateId,
+        revision: Option<CandidateRevisionId>,
+    ) -> AgentResult<CandidateRevisionId> {
+        let workspace = self.workspace(workspace)?;
+        let revision = match revision {
+            Some(revision) => revision,
+            None => workspace.candidate_query(candidate)?.head.clone(),
+        };
+        workspace.candidate_revision(candidate, &revision)?;
+        Ok(revision)
     }
 
     fn apply(
@@ -298,6 +314,135 @@ impl Engine {
                     .continuation(&revision, &hole, mode)?,
             )
             .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::CandidateCreate {
+                workspace,
+                spec_revision,
+                relation,
+                ..
+            } => serde_json::to_value(
+                self.workspace_mut(&workspace)?
+                    .candidate_create(&spec_revision, relation)?,
+            )
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::CandidateQuery {
+                workspace,
+                candidate,
+                candidate_revision,
+                ..
+            } => {
+                if let Some(revision) = candidate_revision {
+                    serde_json::to_value(
+                        self.workspace(&workspace)?
+                            .candidate_revision(&candidate, &revision)?,
+                    )
+                    .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
+                } else {
+                    serde_json::to_value(self.workspace(&workspace)?.candidate_query(&candidate)?)
+                        .map_err(|error| {
+                            AgentError::new(ErrorCode::InvalidRequest, error.to_string())
+                        })
+                }
+            }
+            Request::CandidateCheck {
+                workspace,
+                candidate,
+                candidate_revision,
+                ..
+            } => {
+                let revision =
+                    self.selected_candidate_revision(&workspace, &candidate, candidate_revision)?;
+                serde_json::to_value(
+                    self.workspace(&workspace)?
+                        .candidate_check(&candidate, &revision)?,
+                )
+                .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
+            }
+            Request::CandidateApply {
+                workspace,
+                candidate,
+                base_candidate_revision,
+                actions,
+                ..
+            } => serde_json::to_value(self.workspace_mut(&workspace)?.candidate_apply(
+                &CandidateTransaction {
+                    candidate,
+                    base_revision: base_candidate_revision,
+                    actions,
+                },
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::CandidateFork {
+                workspace,
+                candidate,
+                base_candidate_revision,
+                ..
+            } => serde_json::to_value(
+                self.workspace_mut(&workspace)?
+                    .candidate_fork(&candidate, &base_candidate_revision)?,
+            )
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::CandidateValidate {
+                workspace,
+                candidate,
+                base_candidate_revision,
+                seed,
+                cases,
+                ..
+            } => {
+                let (spec, implementation) = {
+                    let workspace_data = self.workspace(&workspace)?;
+                    let candidate_data = workspace_data.candidate_query(&candidate)?;
+                    let spec = workspace_data
+                        .revision(&candidate_data.spec_revision)?
+                        .program
+                        .clone();
+                    let implementation = workspace_data
+                        .candidate_revision(&candidate, &base_candidate_revision)?
+                        .impl_program
+                        .clone();
+                    (spec, implementation)
+                };
+                let validation = agentir_eval::differential_validate(
+                    &spec,
+                    &implementation,
+                    seed,
+                    cases,
+                    &self.limits,
+                )?;
+                serde_json::to_value(
+                    self.workspace_mut(&workspace)?
+                        .candidate_record_validation(
+                            &candidate,
+                            &base_candidate_revision,
+                            validation,
+                        )?,
+                )
+                .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
+            }
+            Request::CandidateSeal {
+                workspace,
+                candidate,
+                base_candidate_revision,
+                ..
+            } => serde_json::to_value(
+                self.workspace_mut(&workspace)?
+                    .candidate_seal(&candidate, &base_candidate_revision)?,
+            )
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::CandidateContinuation {
+                workspace,
+                candidate,
+                candidate_revision,
+                ..
+            } => {
+                let revision =
+                    self.selected_candidate_revision(&workspace, &candidate, candidate_revision)?;
+                serde_json::to_value(
+                    self.workspace(&workspace)?
+                        .candidate_continuation(&candidate, &revision)?,
+                )
+                .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
+            }
         }
     }
 

@@ -68,8 +68,8 @@ An optional `allow_branch: true` explicitly permits a transaction based on a non
 ## Commands
 
 - `workspace.open`: optional `workspace`; returns root `r0`.
-- `workspace.save`: workspace and destination `path`; writes an atomic archive v3.
-- `workspace.load`: archive v1/v2/v3 `path` and optional `replace`; verifies, migrates and replays before inserting.
+- `workspace.save`: workspace and destination `path`; writes an atomic archive v4.
+- `workspace.load`: archive v1/v2/v3/v4 `path` and optional `replace`; verifies, migrates and replays before inserting.
 - `workspace.verify_archive`: verifies checksum and replay without retaining the workspace.
 - `workspace.migrate_archive`: verifies `source_path`, migrates in memory and atomically writes `destination_path`; existing destinations require `overwrite: true`.
 - `spec.apply` and `transaction.apply`: workspace, base revision, actions and optional client transaction ID.
@@ -80,6 +80,13 @@ An optional `allow_branch: true` explicitly permits a transaction based on a non
 - `revision.fork`: `base_revision`.
 - `revision.diff`: `from` and `to`.
 - `continuation.get`: revision, hole and `mode: free | menu | hybrid`.
+- `candidate.create`: frozen `spec_revision` and optional relation (Stage 2A accepts exact equivalence only).
+- `candidate.query` / `candidate.check`: read or fully verify one candidate revision.
+- `candidate.apply`: candidate, explicit `base_candidate_revision`, and compiler-known rewrite actions.
+- `candidate.fork`: new branch identity from one immutable candidate revision.
+- `candidate.validate`: fixed seed and bounded cases; creates confidence evidence only.
+- `candidate.seal`: seals only a fully proved exact candidate.
+- `candidate.continuation`: bounded stable known-rewrite targets plus expected hash.
 
 The complete SAXPY command sequence is [examples/saxpy.jsonl](../examples/saxpy.jsonl).
 
@@ -99,7 +106,15 @@ In a fresh CLI process, restore it:
 
 The result contains archive metadata and a replay report. `replace` defaults to `false`, so an archive cannot silently overwrite an already open workspace with the same ID.
 
-Load responses also contain a migration report. A v3 source reports `workspace_archive_v3_noop`, v2 reports `workspace_archive_v2_to_v3`, and v1 reports both `workspace_archive_v1_to_v2` and `workspace_archive_v2_to_v3`.
+Load responses also contain a migration report. V4 reports `workspace_archive_v4_noop`; v3 reports `workspace_archive_v3_to_v4`; older sources report the explicit suffix of the v1 → v2 → v3 → v4 chain.
+
+## Candidate rewrite
+
+```json
+{"command":"candidate.apply","request_id":"rw","workspace":"w1","candidate":"c1","base_candidate_revision":"cr1","actions":[{"kind":"apply_known_rewrite","rule":"fold_defined_scalar_constants","target":"iop3","expected_before_impl_hash":"..."}]}
+```
+
+Stable rule IDs are `prune_unreachable_impl_nodes`, `eliminate_noop_cast` and `fold_defined_scalar_constants`. The compiler owns matching, side conditions, transformation and certificates; clients cannot submit trusted proof certificates.
 
 ## Semantic query
 
@@ -132,5 +147,7 @@ Top-level requests, ActionIR variants, transactions and inline-region objects re
 - `INVALID_CONSTRAINT` for undeclared symbols or unsupported dimension declarations;
 - `CONSTRAINT_CONTRADICTION` for a proven fact/obligation conflict;
 - `RESOURCE_LIMIT_EXCEEDED` with `resource`, `configured_limit`, `attempted`, `context` and a repair recommendation.
+
+Candidate failures use `CANDIDATE_NOT_FOUND`, `CANDIDATE_REVISION_NOT_FOUND`, `SPEC_NOT_FROZEN`, `SPEC_HASH_MISMATCH`, `IMPL_VERIFICATION_FAILED`, `REWRITE_NOT_APPLICABLE`, `REWRITE_PRECONDITION_FAILED`, `EQUIVALENCE_NOT_PROVED`, `EVIDENCE_INVALID`, `CANDIDATE_SEALED` and `UNSUPPORTED_REFINEMENT`.
 
 Resource limits are policy, not SpecIR. Archive replay uses hard safety caps; normal protocol work uses configurable interactive defaults documented in [resource-budgets.md](resource-budgets.md).

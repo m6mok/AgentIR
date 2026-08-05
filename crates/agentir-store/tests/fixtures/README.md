@@ -4,10 +4,33 @@
 - `minimal-v2.json` is the immutable Stage 1.1 v2 archive used to detect accidental codec changes. Its SHA-256 is `1e8a5a04317a5e3fbcc96fbd25ccc9b733b52ad15254aa30f98244ac9c8e8b4c`; Stage 1.2 readers must accept it, but the current writer must never regenerate it.
 - `corrupted-v1.json` has an intentionally invalid v1 envelope checksum; verification must fail before migration.
 - `future-v3.json` contains an unsupported future version header; it must be rejected without approximate decoding.
-- `minimal-v3.json` is the smallest valid current archive (root revision only).
+- `minimal-v3.json` is the smallest valid immutable Stage 1.2 archive (root revision only).
 - `saxpy-v3.json` contains two semantics-v2 events and a frozen executable SAXPY specification.
 - `mixed-v3.json` contains two migrated semantics-v1 events followed by one semantics-v2 transaction.
 - `corrupted-semantics-v3.json` has a valid v3 envelope checksum but an unsupported event semantics version and must fail before event application.
-- `future-v4.json` is an unsupported future archive header.
+- `future-v4.json` is the immutable Stage 1.2 future-version probe. In Stage 2A it is retained as a malformed-v4 codec regression input.
+- `minimal-v4.json` is the smallest current archive with an empty `CandidateForest`.
+- `saxpy-frozen-v4.json` contains frozen SAXPY with no candidates.
+- `saxpy-identity-v4.json` contains frozen SAXPY plus one identity candidate.
+- `candidate-rewrite-sealed-v4.json` contains an exact scalar fold and sealed proof chain.
+- `migrated-v3-candidate-v4.json` starts from `saxpy-v3.json`, migrates explicitly, then appends candidate history.
+- `corrupted-candidate-semantics-v4.json`, `corrupted-impl-hash-v4.json`, `corrupted-candidate-hash-v4.json`, `corrupted-spec-anchor-v4.json` and `corrupted-evidence-chain-v4.json` each retain a valid v4 envelope checksum while corrupting one candidate contract; all must fail before publication.
+- `future-v5.json` is the current unsupported future-version probe.
+
+Pinned SHA-256 fixture bytes for the valid v4 corpus:
+
+- `minimal-v4.json`: `2975f4a4be4977b182a52a46b5b9e4708635a495b0d45ff901b96eaabff467da`;
+- `saxpy-frozen-v4.json`: `0b3ba9b5bed36ea2bd5eb1211a7dc1264ae38e1ac29691bf3218e2656ea7c354`;
+- `saxpy-identity-v4.json`: `4c3defbf034202db5f9c1587b14b7d4443cf86d1596ea89dca41d0ef3149b22c`;
+- `candidate-rewrite-sealed-v4.json`: `7231bff4e9e13e9efe84f33cf0ad309b56b859f80c86d80900bd447d0df25d5b`;
+- `migrated-v3-candidate-v4.json`: `3fc4e8df8c4f5cd5d2ec56a1af28fbe28ba1f4dd2128e1a501030a54002cec0a`.
+
+Pinned SHA-256 bytes for the corrupted v4 corpus:
+
+- `corrupted-candidate-semantics-v4.json`: `00eb715dde95197f850999dc5bf6f556b3f8a3df4267235c36a451a51380f443`;
+- `corrupted-impl-hash-v4.json`: `5963735c7940237485230c8b6ce97c1d6be30bb34b5c977043afc1ef16b5277a`;
+- `corrupted-candidate-hash-v4.json`: `46a11425db59a07e87a8a0234a7de0e49f97cdd504f6ae78b1ad6aa39ebeb0ab`;
+- `corrupted-spec-anchor-v4.json`: `7c090474372961998219bacb52ea5019de45da576809b23386938c4c4be1fcef`;
+- `corrupted-evidence-chain-v4.json`: `471f98c1d20c4e1ccb74f690f7b09e66669dd125a6cdf8b78f458f5d34a565ef`.
 
 The compact one-line encoding is intentional: integrity hashes cover the exact deterministic body codec defined by each version's Rust structs. The historical `future-v3.json` remains immutable even though v3 is now current; it is now a malformed v3 regression input rather than the canonical future-version fixture.

@@ -1,24 +1,30 @@
 # Glossary
 
 - **ActionIR** — typed algebra of graph edits submitted by an agent.
-- **Archive** — checksummed versioned encoding of a workspace snapshot and replay log; v1/v2 are immutable legacy inputs and v3 is current.
+- **Archive** — checksummed versioned workspace encoding; v1/v2/v3 are immutable legacy inputs and v4 is current.
 - **Archive hash** — version-specific integrity hash of a concrete archive body.
 - **Canonical state** — deterministic serialized `Program` used for the history-sensitive `content_hash` and replay.
 - **Compiler core** — transport-independent verifier and workspace state machine.
 - **Compiler semantics version** — event-level selector for historical transaction inference and obligation behavior; independent of archive format.
+- **Candidate semantics version** — independent selector for CandidateForest event replay; Stage 2A uses v1.
+- **Candidate** — one persistent ImplIR branch anchored to an immutable frozen `spec_hash`.
+- **Candidate hash** — history-sensitive exact identity of one candidate revision, including IDs, proof chain and evidence references.
+- **CandidateForest** — independent collection of immutable candidate revision DAGs, EvidenceIR and candidate allocator/event state.
 - **ConstraintFacts** — deterministic derived equality/static-binding model used to query and discharge shape relations.
 - **ContinuationFrame** — parameteric description of legal next choices for a focused task.
 - **Hole** — missing pure value with a persistent ID and required type/shape.
-- **ImplIR** — future layer describing an algorithmic implementation of frozen SpecIR.
+- **EvidenceIR** — deterministic correctness/confidence records with hashes, method, parameters, result and provenance.
+- **Impl hash** — history-independent identity of reachable typed ImplIR semantics.
+- **ImplIR** — separate typed functional graph describing one implementation of frozen SpecIR.
 - **MemoryIR** — future layer describing physical storage and mutation.
 - **Obligation** — explicit proposition that is open, proved, refuted or unsupported.
 - **Persistent ID** — compiler-assigned identity such as `v4`, `h1` or `r2`.
 - **Region** — closed pure block with typed arguments, explicit captures and a yield.
 - **Revision** — immutable workspace snapshot with parent links and content hash.
-- **Resource limit** — runtime workload policy excluded from `content_hash`, `spec_hash` and `archive_hash` bodies.
+- **Resource limit** — runtime workload policy excluded from all SpecIR/ImplIR/candidate semantic or exact hashes.
 - **ScheduleIR** — future mapping of work to target hardware.
 - **SpecIR** — functional graph describing what must be computed.
 - **Semantic canonical form** — versioned, alpha-normalized output-reachable representation of frozen SpecIR.
 - **Spec hash** — domain-separated SHA-256 identity of semantic canonical form, independent of compiler IDs and construction history.
 - **Temporary binding** — `$name` usable only within one transaction.
-- **Workspace** — revision DAG plus compiler-owned ID state; it is live in memory and may be persisted to a verified local archive.
+- **Workspace** — SpecIR revision DAG plus independent CandidateForest and compiler-owned allocators; it may be persisted only after complete replay verification.

@@ -1,0 +1,7 @@
+{"command":"workspace.open","request_id":"open","workspace":"w1"}
+{"command":"spec.apply","request_id":"build","workspace":"w1","base_revision":"r0","actions":[{"kind":"define_dimension","bind":"$N","name":"N","constraints":["N >= 0"]},{"kind":"create_parameter","bind":"$a","name":"a","type":"f32"},{"kind":"create_parameter","bind":"$x","name":"x","type":"tensor<f32,[$N]>"},{"kind":"create_parameter","bind":"$y","name":"y","type":"tensor<f32,[$N]>"},{"kind":"create_op","bind":"$out","opcode":"zip_map","operands":["$x","$y"],"region":{"arguments":[{"name":"xi","type":"f32"},{"name":"yi","type":"f32"}],"captures":["$a"],"operations":[{"bind":"$result","opcode":"fma","operands":["$a","xi","yi"]}],"yield_value":"$result"}},{"kind":"set_output","name":"out","value":"$out"}]}
+{"command":"spec.freeze","request_id":"freeze","workspace":"w1","base_revision":"r1"}
+{"command":"candidate.create","request_id":"candidate-create","workspace":"w1","spec_revision":"r2"}
+{"command":"candidate.check","request_id":"candidate-check","workspace":"w1","candidate":"c1"}
+{"command":"candidate.validate","request_id":"candidate-validate","workspace":"w1","candidate":"c1","base_candidate_revision":"cr1","seed":17,"cases":16}
+{"command":"candidate.seal","request_id":"candidate-seal","workspace":"w1","candidate":"c1","base_candidate_revision":"cr2"}

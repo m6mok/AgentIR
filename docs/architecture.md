@@ -10,17 +10,27 @@ agentir-protocol ── stateful workspace registry and response envelope
 agentir-core ────── budget → resolve → fact-aware infer → verify → atomic commit → Revision
   ↓ frozen SpecIR
 semantic codec ─── alpha-normalize → reachable DAG → spec_hash
-  ↓ frozen Program
-agentir-eval ────── deterministic CPU semantic oracle
+  ↓ identity lowering
+ImplIR ──────────── separate typed graph → verify → impl_hash
+  ↓ trusted exact rewrites
+CandidateForest ─── atomic candidate revisions → certificates → candidate_hash
+  ↓ SpecIR + ImplIR
+agentir-eval ────── deterministic CPU semantic/differential oracle
 
-agentir-core snapshot/versioned event log
+agentir-core snapshot/SpecIR+candidate event logs
   ↓
 agentir-store ───── version sniff → source checksum → migrate → replay
   ↓ save/migrate
-archive v3 ─────── checksum → temp write + sync → atomic rename
+archive v4 ─────── checksum → temp write + sync → atomic rename
 ```
 
 The dependency direction is one-way: `core` knows nothing about JSONL sessions, evaluation input encoding or filesystems; `eval` and `store` depend on `core`; `protocol` composes them; `cli` only streams lines.
+
+## Candidate boundary
+
+ImplIR is not an attribute-bearing SpecIR. Candidate identities, revisions, evidence and rewrite provenance evolve independently while the candidate retains one immutable frozen `spec_hash`. The candidate allocator is separate so adding Stage 2A cannot change historical SpecIR ID allocation or `content_hash` replay.
+
+Exact rules are registry-owned. Each accepted action verifies side conditions, stages the graph, re-runs the ImplIR verifier and appends a certificate whose hashes compose from identity lowering to current ImplIR. Differential evaluation is confidence evidence only.
 
 ## Canonical program
 
@@ -56,4 +66,4 @@ The core derives frames from the same verified program used by free transactions
 
 ## Persistence boundary
 
-The core snapshot contains the complete revision DAG, allocator state and ordered transaction/fork events. Loading never trusts a serialized graph directly: `agentir-store` reads bounded bytes, selects the source codec, checks that version's envelope, runs the explicit migration registry, then core replay rebuilds history and verifies content/status/spec hashes. Only a fully verified workspace is inserted into the protocol engine. See [persistence.md](persistence.md).
+The core snapshot contains the complete SpecIR revision DAG/allocator/events plus CandidateForest, candidate allocator, EvidenceIR and candidate events. Loading never trusts serialized graphs directly: `agentir-store` checks the exact source codec/hash, migrates, replays SpecIR, verifies its hashes, then replays candidate semantics and verifies ImplIR/candidate/evidence chains. Only the complete verified workspace is published. See [persistence.md](persistence.md).

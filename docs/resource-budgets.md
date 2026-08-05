@@ -27,6 +27,16 @@
 | elements per evaluation tensor | 10,000,000 | 100,000,000 |
 | total evaluation elements | 50,000,000 | 500,000,000 |
 | generated property/fuzz case size | 10,000 | 100,000 |
+| candidates / branches per workspace | 10,000 / 10,000 | 100,000 / 100,000 |
+| candidate revisions/events | 100,000 / 100,000 | 250,000 / 250,000 |
+| candidate actions per transaction | 1,024 | 100,000 |
+| ImplIR operations/values | 100,000 / 120,000 | 1,000,000 / 1,200,000 |
+| rewrite matches/steps | 10,000 / 10,000 | 100,000 / 100,000 |
+| evidence records/bytes | 100,000 / 64 MiB | 1,000,000 / 128 MiB |
+| open equivalence obligations | 10,000 | 100,000 |
+| differential cases/elements | 256 / 1,000,000 | 10,000 / 100,000,000 |
+| candidate canonical bytes | 64 MiB | 128 MiB |
+| generated candidate case size | 10,000 | 100,000 |
 
 The hard profile is used only while verifying/migrating/replaying persisted state. Lower interactive configuration therefore cannot arbitrarily make an archive unreplayable when it remains inside hard safety caps. A loaded workspace receives normal interactive defaults after successful publication.
 
@@ -40,7 +50,11 @@ The hard profile is used only while verifying/migrating/replaying persisted stat
 - Exact and semantic canonical encoders check byte size before hashing/publication.
 - Store checks archive bytes during bounded read and checks revision/event/replayed-action counts before event application.
 - Evaluator limits each input while flattening and projects every typed tensor plus total graph elements before allocating operation outputs.
+- Candidate creation checks branch count before candidate ID allocation; candidate transactions check action count before graph clone.
+- Rewrites check projected ImplIR/proof size before allocation; continuations stop at the deterministic match cap.
+- Differential validation checks cases and accumulated tensor elements before generated arrays; EvidenceIR bytes are checked before publication.
+- Store checks candidate event/revision/evidence counts before candidate replay, which always uses hard safety caps.
 
 At exact limit the workload is accepted. Limit plus one returns `RESOURCE_LIMIT_EXCEEDED` with the resource kind, configured limit, attempted/actual value, context and a repair. Because graph/allocator/head state is staged, budget rejection is fully atomic.
 
-These are robustness limits, not a multi-tenant security sandbox. Stage 1.2 still has no process isolation, authentication, locking or production server boundary.
+These are robustness limits, not a multi-tenant security sandbox. Stage 2A still has no process isolation, authentication, locking or production server boundary.

@@ -123,3 +123,43 @@ Potential persistent references inside generic semantic attributes are rejected 
 **Why.** Single-shot nanosecond values are too noisy for regressions or architectural comparisons. Median describes the typical local run and p95 exposes tail instability without pretending that the reference interpreter is a GPU benchmark.
 
 **Alternatives.** Criterion and a heavyweight fuzz framework remain deferred. Fixed-seed bounded property/mutation corpora and a small standard-library timing harness provide reproducible Stage 1.2 coverage with minimal dependencies.
+
+## ADR-019: ImplIR is a separate typed graph
+
+**Decision.** Stage 2A introduces `ImplProgram`, `ImplOperation`, `ImplValue`, `ImplRegion` and `ImplOutput` as distinct types. A verifier/evaluator adapter may translate them into the shared pure operation semantics internally, but ImplIR is never a `Program` alias or a mode bit on SpecIR. Identity lowering copies the complete reachable ordered computation and external interface while issuing independent `iop*`/`iv*` IDs and source links.
+
+**Why.** SpecIR remains the immutable statement of what to compute. Implementation provenance, revision history and later algorithm choices must evolve without mutating or semantically overloading that contract.
+
+## ADR-020: CandidateForest and candidate revision DAG
+
+**Decision.** A workspace owns an independent `CandidateForest`. Each `c*` branch anchors one frozen SpecIR revision and immutable `spec_hash`, owns a `cr*` revision DAG and uses a candidate-only monotonic allocator. Candidate transactions name an explicit base candidate revision and stage the entire forest, so rejection consumes no IDs or evidence and changes no head. Forking creates a new candidate identity; a fork of a sealed revision is editable `draft` state while retaining the verified proof chain.
+
+## ADR-021: Exact compiler-owned known rewrites only
+
+**Decision.** Stage 2A accepts `prune_unreachable_impl_nodes`, fully type-identical `eliminate_noop_cast`, and defined scalar constant folds for the implemented primitive subset. Matching, side-condition discharge, transformation and certificate construction are compiler-owned. Overflow, zero division, non-finite f32 folds, stale hashes, unknown rules and non-matches reject atomically.
+
+**Deferred.** Agent-supplied `ReplaceSubgraph`, speculative rewrites, reassociation, commutation, `x+0`, FMA contraction/expansion, reduction reordering, e-graphs and saturation belong to Stage 2B or later.
+
+## ADR-022: Compositional exact equivalence certificates
+
+**Decision.** `EquivalentToSpec` is proved by an identity-lowering certificate followed by zero or more trusted known-rewrite certificates. Every edge records before/after `impl_hash`, targets, discharged conditions, semantics version and EvidenceIR reference. Verification recomputes identity lowering, checks every link and requires the terminal hash to equal current ImplIR. Testing never closes this obligation.
+
+## ADR-023: Correctness and confidence EvidenceIR are distinct
+
+**Decision.** Identity, known-rewrite and compositional certificates are correctness evidence. Fixed-seed differential/property tests are confidence evidence. Evidence is deterministic and records hashes, candidate/revision, method, normalized parameters, result and compiler semantics; no wall-clock timestamp enters candidate identity. Stage 2A stores no performance evidence.
+
+## ADR-024: Five non-substitutable hash contracts
+
+**Decision.** `Revision.content_hash` remains the exact history-sensitive SpecIR `Program` hash. `spec_hash` remains the history-independent frozen-SpecIR semantic hash. `impl_hash` uses domain `agentir.impl.semantic.v1\0`, ignores implementation IDs/source links/evidence/unreachable nodes and preserves interface, ordered operands, regions, types, constraints and `NumericContract`. `candidate_hash` uses domain `agentir.candidate.exact.v1\0` and covers exact candidate IDs, SpecIR anchor, full ImplIR IDs/state, proof chain and evidence references while excluding time/resource policy. `archive_hash` protects one exact versioned envelope. None substitutes for another.
+
+## ADR-025: Candidate semantics is an independent version axis
+
+**Decision.** Candidate events use `CANDIDATE_SEMANTICS_VERSION = 1`, independent of SpecIR core semantics v1/v2, ImplIR semantics v1, canonical codecs and archive format. Replay dispatches candidate history only after all SpecIR history and hashes verify.
+
+## ADR-026: Archive and snapshot version 4
+
+**Decision.** Archive/snapshot v1, v2 and v3 remain immutable legacy codecs. The current writer emits v4 containing the unchanged SpecIR revision DAG/event log plus `CandidateForest`, candidate allocator, EvidenceIR and versioned candidate events. Explicit v3 → v4 migration adds empty candidate state and creates no candidates. Publication follows complete SpecIR replay, candidate replay, all hash/certificate checks and forest consistency verification.
+
+## ADR-027: Stage 2A stops before memory, schedule and approximate refinement
+
+**Decision.** Stage 2A has no buffers, layouts, address spaces, raw pointers, target manifests, schedules, threads, tiles, GPU/backend integration, search/ranking, hardware benchmarks or error tolerances. Approximate refinement returns `UNSUPPORTED_REFINEMENT`. These boundaries keep the first candidate/equivalence layer auditable before physical lowering and speculative search are introduced.
