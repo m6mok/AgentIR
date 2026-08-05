@@ -138,7 +138,7 @@ fn migrate_archive_command_is_atomic_and_reports_versions() {
     let parsed: Value = serde_json::from_str(&response).expect("migration response");
     assert_eq!(parsed["ok"], true, "{response}");
     assert_eq!(parsed["result"]["source_archive_version"], 1);
-    assert_eq!(parsed["result"]["target_archive_version"], 4);
+    assert_eq!(parsed["result"]["target_archive_version"], 5);
     assert!(parsed["result"]["new_archive_hash"].as_str().is_some());
 
     let existing = engine.process_line(
@@ -316,6 +316,8 @@ fn mutation_sequence(seed: u64) -> Vec<String> {
         b"{\"command\":\"workspace.open\",\"request_id\":\"ok\"}".as_slice(),
         b"{\"command\":\"unknown\",\"request_id\":\"bad\"}".as_slice(),
         b"{\"command\":\"workspace.open\",\"request_id\":\"x\",\"workspace\":[]}".as_slice(),
+        br#"{"command":"candidate.propose","request_id":"p","workspace":"w","candidate":"c1","base_candidate_revision":"cr1","target":"iop1","replacement":{"inputs":[{"bind":"$x","value":"iv1"}],"operations":[{"bind":"$y","opcode":"cast","operands":["$x"],"attributes":{"target_type":"i32"}}],"result":{"value":"$y"}},"expected_before_impl_hash":"hash","allow_speculative":true}"#.as_slice(),
+        br#"{"command":"candidate.propose","request_id":"dup","workspace":"w","candidate":"c1","candidate":"c2","base_candidate_revision":"cr1","target":"iop1","replacement":{"inputs":[],"operations":[],"result":{"value":"$x"}},"expected_before_impl_hash":"hash"}"#.as_slice(),
     ];
     let mut state = seed;
     let mut engine = Engine::new();

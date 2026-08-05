@@ -1,9 +1,9 @@
-//! Transport-independent reference compiler core for AgentIR Stage 1.
+//! Transport-independent reference compiler core for AgentIR through Stage 2B.
 //!
 //! The crate owns canonical SpecIR state, type and shape checking, atomic
-//! ActionIR transactions, immutable revisions, typed holes, proof obligations,
-//! and continuation frames. Network and command-line transports intentionally
-//! live in separate crates.
+//! ActionIR transactions, immutable revisions, typed holes, ImplIR candidates,
+//! speculative proof debt, guarded fallback and continuation frames. Network
+//! and command-line transports intentionally live in separate crates.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -31,5 +31,5 @@ pub mod workspace;
 
 pub use actions::{Action, Transaction};
 pub use diagnostics::{AgentError, AgentResult, ErrorCode};
-pub use ids::{CandidateId, CandidateRevisionId, HoleId, RevisionId, WorkspaceId};
+pub use ids::{CandidateId, CandidateRevisionId, HoleId, ProposalId, RevisionId, WorkspaceId};
 pub use workspace::Workspace;

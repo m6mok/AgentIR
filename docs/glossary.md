@@ -1,23 +1,28 @@
 # Glossary
 
 - **ActionIR** — typed algebra of graph edits submitted by an agent.
-- **Archive** — checksummed versioned workspace encoding; v1/v2/v3 are immutable legacy inputs and v4 is current.
+- **Archive** — checksummed versioned workspace encoding; v1/v2/v3/v4 are immutable legacy inputs and v5 is current.
 - **Archive hash** — version-specific integrity hash of a concrete archive body.
 - **Canonical state** — deterministic serialized `Program` used for the history-sensitive `content_hash` and replay.
 - **Compiler core** — transport-independent verifier and workspace state machine.
 - **Compiler semantics version** — event-level selector for historical transaction inference and obligation behavior; independent of archive format.
-- **Candidate semantics version** — independent selector for CandidateForest event replay; Stage 2A uses v1.
+- **Candidate semantics version** — independent selector for CandidateForest event replay; exact history uses v1 and Stage 2B proposal/validation history uses v2.
 - **Candidate** — one persistent ImplIR branch anchored to an immutable frozen `spec_hash`.
-- **Candidate hash** — history-sensitive exact identity of one candidate revision, including IDs, proof chain and evidence references.
+- **Candidate hash** — per-revision v1/v2 history-sensitive exact identity including IDs, proof state and evidence references.
 - **CandidateForest** — independent collection of immutable candidate revision DAGs, EvidenceIR and candidate allocator/event state.
 - **ConstraintFacts** — deterministic derived equality/static-binding model used to query and discharge shape relations.
 - **ContinuationFrame** — parameteric description of legal next choices for a focused task.
 - **Hole** — missing pure value with a persistent ID and required type/shape.
 - **EvidenceIR** — deterministic correctness/confidence records with hashes, method, parameters, result and provenance.
+- **Guarded fallback** — candidate-level compiler guard selecting a conditional primary or immutable proved exact fallback lazily.
 - **Impl hash** — history-independent identity of reachable typed ImplIR semantics.
 - **ImplIR** — separate typed functional graph describing one implementation of frozen SpecIR.
 - **MemoryIR** — future layer describing physical storage and mutation.
 - **Obligation** — explicit proposition that is open, proved, refuted or unsupported.
+- **Proof debt** — ordered persistent speculative obligations connecting consecutive implementation hashes.
+- **Proof frontier** — last consecutive candidate prefix whose exact equivalence has compiler-owned proof; it may lag behind head.
+- **Proposal hash** — domain-separated identity of an alpha-normalized replacement proposal before persistent ImplIR ID allocation.
+- **Speculative proposal** — typed replacement fragment accepted with explicit opt-in but not treated as correctness evidence.
 - **Persistent ID** — compiler-assigned identity such as `v4`, `h1` or `r2`.
 - **Region** — closed pure block with typed arguments, explicit captures and a yield.
 - **Revision** — immutable workspace snapshot with parent links and content hash.

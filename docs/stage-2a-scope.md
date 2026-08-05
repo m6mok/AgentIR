@@ -1,4 +1,6 @@
-# Stage 2A contract
+# Stage 2A foundation contract
+
+This document describes the immutable exact foundation retained by Stage 2B. The speculative additions and their trust boundary are specified separately in [stage-2b-scope.md](stage-2b-scope.md).
 
 Stage 2A adds exact candidate implementations without widening the physical compiler stack.
 
@@ -21,4 +23,4 @@ SpecIR remains authoritative, frozen and unchanged. A candidate never changes it
 
 ## Explicitly deferred
 
-Arbitrary or agent-proposed rewrites, speculative acceptance, approximate refinement, e-graphs/saturation, beam/population search, candidate ranking, learned cost models, hardware measurement, MemoryIR/bufferization/aliasing, ScheduleIR/tiling/fusion, TargetManifest, GPU/LLVM/MLIR lowering and artifacts are outside Stage 2A.
+Arbitrary multi-target replacement, approximate refinement, e-graphs/saturation, beam/population search, candidate ranking, learned cost models, hardware measurement, MemoryIR/bufferization/aliasing, ScheduleIR/tiling/fusion, TargetManifest, GPU/LLVM/MLIR lowering and artifacts remain outside the Stage 2A foundation. Stage 2B adds only bounded single-target proposals, explicit debt and restricted guarded fallback without changing these exact contracts.

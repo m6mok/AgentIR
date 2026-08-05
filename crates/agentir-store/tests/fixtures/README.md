@@ -9,13 +9,15 @@
 - `mixed-v3.json` contains two migrated semantics-v1 events followed by one semantics-v2 transaction.
 - `corrupted-semantics-v3.json` has a valid v3 envelope checksum but an unsupported event semantics version and must fail before event application.
 - `future-v4.json` is the immutable Stage 1.2 future-version probe. In Stage 2A it is retained as a malformed-v4 codec regression input.
-- `minimal-v4.json` is the smallest current archive with an empty `CandidateForest`.
+- `minimal-v4.json` is the smallest immutable Stage 2A archive with an empty `CandidateForest`.
 - `saxpy-frozen-v4.json` contains frozen SAXPY with no candidates.
 - `saxpy-identity-v4.json` contains frozen SAXPY plus one identity candidate.
 - `candidate-rewrite-sealed-v4.json` contains an exact scalar fold and sealed proof chain.
 - `migrated-v3-candidate-v4.json` starts from `saxpy-v3.json`, migrates explicitly, then appends candidate history.
 - `corrupted-candidate-semantics-v4.json`, `corrupted-impl-hash-v4.json`, `corrupted-candidate-hash-v4.json`, `corrupted-spec-anchor-v4.json` and `corrupted-evidence-chain-v4.json` each retain a valid v4 envelope checksum while corrupting one candidate contract; all must fail before publication.
-- `future-v5.json` is the current unsupported future-version probe.
+- `future-v5.json` is the immutable Stage 2A future-version probe. In Stage 2B it is retained as a malformed-v5 codec regression input.
+- The v5 corpus is generated reproducibly with `cargo run -p agentir-store --example generate_v5_fixtures`. It covers a minimal workspace, exact v4 migration, open speculative debt, recognized promotion, guarded and sealed-guarded execution, refutation, mixed candidate semantics, and valid-envelope corruption at every new integrity boundary.
+- `future-v6.json` is the current unsupported future-version probe.
 
 Pinned SHA-256 fixture bytes for the valid v4 corpus:
 
@@ -33,4 +35,25 @@ Pinned SHA-256 bytes for the corrupted v4 corpus:
 - `corrupted-spec-anchor-v4.json`: `7c090474372961998219bacb52ea5019de45da576809b23386938c4c4be1fcef`;
 - `corrupted-evidence-chain-v4.json`: `471f98c1d20c4e1ccb74f690f7b09e66669dd125a6cdf8b78f458f5d34a565ef`.
 
-The compact one-line encoding is intentional: integrity hashes cover the exact deterministic body codec defined by each version's Rust structs. The historical `future-v3.json` remains immutable even though v3 is now current; it is now a malformed v3 regression input rather than the canonical future-version fixture.
+Pinned SHA-256 bytes for the valid v5 corpus:
+
+- `minimal-v5.json`: `315f39f987119285e7e441962515ef1a09bbb384686fbb989e8b49665906bf17`;
+- `migrated-v4-exact-v5.json`: `aab676dba60973349f5dca3e8faf6c93439259cf880108d6ec9d03447bb55b3f`;
+- `speculative-open-v5.json`: `e713531ffda0dca2625c67db6f53ea950be050c5500f351bd001a53653cd0b9f`;
+- `recognized-known-rewrite-v5.json`: `1869110f297be26ebea70b0b4f5b2ebb5a54b820dad41542e6ff17e76fef4c78`;
+- `guarded-candidate-v5.json` and `mixed-candidate-semantics-v5.json`: `d898a7b83ce8cc6ec09665fb097205ecd0f9b2e7b132dedbc38d18eef0404d1d`;
+- `sealed-guarded-v5.json`: `3639d7aa6b92e4b067b2fbc8f931d7e31038b1e0e72f8a7fd5f755732c9c5bab`;
+- `refuted-candidate-v5.json`: `70dec571e21ac4c85c8b144c22e11fe10ec133f40fd6373db4df5131899a91e7`.
+
+Pinned SHA-256 bytes for the corrupted v5 corpus:
+
+- `corrupted-proposal-hash-v5.json`: `6175a11031588ad115f5e2be4cf0b7db72dc11e4ea1839c8720186e9e42348b2`;
+- `corrupted-proof-frontier-v5.json`: `a48ab7fe4df2410ddf6726cba577c12d65cfdac8b58a389bbd50c55814b9a240`;
+- `corrupted-debt-chain-v5.json`: `3754bde2dd805d39de0ed28f73e8a617d96dc595a89b0ae3977366fb2e921ddb`;
+- `corrupted-guard-v5.json`: `e40df73aefb6d83c097e95ac69c15dba7107ca02c385d41473c3754666962f47`;
+- `corrupted-fallback-v5.json`: `bb0e4601bf4fbe4debffca5b122f5406318af1a4df702808f7de91b795db73b4`;
+- `corrupted-candidate-hash-v2-v5.json`: `9b6c7d3d95394e16b926b1332f7556b1636a4eb41949ad08dc7a3703fd51c718`;
+- `corrupted-candidate-semantics-v2-v5.json`: `b7fc62546783cf545bf3de8127223143b778ffbc1e68b0b292502a3c8a7a8b2d`;
+- `future-v6.json`: `d8c46c798c5220c058408d6fb9ead73e6db5919e25a742b960b2a46741cfada0`.
+
+The compact one-line encoding is intentional: integrity hashes cover the exact deterministic body codec defined by each version's Rust structs. Historical future-version probes remain immutable regression inputs after their version becomes supported.

@@ -1,6 +1,6 @@
 # Stage 1.2 contract
 
-This document remains the frozen SpecIR-layer contract. Stage 2A builds on it without changing Stage 1 event semantics, hashes or legacy archives; see [stage-2a-scope.md](stage-2a-scope.md).
+This document remains the frozen SpecIR-layer contract. Stage 2A/2B build on it without changing Stage 1 event semantics, hashes or legacy archives; see [stage-2a-scope.md](stage-2a-scope.md) and [stage-2b-scope.md](stage-2b-scope.md).
 
 ## Goal
 
@@ -37,6 +37,6 @@ Protocol: `workspace.open`, `spec.apply`, `spec.check`, `spec.freeze`, `transact
 
 ## Explicit non-goals
 
-GPU code generation, LLVM/MLIR, MemoryIR/ScheduleIR, autotuning, distributed runtime, MCP server, UI, arbitrary textual syntax, SMT solving and production database/security are outside Stage 1. A separate exact ImplIR/CandidateForest now exists in Stage 2A, but it does not retroactively widen the SpecIR contract.
+GPU code generation, LLVM/MLIR, MemoryIR/ScheduleIR, autotuning, distributed runtime, MCP server, UI, arbitrary textual syntax, SMT solving and production database/security are outside Stage 1. Separate exact/speculative ImplIR CandidateForest layers now exist through Stage 2B, but they do not retroactively widen the SpecIR contract.
 
 For the exact source requirements, see [reference/stage-1-brief.md](reference/stage-1-brief.md), which takes precedence over the broader [AgentIR 0.1 draft](reference/agentir-spec-0.1.md) for this prototype.

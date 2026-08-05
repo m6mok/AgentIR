@@ -8,8 +8,9 @@ use agentir_core::{
     ids::{RevisionId, WorkspaceId},
     persistence::{
         LegacyWorkspaceSnapshotV1, LegacyWorkspaceSnapshotV2, LegacyWorkspaceSnapshotV3,
-        ReplayReport, VersionedWorkspaceEvent, WORKSPACE_SNAPSHOT_VERSION, WorkspaceSnapshot,
-        migrate_snapshot_v1, migrate_snapshot_v2, migrate_snapshot_v3,
+        LegacyWorkspaceSnapshotV4, ReplayReport, VersionedWorkspaceEvent,
+        WORKSPACE_SNAPSHOT_VERSION, WorkspaceSnapshot, migrate_snapshot_v1, migrate_snapshot_v2,
+        migrate_snapshot_v3, migrate_snapshot_v4,
     },
     resources::{BudgetCheck, ResourceKind, ResourceLimits},
     workspace::Workspace,
@@ -25,7 +26,10 @@ use std::{
 };
 
 /// Current on-disk archive format version.
-pub const ARCHIVE_FORMAT_VERSION: u32 = 4;
+pub const ARCHIVE_FORMAT_VERSION: u32 = 5;
+
+/// Immutable Stage 2A archive format version.
+pub const LEGACY_ARCHIVE_FORMAT_V4: u32 = 4;
 
 /// Immutable Stage 1.2 archive format version.
 pub const LEGACY_ARCHIVE_FORMAT_V3: u32 = 3;
@@ -51,11 +55,17 @@ pub const MIGRATION_V2_TO_V3: &str = "workspace_archive_v2_to_v3";
 /// Stable name of the Stage 2A migration that adds an empty CandidateForest.
 pub const MIGRATION_V3_TO_V4: &str = "workspace_archive_v3_to_v4";
 
+/// Stable name of the Stage 2B migration that preserves candidate hash v1.
+pub const MIGRATION_V4_TO_V5: &str = "workspace_archive_v4_to_v5";
+
 /// Stable name used by historical reports for an explicit v3-to-v3 no-op.
 pub const MIGRATION_V3_NOOP: &str = "workspace_archive_v3_noop";
 
 /// Stable name used to report an explicit v4-to-v4 no-op.
 pub const MIGRATION_V4_NOOP: &str = "workspace_archive_v4_noop";
+
+/// Stable name used to report an explicit v5-to-v5 no-op.
+pub const MIGRATION_V5_NOOP: &str = "workspace_archive_v5_noop";
 
 /// Retained Stage 1.1 report name; v2 source loads now use `MIGRATION_V2_TO_V3`.
 pub const MIGRATION_V2_NOOP: &str = "workspace_archive_v2_noop";
@@ -85,8 +95,13 @@ pub const ARCHIVE_MIGRATIONS: &[MigrationStep] = &[
     },
     MigrationStep {
         source_version: LEGACY_ARCHIVE_FORMAT_V3,
-        target_version: ARCHIVE_FORMAT_VERSION,
+        target_version: LEGACY_ARCHIVE_FORMAT_V4,
         name: MIGRATION_V3_TO_V4,
+    },
+    MigrationStep {
+        source_version: LEGACY_ARCHIVE_FORMAT_V4,
+        target_version: ARCHIVE_FORMAT_VERSION,
+        name: MIGRATION_V4_TO_V5,
     },
 ];
 
@@ -118,6 +133,14 @@ struct ArchiveBodyV3 {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct ArchiveBodyV4 {
+    format: String,
+    format_version: u32,
+    compiler_version: String,
+    snapshot: LegacyWorkspaceSnapshotV4,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+struct ArchiveBodyV5 {
     format: String,
     format_version: u32,
     compiler_version: String,
@@ -175,10 +198,7 @@ pub struct WorkspaceArchiveV3 {
     pub archive_hash: String,
 }
 
-/// Current workspace archive type retained as a convenient API alias.
-pub type WorkspaceArchive = WorkspaceArchiveV4;
-
-/// Current self-checking workspace archive containing CandidateForest and EvidenceIR.
+/// Immutable Stage 2A workspace archive containing CandidateForest v1 and EvidenceIR.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct WorkspaceArchiveV4 {
     /// Stable format discriminator.
@@ -187,9 +207,27 @@ pub struct WorkspaceArchiveV4 {
     pub format_version: u32,
     /// AgentIR crate version that wrote the archive.
     pub compiler_version: String,
-    /// Current compiler-core snapshot schema.
-    pub snapshot: WorkspaceSnapshot,
+    /// Immutable Stage 2A compiler-core snapshot schema.
+    pub snapshot: LegacyWorkspaceSnapshotV4,
     /// SHA-256 of the deterministic v4 archive body.
+    pub archive_hash: String,
+}
+
+/// Current workspace archive type retained as a convenient API alias.
+pub type WorkspaceArchive = WorkspaceArchiveV5;
+
+/// Current self-checking v5 workspace archive with Stage 2B candidate state.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WorkspaceArchiveV5 {
+    /// Stable format discriminator.
+    pub format: String,
+    /// Current on-disk format version, always five.
+    pub format_version: u32,
+    /// AgentIR crate version that wrote the archive.
+    pub compiler_version: String,
+    /// Current compiler-core snapshot schema v5.
+    pub snapshot: WorkspaceSnapshot,
+    /// SHA-256 of the deterministic v5 archive body.
     pub archive_hash: String,
 }
 
@@ -252,6 +290,7 @@ enum DecodedArchive {
     V2(WorkspaceArchiveV2),
     V3(WorkspaceArchiveV3),
     V4(WorkspaceArchiveV4),
+    V5(WorkspaceArchiveV5),
 }
 
 fn io_error(operation: &str, path: &Path, error: &std::io::Error) -> AgentError {
@@ -292,6 +331,15 @@ fn v3_body(archive: &WorkspaceArchiveV3) -> ArchiveBodyV3 {
 
 fn v4_body(archive: &WorkspaceArchiveV4) -> ArchiveBodyV4 {
     ArchiveBodyV4 {
+        format: archive.format.clone(),
+        format_version: archive.format_version,
+        compiler_version: archive.compiler_version.clone(),
+        snapshot: archive.snapshot.clone(),
+    }
+}
+
+fn v5_body(archive: &WorkspaceArchiveV5) -> ArchiveBodyV5 {
+    ArchiveBodyV5 {
         format: archive.format.clone(),
         format_version: archive.format_version,
         compiler_version: archive.compiler_version.clone(),
@@ -355,6 +403,22 @@ fn metadata_v3(archive: &WorkspaceArchiveV3, bytes: usize) -> ArchiveMetadata {
 }
 
 fn metadata_v4(archive: &WorkspaceArchiveV4, bytes: usize) -> ArchiveMetadata {
+    ArchiveMetadata {
+        format_version: archive.format_version,
+        workspace: archive.snapshot.workspace.clone(),
+        head: archive.snapshot.head.clone(),
+        revisions: archive.snapshot.revisions.len(),
+        events: archive
+            .snapshot
+            .events
+            .len()
+            .saturating_add(archive.snapshot.candidate_event_count()),
+        archive_hash: archive.archive_hash.clone(),
+        bytes,
+    }
+}
+
+fn metadata_v5(archive: &WorkspaceArchiveV5, bytes: usize) -> ArchiveMetadata {
     ArchiveMetadata {
         format_version: archive.format_version,
         workspace: archive.snapshot.workspace.clone(),
@@ -439,6 +503,41 @@ fn validate_candidate_snapshot_counts(
     )
 }
 
+fn validate_legacy_candidate_snapshot_counts(
+    snapshot: &LegacyWorkspaceSnapshotV4,
+) -> AgentResult<()> {
+    let limits = ResourceLimits::hard_safety_caps();
+    let (candidates, revisions, evidence) = snapshot.candidate_counts();
+    for (resource, actual) in [
+        (
+            ResourceKind::CandidatesPerWorkspace,
+            u64::try_from(candidates).unwrap_or(u64::MAX),
+        ),
+        (ResourceKind::CandidateRevisionsPerWorkspace, revisions),
+        (
+            ResourceKind::CandidateEventsPerArchive,
+            u64::try_from(snapshot.candidate_event_count()).unwrap_or(u64::MAX),
+        ),
+        (
+            ResourceKind::EvidenceRecords,
+            u64::try_from(evidence).unwrap_or(u64::MAX),
+        ),
+    ] {
+        BudgetCheck::against(
+            &limits,
+            resource,
+            actual,
+            "legacy candidate archive preflight",
+        )?;
+    }
+    BudgetCheck::against(
+        &limits,
+        ResourceKind::EvidenceBytes,
+        snapshot.evidence_encoded_bytes()?,
+        "legacy candidate archive preflight",
+    )
+}
+
 fn legacy_event_actions(events: &[agentir_core::persistence::WorkspaceEvent]) -> u64 {
     events.iter().fold(0_u64, |total, event| {
         total.saturating_add(match event {
@@ -508,16 +607,18 @@ fn validate_header(header: &ArchiveHeader) -> AgentResult<()> {
         LEGACY_ARCHIVE_FORMAT_VERSION
             | LEGACY_ARCHIVE_FORMAT_V2
             | LEGACY_ARCHIVE_FORMAT_V3
+            | LEGACY_ARCHIVE_FORMAT_V4
             | ARCHIVE_FORMAT_VERSION
     ) {
         return Err(AgentError::new(
             ErrorCode::PersistenceFormat,
             format!(
-                "unsupported archive version {}; supported versions are {}, {}, {}, and {}",
+                "unsupported archive version {}; supported versions are {}, {}, {}, {}, and {}",
                 header.format_version,
                 LEGACY_ARCHIVE_FORMAT_VERSION,
                 LEGACY_ARCHIVE_FORMAT_V2,
                 LEGACY_ARCHIVE_FORMAT_V3,
+                LEGACY_ARCHIVE_FORMAT_V4,
                 ARCHIVE_FORMAT_VERSION
             ),
         ));
@@ -596,7 +697,7 @@ fn decode_archive_bytes(bytes: &[u8]) -> AgentResult<DecodedArchive> {
             }
             Ok(DecodedArchive::V3(archive))
         }
-        ARCHIVE_FORMAT_VERSION => {
+        LEGACY_ARCHIVE_FORMAT_V4 => {
             let archive: WorkspaceArchiveV4 = serde_json::from_slice(bytes).map_err(|error| {
                 AgentError::new(
                     ErrorCode::PersistenceFormat,
@@ -614,18 +715,36 @@ fn decode_archive_bytes(bytes: &[u8]) -> AgentResult<DecodedArchive> {
             }
             Ok(DecodedArchive::V4(archive))
         }
+        ARCHIVE_FORMAT_VERSION => {
+            let archive: WorkspaceArchiveV5 = serde_json::from_slice(bytes).map_err(|error| {
+                AgentError::new(
+                    ErrorCode::PersistenceFormat,
+                    format!("archive v5 JSON is invalid: {error}"),
+                )
+            })?;
+            let actual_hash = serialized_hash(&v5_body(&archive))?;
+            if actual_hash != archive.archive_hash {
+                return Err(AgentError::new(
+                    ErrorCode::PersistenceIntegrity,
+                    "workspace archive v5 checksum does not match its body",
+                )
+                .with_detail("expected_hash", archive.archive_hash.clone())
+                .with_detail("actual_hash", actual_hash));
+            }
+            Ok(DecodedArchive::V5(archive))
+        }
         _ => unreachable!("validated archive version"),
     }
 }
 
-fn current_archive(snapshot: WorkspaceSnapshot) -> AgentResult<WorkspaceArchiveV4> {
-    let body = ArchiveBodyV4 {
+fn current_archive(snapshot: WorkspaceSnapshot) -> AgentResult<WorkspaceArchiveV5> {
+    let body = ArchiveBodyV5 {
         format: ARCHIVE_KIND.to_owned(),
         format_version: ARCHIVE_FORMAT_VERSION,
         compiler_version: env!("CARGO_PKG_VERSION").to_owned(),
         snapshot,
     };
-    Ok(WorkspaceArchiveV4 {
+    Ok(WorkspaceArchiveV5 {
         format: body.format.clone(),
         format_version: body.format_version,
         compiler_version: body.compiler_version.clone(),
@@ -634,7 +753,7 @@ fn current_archive(snapshot: WorkspaceSnapshot) -> AgentResult<WorkspaceArchiveV
     })
 }
 
-fn encode_archive(archive: &WorkspaceArchiveV4) -> AgentResult<Vec<u8>> {
+fn encode_archive(archive: &WorkspaceArchiveV5) -> AgentResult<Vec<u8>> {
     let mut encoded = serde_json::to_vec(archive).map_err(|error| {
         AgentError::new(
             ErrorCode::PersistenceFormat,
@@ -691,7 +810,8 @@ pub fn migrate_archive_v1_to_v2(archive: WorkspaceArchiveV1) -> AgentResult<Work
     let migrated_v2 = migrate_snapshot_v1(archive.snapshot)?;
     let migrated_v3 = migrate_snapshot_v2(migrated_v2)?;
     let migrated_v4 = migrate_snapshot_v3(migrated_v3)?;
-    let (workspace, _replay) = Workspace::from_legacy_migrated_snapshot(migrated_v4)?;
+    let migrated_v5 = migrate_snapshot_v4(migrated_v4)?;
+    let (workspace, _replay) = Workspace::from_legacy_migrated_snapshot(migrated_v5)?;
     let snapshot = workspace.snapshot();
     let snapshot = LegacyWorkspaceSnapshotV2 {
         schema_version: LEGACY_ARCHIVE_FORMAT_V2,
@@ -766,7 +886,37 @@ pub fn migrate_archive_v3_to_v4(archive: WorkspaceArchiveV3) -> AgentResult<Work
             "workspace archive v3 checksum does not match its body",
         ));
     }
-    current_archive(migrate_snapshot_v3(archive.snapshot)?)
+    let body = ArchiveBodyV4 {
+        format: ARCHIVE_KIND.to_owned(),
+        format_version: LEGACY_ARCHIVE_FORMAT_V4,
+        compiler_version: env!("CARGO_PKG_VERSION").to_owned(),
+        snapshot: migrate_snapshot_v3(archive.snapshot)?,
+    };
+    Ok(WorkspaceArchiveV4 {
+        format: body.format.clone(),
+        format_version: body.format_version,
+        compiler_version: body.compiler_version.clone(),
+        snapshot: body.snapshot.clone(),
+        archive_hash: serialized_hash(&body)?,
+    })
+}
+
+/// Purely verifies and migrates immutable archive v4 to current archive v5.
+pub fn migrate_archive_v4_to_v5(archive: WorkspaceArchiveV4) -> AgentResult<WorkspaceArchiveV5> {
+    if archive.format != ARCHIVE_KIND || archive.format_version != LEGACY_ARCHIVE_FORMAT_V4 {
+        return Err(AgentError::new(
+            ErrorCode::PersistenceFormat,
+            "v4 migration received a non-v4 workspace archive",
+        ));
+    }
+    let actual_hash = serialized_hash(&v4_body(&archive))?;
+    if actual_hash != archive.archive_hash {
+        return Err(AgentError::new(
+            ErrorCode::PersistenceIntegrity,
+            "workspace archive v4 checksum does not match its body",
+        ));
+    }
+    current_archive(migrate_snapshot_v4(archive.snapshot)?)
 }
 
 fn prepare(
@@ -781,8 +931,9 @@ fn prepare(
                 archive.snapshot.events.len(),
                 legacy_event_actions(&archive.snapshot.events),
             )?;
-            let migrated =
-                migrate_snapshot_v3(migrate_snapshot_v2(migrate_snapshot_v1(archive.snapshot)?)?)?;
+            let migrated = migrate_snapshot_v4(migrate_snapshot_v3(migrate_snapshot_v2(
+                migrate_snapshot_v1(archive.snapshot)?,
+            )?)?)?;
             let report = MigrationReport {
                 source_archive_version: LEGACY_ARCHIVE_FORMAT_VERSION,
                 target_archive_version: ARCHIVE_FORMAT_VERSION,
@@ -814,11 +965,16 @@ fn prepare(
                 legacy_event_actions(&archive.snapshot.events),
             )?;
             let metadata = metadata_v2(&archive, bytes);
-            let migrated = migrate_snapshot_v3(migrate_snapshot_v2(archive.snapshot)?)?;
+            let migrated =
+                migrate_snapshot_v4(migrate_snapshot_v3(migrate_snapshot_v2(archive.snapshot)?)?)?;
             let report = MigrationReport {
                 source_archive_version: LEGACY_ARCHIVE_FORMAT_V2,
                 target_archive_version: ARCHIVE_FORMAT_VERSION,
-                applied_steps: vec![MIGRATION_V2_TO_V3.to_owned(), MIGRATION_V3_TO_V4.to_owned()],
+                applied_steps: vec![
+                    MIGRATION_V2_TO_V3.to_owned(),
+                    MIGRATION_V3_TO_V4.to_owned(),
+                    MIGRATION_V4_TO_V5.to_owned(),
+                ],
                 workspace: migrated.workspace.clone(),
                 head: migrated.head.clone(),
                 revisions: migrated.revisions.len(),
@@ -843,11 +999,11 @@ fn prepare(
                 versioned_event_actions(&archive.snapshot.events),
             )?;
             let metadata = metadata_v3(&archive, bytes);
-            let migrated = migrate_snapshot_v3(archive.snapshot)?;
+            let migrated = migrate_snapshot_v4(migrate_snapshot_v3(archive.snapshot)?)?;
             let report = MigrationReport {
                 source_archive_version: LEGACY_ARCHIVE_FORMAT_V3,
                 target_archive_version: ARCHIVE_FORMAT_VERSION,
-                applied_steps: vec![MIGRATION_V3_TO_V4.to_owned()],
+                applied_steps: vec![MIGRATION_V3_TO_V4.to_owned(), MIGRATION_V4_TO_V5.to_owned()],
                 workspace: migrated.workspace.clone(),
                 head: migrated.head.clone(),
                 revisions: migrated.revisions.len(),
@@ -857,11 +1013,41 @@ fn prepare(
             Ok((migrated, metadata, report, false))
         }
         DecodedArchive::V4(archive) => {
-            if archive.snapshot.schema_version != WORKSPACE_SNAPSHOT_VERSION {
+            if archive.snapshot.schema_version != LEGACY_ARCHIVE_FORMAT_V4 {
                 return Err(AgentError::new(
                     ErrorCode::PersistenceFormat,
                     format!(
                         "archive v4 snapshot schema {} is unsupported; expected {}",
+                        archive.snapshot.schema_version, LEGACY_ARCHIVE_FORMAT_V4
+                    ),
+                ));
+            }
+            validate_snapshot_counts(
+                archive.snapshot.revisions.len(),
+                archive.snapshot.events.len(),
+                versioned_event_actions(&archive.snapshot.events),
+            )?;
+            validate_legacy_candidate_snapshot_counts(&archive.snapshot)?;
+            let metadata = metadata_v4(&archive, bytes);
+            let migrated = migrate_snapshot_v4(archive.snapshot)?;
+            let report = MigrationReport {
+                source_archive_version: LEGACY_ARCHIVE_FORMAT_V4,
+                target_archive_version: ARCHIVE_FORMAT_VERSION,
+                applied_steps: vec![MIGRATION_V4_TO_V5.to_owned()],
+                workspace: migrated.workspace.clone(),
+                head: migrated.head.clone(),
+                revisions: migrated.revisions.len(),
+                old_archive_hash: archive.archive_hash,
+                new_archive_hash: None,
+            };
+            Ok((migrated, metadata, report, false))
+        }
+        DecodedArchive::V5(archive) => {
+            if archive.snapshot.schema_version != WORKSPACE_SNAPSHOT_VERSION {
+                return Err(AgentError::new(
+                    ErrorCode::PersistenceFormat,
+                    format!(
+                        "archive v5 snapshot schema {} is unsupported; expected {}",
                         archive.snapshot.schema_version, WORKSPACE_SNAPSHOT_VERSION
                     ),
                 ));
@@ -872,11 +1058,11 @@ fn prepare(
                 versioned_event_actions(&archive.snapshot.events),
             )?;
             validate_candidate_snapshot_counts(&archive.snapshot.candidate_forest)?;
-            let metadata = metadata_v4(&archive, bytes);
+            let metadata = metadata_v5(&archive, bytes);
             let report = MigrationReport {
                 source_archive_version: ARCHIVE_FORMAT_VERSION,
                 target_archive_version: ARCHIVE_FORMAT_VERSION,
-                applied_steps: vec![MIGRATION_V4_NOOP.to_owned()],
+                applied_steps: vec![MIGRATION_V5_NOOP.to_owned()],
                 workspace: archive.snapshot.workspace.clone(),
                 head: archive.snapshot.head.clone(),
                 revisions: archive.snapshot.revisions.len(),
@@ -888,12 +1074,12 @@ fn prepare(
     }
 }
 
-/// Encodes a workspace as current archive format version 4 without filesystem I/O.
+/// Encodes a workspace as current archive format version 5 without filesystem I/O.
 pub fn encode_workspace_archive(workspace: &Workspace) -> AgentResult<Vec<u8>> {
     encode_archive(&current_archive(workspace.snapshot())?)
 }
 
-/// Writes a checksummed v4 workspace archive using a same-directory temporary file and rename.
+/// Writes a checksummed v5 workspace archive using a same-directory temporary file and rename.
 pub fn save_workspace(
     path: impl AsRef<Path>,
     workspace: &Workspace,
@@ -902,7 +1088,7 @@ pub fn save_workspace(
     let archive = current_archive(workspace.snapshot())?;
     let encoded = encode_archive(&archive)?;
     write_atomic(path, &encoded)?;
-    Ok(metadata_v4(&archive, encoded.len()))
+    Ok(metadata_v5(&archive, encoded.len()))
 }
 
 /// Loads archive bytes, migrates if needed, and verifies deterministic event replay.
@@ -941,7 +1127,7 @@ pub fn verify_archive(path: impl AsRef<Path>) -> AgentResult<(ArchiveMetadata, R
     Ok((loaded.metadata, loaded.replay))
 }
 
-/// Fully verifies a source archive and atomically writes its current v4 representation.
+/// Fully verifies a source archive and atomically writes its current v5 representation.
 pub fn migrate_archive(
     source_path: impl AsRef<Path>,
     destination_path: impl AsRef<Path>,

@@ -2,8 +2,18 @@
 
 use crate::{
     actions::Transaction,
-    candidate::CandidateForest,
-    ids::{IdAllocator, RevisionId, TransactionId, WorkspaceId},
+    candidate::{
+        Candidate, CandidateAllocator, CandidateEvent, CandidateForest, CandidateHash,
+        CandidateRevision, CandidateState, CandidateTransaction, DifferentialValidation,
+        EquivalenceCertificate, EquivalenceObligation, EquivalenceStatus, EvidenceClass,
+        EvidenceKind, EvidenceProvenance, EvidenceRecord, EvidenceResult,
+        LEGACY_CANDIDATE_CANONICAL_VERSION, RelationKind, VersionedCandidateEvent,
+    },
+    ids::{
+        CandidateId, CandidateObligationId, CandidateRevisionId, EvidenceId, IdAllocator,
+        RevisionId, TransactionId, WorkspaceId,
+    },
+    impl_ir::{ImplHash, ImplProgram},
     ir::Program,
     revision::{Revision, StatusSummary},
 };
@@ -17,7 +27,10 @@ pub const CORE_SEMANTICS_VERSION: u32 = 2;
 pub const LEGACY_CORE_SEMANTICS_VERSION: u32 = 1;
 
 /// Current schema version for compiler-core workspace snapshots.
-pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 4;
+pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 5;
+
+/// Immutable Stage 2A snapshot schema migrated explicitly to v5.
+pub const LEGACY_WORKSPACE_SNAPSHOT_V4_VERSION: u32 = 4;
 
 /// Immutable Stage 1.2 snapshot schema migrated explicitly to v4.
 pub const LEGACY_WORKSPACE_SNAPSHOT_V3_VERSION: u32 = 3;
@@ -97,6 +110,222 @@ pub struct LegacyWorkspaceSnapshotV3 {
     pub allocator: IdAllocator,
     /// Semantics-versioned SpecIR event log.
     pub events: Vec<VersionedWorkspaceEvent>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[allow(missing_docs)]
+pub enum LegacyCandidateStateV1 {
+    Draft,
+    WellTyped,
+    Equivalent,
+    Sealed,
+    Rejected,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[allow(missing_docs)]
+pub enum LegacyEquivalenceStatusV1 {
+    Open,
+    Proved,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[allow(missing_docs)]
+pub enum LegacyEvidenceKindV1 {
+    IdentityLowering,
+    KnownRewriteCertificate,
+    CompositionalEquivalence,
+    DifferentialTest,
+    PropertyTest,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(missing_docs)]
+pub struct LegacyCandidateAllocatorV1 {
+    pub candidate: u64,
+    pub revision: u64,
+    pub operation: u64,
+    pub value: u64,
+    pub evidence: u64,
+    pub obligation: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[allow(missing_docs)]
+pub struct LegacyEvidenceRecordV1 {
+    pub id: EvidenceId,
+    pub class: EvidenceClass,
+    pub kind: LegacyEvidenceKindV1,
+    pub spec_hash: crate::semantic::SpecHash,
+    pub candidate: CandidateId,
+    pub candidate_revision: CandidateRevisionId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_impl_hash: Option<ImplHash>,
+    pub output_impl_hash: ImplHash,
+    pub method: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub parameters: BTreeMap<String, serde_json::Value>,
+    pub result: EvidenceResult,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub counterexample: Option<serde_json::Value>,
+    pub provenance: EvidenceProvenance,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[allow(missing_docs)]
+pub struct LegacyEquivalenceObligationV1 {
+    pub id: CandidateObligationId,
+    pub relation: RelationKind,
+    pub spec_hash: crate::semantic::SpecHash,
+    pub candidate: CandidateId,
+    pub candidate_revision: CandidateRevisionId,
+    pub impl_hash: ImplHash,
+    pub status: LegacyEquivalenceStatusV1,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[allow(missing_docs)]
+pub struct LegacyCandidateRevisionV1 {
+    pub id: CandidateRevisionId,
+    pub parents: Vec<CandidateRevisionId>,
+    pub impl_program: ImplProgram,
+    pub impl_hash: ImplHash,
+    pub candidate_hash: CandidateHash,
+    pub state: LegacyCandidateStateV1,
+    pub equivalence: LegacyEquivalenceObligationV1,
+    pub proof_chain: Vec<EquivalenceCertificate>,
+    pub evidence: Vec<EvidenceId>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[allow(missing_docs)]
+pub struct LegacyCandidateV1 {
+    pub id: CandidateId,
+    pub spec_revision: RevisionId,
+    pub spec_hash: crate::semantic::SpecHash,
+    pub root_revision: CandidateRevisionId,
+    pub head: CandidateRevisionId,
+    pub revisions: BTreeMap<CandidateRevisionId, LegacyCandidateRevisionV1>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_candidate: Option<CandidateId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub forked_from_revision: Option<CandidateRevisionId>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[allow(missing_docs)]
+pub enum LegacyCandidateEventV1 {
+    Created {
+        candidate: CandidateId,
+        spec_revision: RevisionId,
+        relation: RelationKind,
+        candidate_revision: CandidateRevisionId,
+        impl_hash: ImplHash,
+        candidate_hash: CandidateHash,
+    },
+    TransactionApplied {
+        transaction: CandidateTransaction,
+        candidate_revision: CandidateRevisionId,
+        impl_hash: ImplHash,
+        candidate_hash: CandidateHash,
+    },
+    Forked {
+        parent_candidate: CandidateId,
+        parent_revision: CandidateRevisionId,
+        candidate: CandidateId,
+        candidate_revision: CandidateRevisionId,
+        candidate_hash: CandidateHash,
+    },
+    Validated {
+        candidate: CandidateId,
+        base_revision: CandidateRevisionId,
+        candidate_revision: CandidateRevisionId,
+        validation: DifferentialValidation,
+        candidate_hash: CandidateHash,
+    },
+    Sealed {
+        candidate: CandidateId,
+        base_revision: CandidateRevisionId,
+        candidate_revision: CandidateRevisionId,
+        candidate_hash: CandidateHash,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[allow(missing_docs)]
+pub struct LegacyVersionedCandidateEventV1 {
+    pub semantics_version: u32,
+    pub event: LegacyCandidateEventV1,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[allow(missing_docs)]
+pub struct LegacyCandidateForestV1 {
+    pub candidates: BTreeMap<CandidateId, LegacyCandidateV1>,
+    pub evidence: BTreeMap<EvidenceId, LegacyEvidenceRecordV1>,
+    pub allocator: LegacyCandidateAllocatorV1,
+    pub events: Vec<LegacyVersionedCandidateEventV1>,
+}
+
+/// Immutable workspace snapshot schema embedded in archive format v4.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LegacyWorkspaceSnapshotV4 {
+    /// Legacy schema discriminator, which must equal four.
+    pub schema_version: u32,
+    /// Workspace identity.
+    pub workspace: WorkspaceId,
+    /// Current SpecIR head.
+    pub head: RevisionId,
+    /// Immutable SpecIR revisions.
+    pub revisions: BTreeMap<RevisionId, Revision>,
+    /// SpecIR allocator state.
+    pub allocator: IdAllocator,
+    /// Semantics-versioned SpecIR events.
+    pub events: Vec<VersionedWorkspaceEvent>,
+    /// Exact Stage 2A CandidateForest v1 representation.
+    pub candidate_forest: LegacyCandidateForestV1,
+}
+
+impl LegacyWorkspaceSnapshotV4 {
+    /// Returns the number of legacy candidate events for archive preflight/metadata.
+    #[must_use]
+    pub fn candidate_event_count(&self) -> usize {
+        self.candidate_forest.events.len()
+    }
+
+    /// Returns legacy candidate/revision/evidence counts for hard-cap preflight.
+    #[must_use]
+    pub fn candidate_counts(&self) -> (usize, u64, usize) {
+        let revisions =
+            self.candidate_forest
+                .candidates
+                .values()
+                .fold(0_u64, |total, candidate| {
+                    total.saturating_add(
+                        u64::try_from(candidate.revisions.len()).unwrap_or(u64::MAX),
+                    )
+                });
+        (
+            self.candidate_forest.candidates.len(),
+            revisions,
+            self.candidate_forest.evidence.len(),
+        )
+    }
+
+    /// Returns the encoded legacy EvidenceIR byte count for hard-cap preflight.
+    pub fn evidence_encoded_bytes(&self) -> crate::AgentResult<u64> {
+        let bytes = serde_json::to_vec(&self.candidate_forest.evidence).map_err(|error| {
+            crate::AgentError::new(
+                crate::ErrorCode::PersistenceFormat,
+                format!("legacy evidence preflight encoding failed: {error}"),
+            )
+        })?;
+        Ok(u64::try_from(bytes.len()).unwrap_or(u64::MAX))
+    }
 }
 
 /// Immutable compiler-core snapshot schema embedded in archive format version 2.
@@ -229,7 +458,7 @@ pub fn migrate_snapshot_v2(
 /// Purely migrates immutable snapshot schema v3 to v4 with an empty candidate forest.
 pub fn migrate_snapshot_v3(
     snapshot: LegacyWorkspaceSnapshotV3,
-) -> crate::AgentResult<WorkspaceSnapshot> {
+) -> crate::AgentResult<LegacyWorkspaceSnapshotV4> {
     if snapshot.schema_version != LEGACY_WORKSPACE_SNAPSHOT_V3_VERSION {
         return Err(crate::AgentError::new(
             crate::ErrorCode::PersistenceFormat,
@@ -239,6 +468,221 @@ pub fn migrate_snapshot_v3(
             ),
         ));
     }
+    Ok(LegacyWorkspaceSnapshotV4 {
+        schema_version: LEGACY_WORKSPACE_SNAPSHOT_V4_VERSION,
+        workspace: snapshot.workspace,
+        head: snapshot.head,
+        revisions: snapshot.revisions,
+        allocator: snapshot.allocator,
+        events: snapshot.events,
+        candidate_forest: LegacyCandidateForestV1::default(),
+    })
+}
+
+fn migrate_candidate_state(state: LegacyCandidateStateV1) -> CandidateState {
+    match state {
+        LegacyCandidateStateV1::Draft => CandidateState::Draft,
+        LegacyCandidateStateV1::WellTyped => CandidateState::WellTyped,
+        LegacyCandidateStateV1::Equivalent => CandidateState::Equivalent,
+        LegacyCandidateStateV1::Sealed => CandidateState::Sealed,
+        LegacyCandidateStateV1::Rejected => CandidateState::Rejected,
+    }
+}
+
+fn migrate_equivalence_status(status: LegacyEquivalenceStatusV1) -> EquivalenceStatus {
+    match status {
+        LegacyEquivalenceStatusV1::Open => EquivalenceStatus::Open,
+        LegacyEquivalenceStatusV1::Proved => EquivalenceStatus::Proved,
+    }
+}
+
+fn migrate_evidence_kind(kind: LegacyEvidenceKindV1) -> EvidenceKind {
+    match kind {
+        LegacyEvidenceKindV1::IdentityLowering => EvidenceKind::IdentityLowering,
+        LegacyEvidenceKindV1::KnownRewriteCertificate => EvidenceKind::KnownRewriteCertificate,
+        LegacyEvidenceKindV1::CompositionalEquivalence => EvidenceKind::CompositionalEquivalence,
+        LegacyEvidenceKindV1::DifferentialTest => EvidenceKind::DifferentialTest,
+        LegacyEvidenceKindV1::PropertyTest => EvidenceKind::PropertyTest,
+    }
+}
+
+fn migrate_candidate_event(event: LegacyCandidateEventV1) -> CandidateEvent {
+    match event {
+        LegacyCandidateEventV1::Created {
+            candidate,
+            spec_revision,
+            relation,
+            candidate_revision,
+            impl_hash,
+            candidate_hash,
+        } => CandidateEvent::Created {
+            candidate,
+            spec_revision,
+            relation,
+            candidate_revision,
+            impl_hash,
+            candidate_hash,
+        },
+        LegacyCandidateEventV1::TransactionApplied {
+            transaction,
+            candidate_revision,
+            impl_hash,
+            candidate_hash,
+        } => CandidateEvent::TransactionApplied {
+            transaction,
+            candidate_revision,
+            impl_hash,
+            candidate_hash,
+        },
+        LegacyCandidateEventV1::Forked {
+            parent_candidate,
+            parent_revision,
+            candidate,
+            candidate_revision,
+            candidate_hash,
+        } => CandidateEvent::Forked {
+            parent_candidate,
+            parent_revision,
+            candidate,
+            candidate_revision,
+            candidate_hash,
+        },
+        LegacyCandidateEventV1::Validated {
+            candidate,
+            base_revision,
+            candidate_revision,
+            validation,
+            candidate_hash,
+        } => CandidateEvent::Validated {
+            candidate,
+            base_revision,
+            candidate_revision,
+            validation,
+            candidate_hash,
+        },
+        LegacyCandidateEventV1::Sealed {
+            candidate,
+            base_revision,
+            candidate_revision,
+            candidate_hash,
+        } => CandidateEvent::Sealed {
+            candidate,
+            base_revision,
+            candidate_revision,
+            candidate_hash,
+        },
+    }
+}
+
+/// Purely migrates immutable snapshot schema v4 to v5 without recalculating legacy hashes.
+pub fn migrate_snapshot_v4(
+    snapshot: LegacyWorkspaceSnapshotV4,
+) -> crate::AgentResult<WorkspaceSnapshot> {
+    if snapshot.schema_version != LEGACY_WORKSPACE_SNAPSHOT_V4_VERSION {
+        return Err(crate::AgentError::new(
+            crate::ErrorCode::PersistenceFormat,
+            format!(
+                "legacy workspace snapshot version {} is unsupported; expected {}",
+                snapshot.schema_version, LEGACY_WORKSPACE_SNAPSHOT_V4_VERSION
+            ),
+        ));
+    }
+    let LegacyCandidateAllocatorV1 {
+        candidate,
+        revision,
+        operation,
+        value,
+        evidence: evidence_counter,
+        obligation,
+    } = snapshot.candidate_forest.allocator;
+    let candidates = snapshot
+        .candidate_forest
+        .candidates
+        .into_iter()
+        .map(|(id, candidate)| {
+            let revisions = candidate
+                .revisions
+                .into_iter()
+                .map(|(revision_id, revision)| {
+                    let equivalence = EquivalenceObligation {
+                        id: revision.equivalence.id,
+                        relation: revision.equivalence.relation,
+                        spec_hash: revision.equivalence.spec_hash,
+                        candidate: revision.equivalence.candidate,
+                        candidate_revision: revision.equivalence.candidate_revision,
+                        impl_hash: revision.equivalence.impl_hash,
+                        status: migrate_equivalence_status(revision.equivalence.status),
+                    };
+                    (
+                        revision_id,
+                        CandidateRevision {
+                            id: revision.id,
+                            parents: revision.parents,
+                            impl_program: revision.impl_program,
+                            impl_hash: revision.impl_hash,
+                            candidate_hash: revision.candidate_hash,
+                            candidate_hash_version: LEGACY_CANDIDATE_CANONICAL_VERSION,
+                            state: migrate_candidate_state(revision.state),
+                            equivalence,
+                            proof_chain: revision.proof_chain,
+                            evidence: revision.evidence,
+                            proof_frontier: None,
+                            proof_debt: Vec::new(),
+                            translation_results: Vec::new(),
+                            guarded_fallback: None,
+                        },
+                    )
+                })
+                .collect();
+            (
+                id,
+                Candidate {
+                    id: candidate.id,
+                    spec_revision: candidate.spec_revision,
+                    spec_hash: candidate.spec_hash,
+                    root_revision: candidate.root_revision,
+                    head: candidate.head,
+                    revisions,
+                    parent_candidate: candidate.parent_candidate,
+                    forked_from_revision: candidate.forked_from_revision,
+                },
+            )
+        })
+        .collect();
+    let evidence = snapshot
+        .candidate_forest
+        .evidence
+        .into_iter()
+        .map(|(id, record)| {
+            (
+                id,
+                EvidenceRecord {
+                    id: record.id,
+                    class: record.class,
+                    kind: migrate_evidence_kind(record.kind),
+                    spec_hash: record.spec_hash,
+                    candidate: record.candidate,
+                    candidate_revision: record.candidate_revision,
+                    input_impl_hash: record.input_impl_hash,
+                    output_impl_hash: record.output_impl_hash,
+                    method: record.method,
+                    parameters: record.parameters,
+                    result: record.result,
+                    counterexample: record.counterexample,
+                    provenance: record.provenance,
+                },
+            )
+        })
+        .collect();
+    let events = snapshot
+        .candidate_forest
+        .events
+        .into_iter()
+        .map(|event| VersionedCandidateEvent {
+            semantics_version: event.semantics_version,
+            event: migrate_candidate_event(event.event),
+        })
+        .collect();
     Ok(WorkspaceSnapshot {
         schema_version: WORKSPACE_SNAPSHOT_VERSION,
         workspace: snapshot.workspace,
@@ -246,7 +690,20 @@ pub fn migrate_snapshot_v3(
         revisions: snapshot.revisions,
         allocator: snapshot.allocator,
         events: snapshot.events,
-        candidate_forest: CandidateForest::default(),
+        candidate_forest: CandidateForest {
+            candidates,
+            evidence,
+            proposals: BTreeMap::new(),
+            allocator: CandidateAllocator::from_legacy_counters(
+                candidate,
+                revision,
+                operation,
+                value,
+                evidence_counter,
+                obligation,
+            ),
+            events,
+        },
     })
 }
 

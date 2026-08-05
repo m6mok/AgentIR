@@ -1,0 +1,7 @@
+{"command":"workspace.open","request_id":"open","workspace":"w1"}
+{"command":"spec.apply","request_id":"build","workspace":"w1","base_revision":"r0","actions":[{"kind":"create_constant","bind":"$x","type":"i32","value":2},{"kind":"create_constant","bind":"$y","type":"i32","value":3},{"kind":"create_op","bind":"$sum","opcode":"add","operands":["$x","$y"]},{"kind":"set_output","name":"out","value":"$sum"}]}
+{"command":"spec.freeze","request_id":"freeze","workspace":"w1","base_revision":"r1"}
+{"command":"candidate.create","request_id":"create","workspace":"w1","spec_revision":"r2"}
+{"command":"candidate.propose","request_id":"propose","workspace":"w1","candidate":"c1","base_candidate_revision":"cr1","target":"iop3","replacement":{"inputs":[{"bind":"$x","value":"iv1"},{"bind":"$y","value":"iv2"}],"operations":[{"bind":"$five","opcode":"constant","operands":[],"constant":{"type":"i32","value":5}}],"result":{"value":"$five"}},"expected_before_impl_hash":"ea3ee7966e4dc2d56005ee062c9e6a6cfd98f00c19ab0eb927e8db4d7b47cc53","allow_speculative":false,"claimed_rule":"untrusted-agent-label"}
+{"command":"candidate.translation_check","request_id":"translate","workspace":"w1","candidate":"c1","base_candidate_revision":"cr2","proposal":"p1"}
+{"command":"candidate.seal","request_id":"seal","workspace":"w1","candidate":"c1","base_candidate_revision":"cr3"}

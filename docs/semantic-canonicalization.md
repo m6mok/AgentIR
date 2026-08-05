@@ -1,16 +1,17 @@
 # Semantic canonicalization
 
-Stage 1.1 introduced two deliberately different frozen-SpecIR identities, and Stage 2A preserves their codecs unchanged. Stage 2A adds two more candidate-layer contracts; the archive envelope remains separate.
+Stage 1.1 introduced two deliberately different frozen-SpecIR identities. Stage 2A/2B preserve their codecs and ImplIR v1 unchanged while adding proposal and versioned candidate-layer contracts; the archive envelope remains separate.
 
 | Hash | Covers | Excludes | Primary use |
 | --- | --- | --- | --- |
 | `content_hash` | Full `Program`, including compiler IDs, obligations and provenance | Revision timestamp | exact revision replay |
 | `spec_hash` | Versioned reachable computation, external interface, inferred types, constraints and `NumericContract` | compiler IDs, history, provenance, diagnostics, unused internal graph | future ImplIR contract anchor |
 | `impl_hash` | Reachable typed ImplIR semantics, external interface, constraints and `NumericContract` | ImplIR/candidate/evidence IDs, source links, history, unreachable nodes | implementation semantic identity |
-| `candidate_hash` | Exact candidate revision, IDs, anchor, ImplIR, proof chain and evidence references | timestamps and resource policy | candidate replay and provenance |
+| `proposal_hash` | Base implementation, target/boundary, alpha-normalized fragment, output type and `NumericContract` | candidate/revision/evidence and later persistent ImplIR IDs, time and limits | proposal identity before allocation |
+| `candidate_hash` v1/v2 | Exact candidate revision, IDs, anchor, ImplIR and proof state; v2 adds proposals/debt/frontier/guard | timestamps and resource policy | candidate replay and provenance |
 | `archive_hash` | Version-specific archive body and snapshot | the `archive_hash` field itself | corruption and codec verification |
 
-None substitutes for another. Migration preserves legacy `content_hash`/`spec_hash`; v3 → v4 adds empty candidate state and a new envelope hash without creating candidates.
+None substitutes for another. Migration preserves legacy `content_hash`, `spec_hash` and candidate hash v1; v4 → v5 adds empty speculative stores without proposals or legacy hash recalculation.
 
 ## Semantic canonical form v1
 
@@ -50,4 +51,4 @@ Semantic canonicalization establishes history independence for the same ordered 
 - different reassociations;
 - different `NumericContract` values.
 
-Stage 2A has a deliberately small compiler-owned exact rewrite registry, not an e-graph or speculative optimizer. Constraint discharge changes exact SpecIR history, while every candidate cites `spec_hash` and proves exact equivalence through an independent certificate chain. See [implir.md](implir.md) and [equivalence-and-evidence.md](equivalence-and-evidence.md).
+Stage 2B has a deliberately small compiler-owned validator, not an e-graph, algebraic canonicalizer or ranked search. A well-typed proposal can therefore have a distinct `proposal_hash` while leaving proof debt open. Every candidate still cites `spec_hash` and establishes exact equivalence through trusted certificates or the restricted proved-fallback contract. See [speculative-rewrites.md](speculative-rewrites.md) and [equivalence-and-evidence.md](equivalence-and-evidence.md).

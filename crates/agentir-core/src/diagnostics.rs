@@ -80,8 +80,28 @@ pub enum ErrorCode {
     EvidenceInvalid,
     /// A sealed candidate cannot be edited.
     CandidateSealed,
-    /// Stage 2A accepts exact equivalence only.
+    /// Stage 2B accepts exact equivalence only.
     UnsupportedRefinement,
+    /// Requested speculative proposal does not exist.
+    ProposalNotFound,
+    /// A speculative replacement fragment is malformed or ill-typed.
+    InvalidProposal,
+    /// An unknown or unsupported proposal omitted explicit speculative opt-in.
+    SpeculativeOptInRequired,
+    /// The bounded ordered proof-debt budget would be exceeded.
+    ProofDebtLimitExceeded,
+    /// No trusted translation-validation path recognizes the proposal.
+    TranslationUnsupported,
+    /// A deterministic counterexample refuted a speculative obligation.
+    ObligationRefuted,
+    /// A compiler-owned guard or its dependency is invalid.
+    GuardInvalid,
+    /// A guarded candidate fallback is absent or not fully proved.
+    FallbackInvalid,
+    /// Candidate fallback references form a cycle.
+    FallbackCycle,
+    /// Open, unsupported, or refuted proof debt blocks sealing.
+    CandidateHasProofDebt,
 }
 
 /// Structured compiler error suitable for agent repair loops.

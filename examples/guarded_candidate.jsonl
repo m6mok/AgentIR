@@ -1,0 +1,9 @@
+{"command":"workspace.open","request_id":"open","workspace":"w1"}
+{"command":"spec.apply","request_id":"build","workspace":"w1","base_revision":"r0","actions":[{"kind":"create_parameter","bind":"$x","name":"x","type":"i32"},{"kind":"create_op","bind":"$division","opcode":"div","operands":["$x","$x"]},{"kind":"set_output","name":"out","value":"$division"}]}
+{"command":"spec.freeze","request_id":"freeze","workspace":"w1","base_revision":"r1"}
+{"command":"candidate.create","request_id":"create","workspace":"w1","spec_revision":"r2"}
+{"command":"candidate.propose","request_id":"propose","workspace":"w1","candidate":"c1","base_candidate_revision":"cr1","target":"iop2","replacement":{"inputs":[{"bind":"$lhs","value":"iv1"},{"bind":"$rhs","value":"iv1"}],"operations":[{"bind":"$one","opcode":"constant","operands":[],"constant":{"type":"i32","value":1}}],"result":{"value":"$one"}},"expected_before_impl_hash":"fb3096466ba60b78666d0f7b5c86f17f930b00ac0efd857bf9c155b97dd38bd2","allow_speculative":true}
+{"command":"candidate.translation_check","request_id":"translate","workspace":"w1","candidate":"c1","base_candidate_revision":"cr2","proposal":"p1"}
+{"command":"candidate.evaluate","request_id":"guard_true","workspace":"w1","candidate":"c1","inputs":{"x":7}}
+{"command":"candidate.evaluate","request_id":"guard_false","workspace":"w1","candidate":"c1","inputs":{"x":0}}
+{"command":"candidate.seal","request_id":"seal","workspace":"w1","candidate":"c1","base_candidate_revision":"cr3"}

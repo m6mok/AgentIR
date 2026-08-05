@@ -1,0 +1,6 @@
+{"command":"workspace.open","request_id":"open","workspace":"w1"}
+{"command":"spec.apply","request_id":"build","workspace":"w1","base_revision":"r0","actions":[{"kind":"create_parameter","bind":"$x","name":"x","type":"i32"},{"kind":"create_parameter","bind":"$y","name":"y","type":"i32"},{"kind":"create_op","bind":"$sum","opcode":"add","operands":["$x","$y"]},{"kind":"set_output","name":"out","value":"$sum"}]}
+{"command":"spec.freeze","request_id":"freeze","workspace":"w1","base_revision":"r1"}
+{"command":"candidate.create","request_id":"create","workspace":"w1","spec_revision":"r2"}
+{"command":"candidate.propose","request_id":"propose","workspace":"w1","candidate":"c1","base_candidate_revision":"cr1","target":"iop3","replacement":{"inputs":[{"bind":"$x","value":"iv1"},{"bind":"$y","value":"iv2"}],"operations":[{"bind":"$difference","opcode":"sub","operands":["$x","$y"]}],"result":{"value":"$difference"}},"expected_before_impl_hash":"5b4d468fd6229309b1ed7497da8b72e8db796478c3ed9c8dd507b8566c2cb0a5","allow_speculative":true}
+{"command":"candidate.check","request_id":"check","workspace":"w1","candidate":"c1"}

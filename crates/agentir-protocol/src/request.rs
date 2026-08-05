@@ -2,9 +2,13 @@
 
 use agentir_core::{
     actions::Action,
-    candidate::{CandidateAction, RelationKind},
+    candidate::{CandidateAction, ProposedImplFragment, RelationKind},
     continuation::InteractionMode,
-    ids::{CandidateId, CandidateRevisionId, HoleId, RevisionId, WorkspaceId},
+    ids::{
+        CandidateId, CandidateRevisionId, HoleId, ImplOperationId, ProposalId, RevisionId,
+        WorkspaceId,
+    },
+    impl_ir::ImplHash,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -65,7 +69,7 @@ pub enum Request {
         /// Archive path to verify without retaining the workspace.
         path: String,
     },
-    /// Verifies and migrates one archive into a current v3 destination.
+    /// Verifies and migrates one archive into a current v5 destination.
     #[serde(rename = "workspace.migrate_archive")]
     WorkspaceMigrateArchive {
         /// Correlation ID echoed in the response.
@@ -211,7 +215,7 @@ pub enum Request {
         workspace: WorkspaceId,
         /// Frozen SpecIR revision used as immutable anchor.
         spec_revision: RevisionId,
-        /// Exact relation; approximate refinement is rejected in Stage 2A.
+        /// Exact relation; approximate refinement is rejected in Stage 2B.
         #[serde(default)]
         relation: RelationKind,
     },
@@ -310,6 +314,69 @@ pub enum Request {
         #[serde(default)]
         candidate_revision: Option<CandidateRevisionId>,
     },
+    /// Accepts one bounded typed replacement proposal.
+    #[serde(rename = "candidate.propose")]
+    CandidatePropose {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Candidate branch.
+        candidate: CandidateId,
+        /// Explicit immutable candidate head.
+        base_candidate_revision: CandidateRevisionId,
+        /// Single-result top-level target operation.
+        target: ImplOperationId,
+        /// Ordered typed replacement fragment.
+        replacement: ProposedImplFragment,
+        /// Required stale-state implementation hash.
+        expected_before_impl_hash: ImplHash,
+        /// Explicit permission to retain unknown proof debt.
+        #[serde(default)]
+        allow_speculative: bool,
+        /// Untrusted advisory rule label.
+        #[serde(default)]
+        claimed_rule: Option<String>,
+    },
+    /// Reads one persistent normalized proposal record.
+    #[serde(rename = "candidate.proposal_query")]
+    CandidateProposalQuery {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Compiler-assigned proposal ID.
+        proposal: ProposalId,
+    },
+    /// Runs compiler-owned ordered translation validation.
+    #[serde(rename = "candidate.translation_check")]
+    CandidateTranslationCheck {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Candidate branch.
+        candidate: CandidateId,
+        /// Explicit immutable candidate head.
+        base_candidate_revision: CandidateRevisionId,
+        /// Proposal proof-debt item to validate.
+        proposal: ProposalId,
+    },
+    /// Evaluates candidate-level primary/guard/fallback semantics.
+    #[serde(rename = "candidate.evaluate")]
+    CandidateEvaluate {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Candidate branch.
+        candidate: CandidateId,
+        /// Candidate revision; defaults to branch head.
+        #[serde(default)]
+        candidate_revision: Option<CandidateRevisionId>,
+        /// Parameter names to exact JSON scalar/tensor values.
+        inputs: BTreeMap<String, Value>,
+    },
 }
 
 const fn default_validation_cases() -> u64 {
@@ -342,7 +409,11 @@ impl Request {
             | Self::CandidateFork { request_id, .. }
             | Self::CandidateValidate { request_id, .. }
             | Self::CandidateSeal { request_id, .. }
-            | Self::CandidateContinuation { request_id, .. } => request_id,
+            | Self::CandidateContinuation { request_id, .. }
+            | Self::CandidatePropose { request_id, .. }
+            | Self::CandidateProposalQuery { request_id, .. }
+            | Self::CandidateTranslationCheck { request_id, .. }
+            | Self::CandidateEvaluate { request_id, .. } => request_id,
         }
     }
 }

@@ -6,9 +6,14 @@ Start with the root [README](../README.md), then choose the document matching th
 - [Architecture](architecture.md) — data flow, crate boundaries, transactions and revisions.
 - [Stage 1 scope](stage-1-scope.md) — implemented contract, invariants and explicit non-goals.
 - [Stage 2A scope](stage-2a-scope.md) — exact candidate foundation and explicit boundary.
+- [Stage 2B scope](stage-2b-scope.md) — bounded speculative candidates and trust boundary.
 - [ImplIR](implir.md) — separate implementation graph, identity lowering, verifier and hash.
 - [CandidateForest](candidate-forest.md) — candidate branches, revisions, transactions and continuations.
 - [Equivalence and EvidenceIR](equivalence-and-evidence.md) — trusted proof composition and confidence evidence.
+- [Speculative rewrites](speculative-rewrites.md) — proposal fragment, classification and proposal hash.
+- [Proof debt](proof-debt.md) — ordered obligations, proof frontier, testing and refutation.
+- [Translation validation](translation-validation.md) — compiler-owned exact proof paths.
+- [Guarded fallback](guarded-fallback.md) — restricted self-division rule and lazy execution.
 - [JSONL protocol](protocol.md) — commands, references, regions, errors and response envelopes.
 - [Persistence and replay](persistence.md) — archive format, save/load lifecycle and integrity model.
 - [Semantic canonicalization](semantic-canonicalization.md) — `spec_hash`, alpha-normalization and graph identity limits.

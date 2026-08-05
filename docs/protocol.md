@@ -68,8 +68,8 @@ An optional `allow_branch: true` explicitly permits a transaction based on a non
 ## Commands
 
 - `workspace.open`: optional `workspace`; returns root `r0`.
-- `workspace.save`: workspace and destination `path`; writes an atomic archive v4.
-- `workspace.load`: archive v1/v2/v3/v4 `path` and optional `replace`; verifies, migrates and replays before inserting.
+- `workspace.save`: workspace and destination `path`; writes an atomic archive v5.
+- `workspace.load`: archive v1/v2/v3/v4/v5 `path` and optional `replace`; verifies, migrates and replays before inserting.
 - `workspace.verify_archive`: verifies checksum and replay without retaining the workspace.
 - `workspace.migrate_archive`: verifies `source_path`, migrates in memory and atomically writes `destination_path`; existing destinations require `overwrite: true`.
 - `spec.apply` and `transaction.apply`: workspace, base revision, actions and optional client transaction ID.
@@ -80,13 +80,17 @@ An optional `allow_branch: true` explicitly permits a transaction based on a non
 - `revision.fork`: `base_revision`.
 - `revision.diff`: `from` and `to`.
 - `continuation.get`: revision, hole and `mode: free | menu | hybrid`.
-- `candidate.create`: frozen `spec_revision` and optional relation (Stage 2A accepts exact equivalence only).
+- `candidate.create`: frozen `spec_revision` and optional relation (exact equivalence only).
 - `candidate.query` / `candidate.check`: read or fully verify one candidate revision.
 - `candidate.apply`: candidate, explicit `base_candidate_revision`, and compiler-known rewrite actions.
+- `candidate.propose`: one typed replacement fragment, target, expected hash and explicit speculative opt-in.
+- `candidate.proposal_query`: reads normalized proposal provenance by `proposal` ID.
+- `candidate.translation_check`: runs the trusted validator on one ordered proposal obligation.
+- `candidate.evaluate`: evaluates exact/speculative/guarded candidate-level semantics with lazy fallback.
 - `candidate.fork`: new branch identity from one immutable candidate revision.
 - `candidate.validate`: fixed seed and bounded cases; creates confidence evidence only.
-- `candidate.seal`: seals only a fully proved exact candidate.
-- `candidate.continuation`: bounded stable known-rewrite targets plus expected hash.
+- `candidate.seal`: seals only a fully proved exact or verified guarded candidate.
+- `candidate.continuation`: separate trusted rewrite matches and one bounded speculative escape schema.
 
 The complete SAXPY command sequence is [examples/saxpy.jsonl](../examples/saxpy.jsonl).
 
@@ -106,7 +110,7 @@ In a fresh CLI process, restore it:
 
 The result contains archive metadata and a replay report. `replace` defaults to `false`, so an archive cannot silently overwrite an already open workspace with the same ID.
 
-Load responses also contain a migration report. V4 reports `workspace_archive_v4_noop`; v3 reports `workspace_archive_v3_to_v4`; older sources report the explicit suffix of the v1 → v2 → v3 → v4 chain.
+Load responses also contain a migration report. V5 reports `workspace_archive_v5_noop`; v4 reports `workspace_archive_v4_to_v5`; older sources report the explicit suffix of the v1 → v2 → v3 → v4 → v5 chain.
 
 ## Candidate rewrite
 
@@ -115,6 +119,14 @@ Load responses also contain a migration report. V4 reports `workspace_archive_v4
 ```
 
 Stable rule IDs are `prune_unreachable_impl_nodes`, `eliminate_noop_cast` and `fold_defined_scalar_constants`. The compiler owns matching, side conditions, transformation and certificates; clients cannot submit trusted proof certificates.
+
+## Speculative proposal
+
+```json
+{"command":"candidate.propose","request_id":"p","workspace":"w1","candidate":"c1","base_candidate_revision":"cr1","target":"iop3","replacement":{"inputs":[{"bind":"$x","value":"iv1"},{"bind":"$y","value":"iv2"}],"operations":[{"bind":"$r","opcode":"sub","operands":["$x","$y"]}],"result":{"value":"$r"}},"expected_before_impl_hash":"...","allow_speculative":true}
+```
+
+Proposal-local bindings are the only accepted names for new values; persistent IDs are compiler outputs. Boundary order and yield type are exact. `claimed_rule`, when present, is untrusted provenance. Unknown or conditional work without opt-in returns `SPECULATIVE_OPT_IN_REQUIRED` atomically. Positive `candidate.validate` results leave proof debt open; call `candidate.translation_check` for compiler-owned proof recognition.
 
 ## Semantic query
 
@@ -148,6 +160,6 @@ Top-level requests, ActionIR variants, transactions and inline-region objects re
 - `CONSTRAINT_CONTRADICTION` for a proven fact/obligation conflict;
 - `RESOURCE_LIMIT_EXCEEDED` with `resource`, `configured_limit`, `attempted`, `context` and a repair recommendation.
 
-Candidate failures use `CANDIDATE_NOT_FOUND`, `CANDIDATE_REVISION_NOT_FOUND`, `SPEC_NOT_FROZEN`, `SPEC_HASH_MISMATCH`, `IMPL_VERIFICATION_FAILED`, `REWRITE_NOT_APPLICABLE`, `REWRITE_PRECONDITION_FAILED`, `EQUIVALENCE_NOT_PROVED`, `EVIDENCE_INVALID`, `CANDIDATE_SEALED` and `UNSUPPORTED_REFINEMENT`.
+Candidate failures additionally use `PROPOSAL_NOT_FOUND`, `INVALID_PROPOSAL`, `SPECULATIVE_OPT_IN_REQUIRED`, `PROOF_DEBT_LIMIT_EXCEEDED`, `TRANSLATION_UNSUPPORTED`, `OBLIGATION_REFUTED`, `GUARD_INVALID`, `FALLBACK_INVALID`, `FALLBACK_CYCLE` and `CANDIDATE_HAS_PROOF_DEBT`. Structured details identify the proposal/target/obligation, expected and actual hashes, failed side condition and deterministic repair where applicable.
 
 Resource limits are policy, not SpecIR. Archive replay uses hard safety caps; normal protocol work uses configurable interactive defaults documented in [resource-budgets.md](resource-budgets.md).

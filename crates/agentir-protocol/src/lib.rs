@@ -8,7 +8,7 @@ pub mod response;
 
 use agentir_core::{
     actions::{Action, Transaction},
-    candidate::CandidateTransaction,
+    candidate::{CandidateTransaction, SpeculativeRewriteProposal},
     diagnostics::{AgentError, AgentResult, ErrorCode},
     ids::{CandidateId, CandidateRevisionId, RevisionId, WorkspaceId},
     resources::{BudgetCheck, ResourceKind, ResourceLimits},
@@ -389,26 +389,24 @@ impl Engine {
                 cases,
                 ..
             } => {
-                let (spec, implementation) = {
+                let validation = {
                     let workspace_data = self.workspace(&workspace)?;
                     let candidate_data = workspace_data.candidate_query(&candidate)?;
                     let spec = workspace_data
                         .revision(&candidate_data.spec_revision)?
                         .program
                         .clone();
-                    let implementation = workspace_data
-                        .candidate_revision(&candidate, &base_candidate_revision)?
-                        .impl_program
-                        .clone();
-                    (spec, implementation)
+                    workspace_data.candidate_revision(&candidate, &base_candidate_revision)?;
+                    agentir_eval::differential_validate_candidate(
+                        &spec,
+                        workspace_data.candidate_forest(),
+                        &candidate,
+                        &base_candidate_revision,
+                        seed,
+                        cases,
+                        &self.limits,
+                    )?
                 };
-                let validation = agentir_eval::differential_validate(
-                    &spec,
-                    &implementation,
-                    seed,
-                    cases,
-                    &self.limits,
-                )?;
                 serde_json::to_value(
                     self.workspace_mut(&workspace)?
                         .candidate_record_validation(
@@ -441,6 +439,66 @@ impl Engine {
                     self.workspace(&workspace)?
                         .candidate_continuation(&candidate, &revision)?,
                 )
+                .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
+            }
+            Request::CandidatePropose {
+                workspace,
+                candidate,
+                base_candidate_revision,
+                target,
+                replacement,
+                expected_before_impl_hash,
+                allow_speculative,
+                claimed_rule,
+                ..
+            } => serde_json::to_value(self.workspace_mut(&workspace)?.candidate_propose(
+                &candidate,
+                &base_candidate_revision,
+                &SpeculativeRewriteProposal {
+                    target,
+                    replacement,
+                    expected_before_impl_hash,
+                    allow_speculative,
+                    claimed_rule,
+                },
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::CandidateProposalQuery {
+                workspace,
+                proposal,
+                ..
+            } => serde_json::to_value(
+                self.workspace(&workspace)?
+                    .candidate_proposal_query(&proposal)?,
+            )
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::CandidateTranslationCheck {
+                workspace,
+                candidate,
+                base_candidate_revision,
+                proposal,
+                ..
+            } => serde_json::to_value(
+                self.workspace_mut(&workspace)?
+                    .candidate_translation_check(&candidate, &base_candidate_revision, &proposal)?,
+            )
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::CandidateEvaluate {
+                workspace,
+                candidate,
+                candidate_revision,
+                inputs,
+                ..
+            } => {
+                let revision =
+                    self.selected_candidate_revision(&workspace, &candidate, candidate_revision)?;
+                serde_json::to_value(agentir_eval::evaluate_candidate_with_limits(
+                    self.workspace(&workspace)?.candidate_forest(),
+                    &candidate,
+                    &revision,
+                    &inputs,
+                    &self.limits,
+                )?)
                 .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
             }
         }

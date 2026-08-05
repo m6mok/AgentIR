@@ -1,24 +1,28 @@
-//! Dependency-light statistical Stage 1.2 performance baseline.
+//! Dependency-light statistical Stage 2B performance baseline.
 
 use agentir_core::{
     Action, HoleId, RevisionId, Transaction, Workspace, WorkspaceId,
     candidate::{
         CandidateAction, CandidateAllocator, CandidateTransaction, FOLD_SCALAR_CONSTANTS_RULE,
-        RelationKind,
+        ProposalInput, ProposalOperation, ProposalResult, ProposedImplFragment, RelationKind,
+        SpeculativeRewriteProposal, canonicalize_proposal_with_limit,
+        normalize_speculative_proposal,
     },
     canonical::canonical_bytes,
     constraints::ConstraintFacts,
     continuation::InteractionMode,
-    ids::{CandidateId, CandidateRevisionId, ImplOperationId},
+    ids::{CandidateId, CandidateRevisionId, ImplOperationId, ImplValueId, ProposalId},
     impl_ir::{canonicalize_impl_with_limit, identity_lower},
+    ir::ConstantValue,
     resources::ResourceLimits,
     semantic::canonicalize_spec,
     shapes::{ShapeConstraint, same_shape},
     types::Shape,
 };
 use agentir_store::{
-    WorkspaceArchiveV1, WorkspaceArchiveV2, WorkspaceArchiveV3, load_workspace_bytes,
-    migrate_archive_v1_to_v2, migrate_archive_v2_to_v3, migrate_archive_v3_to_v4,
+    WorkspaceArchiveV1, WorkspaceArchiveV2, WorkspaceArchiveV3, WorkspaceArchiveV4,
+    load_workspace_bytes, migrate_archive_v1_to_v2, migrate_archive_v2_to_v3,
+    migrate_archive_v3_to_v4, migrate_archive_v4_to_v5,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -358,6 +362,255 @@ fn apply_one_constant_fold(workspace: &mut Workspace) {
         .unwrap();
 }
 
+fn speculative_base(opcode: &str, self_operand: bool) -> Workspace {
+    let id = WorkspaceId::new(format!("speculative-{opcode}-{self_operand}"));
+    let mut workspace = Workspace::new(id.clone()).unwrap();
+    let mut actions = vec![Action::CreateParameter {
+        bind: "$x".to_owned(),
+        name: "x".to_owned(),
+        ty: "i32".parse().unwrap(),
+    }];
+    if !self_operand {
+        actions.push(Action::CreateParameter {
+            bind: "$y".to_owned(),
+            name: "y".to_owned(),
+            ty: "i32".parse().unwrap(),
+        });
+    }
+    actions.extend([
+        Action::CreateOp {
+            bind: "$result".to_owned(),
+            opcode: opcode.to_owned(),
+            operands: if self_operand {
+                vec!["$x".to_owned(), "$x".to_owned()]
+            } else {
+                vec!["$x".to_owned(), "$y".to_owned()]
+            },
+            attributes: BTreeMap::new(),
+            region: None,
+        },
+        Action::SetOutput {
+            name: "out".to_owned(),
+            value: "$result".to_owned(),
+        },
+    ]);
+    let built = workspace
+        .apply(&Transaction {
+            workspace: id.clone(),
+            base_revision: RevisionId::new("r0"),
+            actions,
+            client_transaction_id: None,
+            allow_branch: false,
+        })
+        .unwrap();
+    workspace
+        .apply(&Transaction {
+            workspace: id,
+            base_revision: built.revision,
+            actions: vec![Action::FreezeSpec],
+            client_transaction_id: None,
+            allow_branch: false,
+        })
+        .unwrap();
+    workspace
+        .candidate_create(&RevisionId::new("r2"), RelationKind::EquivalentToSpec)
+        .unwrap();
+    workspace
+}
+
+fn chain_proposal(
+    target: ImplOperationId,
+    expected_before_impl_hash: agentir_core::impl_ir::ImplHash,
+    operation_count: usize,
+    first_opcode: &str,
+) -> SpeculativeRewriteProposal {
+    let mut operations = Vec::with_capacity(operation_count);
+    for index in 0..operation_count {
+        operations.push(ProposalOperation {
+            bind: format!("$local{index}"),
+            opcode: if index == 0 {
+                first_opcode.to_owned()
+            } else {
+                "add".to_owned()
+            },
+            operands: vec![
+                if index == 0 {
+                    "$left".to_owned()
+                } else {
+                    format!("$local{}", index - 1)
+                },
+                "$right".to_owned(),
+            ],
+            attributes: BTreeMap::new(),
+            constant: None,
+            region: None,
+        });
+    }
+    SpeculativeRewriteProposal {
+        target,
+        replacement: ProposedImplFragment {
+            inputs: vec![
+                ProposalInput {
+                    bind: "$left".to_owned(),
+                    value: ImplValueId::new("iv1"),
+                },
+                ProposalInput {
+                    bind: "$right".to_owned(),
+                    value: ImplValueId::new("iv2"),
+                },
+            ],
+            operations,
+            result: ProposalResult {
+                value: format!("$local{}", operation_count - 1),
+            },
+        },
+        expected_before_impl_hash,
+        allow_speculative: true,
+        claimed_rule: None,
+    }
+}
+
+fn constant_one_proposal(
+    target: &str,
+    before: agentir_core::impl_ir::ImplHash,
+    boundary: Vec<ProposalInput>,
+) -> SpeculativeRewriteProposal {
+    SpeculativeRewriteProposal {
+        target: ImplOperationId::new(target),
+        replacement: ProposedImplFragment {
+            inputs: boundary,
+            operations: vec![ProposalOperation {
+                bind: "$one".to_owned(),
+                opcode: "constant".to_owned(),
+                operands: Vec::new(),
+                attributes: BTreeMap::new(),
+                constant: Some(ConstantValue::I32 { value: 1 }),
+                region: None,
+            }],
+            result: ProposalResult {
+                value: "$one".to_owned(),
+            },
+        },
+        expected_before_impl_hash: before,
+        allow_speculative: true,
+        claimed_rule: None,
+    }
+}
+
+fn open_speculative_candidate() -> Workspace {
+    load_workspace_bytes(include_bytes!(
+        "../../agentir-store/tests/fixtures/speculative-open-v5.json"
+    ))
+    .unwrap()
+    .workspace
+}
+
+fn prepared_identity_validation() -> Workspace {
+    let mut workspace = speculative_base("add", false);
+    let before = workspace
+        .candidate_revision(&CandidateId::new("c1"), &CandidateRevisionId::new("cr1"))
+        .unwrap()
+        .impl_hash
+        .clone();
+    let proposal = chain_proposal(ImplOperationId::new("iop3"), before, 1, "add");
+    workspace
+        .candidate_propose(
+            &CandidateId::new("c1"),
+            &CandidateRevisionId::new("cr1"),
+            &proposal,
+        )
+        .unwrap();
+    workspace
+}
+
+fn prepared_guarded_validation() -> Workspace {
+    let mut workspace = speculative_base("div", true);
+    let before = workspace
+        .candidate_revision(&CandidateId::new("c1"), &CandidateRevisionId::new("cr1"))
+        .unwrap()
+        .impl_hash
+        .clone();
+    let proposal = constant_one_proposal(
+        "iop2",
+        before,
+        vec![
+            ProposalInput {
+                bind: "$left".to_owned(),
+                value: ImplValueId::new("iv1"),
+            },
+            ProposalInput {
+                bind: "$right".to_owned(),
+                value: ImplValueId::new("iv1"),
+            },
+        ],
+    );
+    workspace
+        .candidate_propose(
+            &CandidateId::new("c1"),
+            &CandidateRevisionId::new("cr1"),
+            &proposal,
+        )
+        .unwrap();
+    workspace
+}
+
+fn prepared_known_validation() -> Workspace {
+    let mut workspace = constant_match_candidate(1);
+    let before = workspace
+        .candidate_revision(&CandidateId::new("c1"), &CandidateRevisionId::new("cr1"))
+        .unwrap()
+        .impl_hash
+        .clone();
+    let mut proposal = constant_one_proposal(
+        "iop3",
+        before,
+        vec![
+            ProposalInput {
+                bind: "$left".to_owned(),
+                value: ImplValueId::new("iv1"),
+            },
+            ProposalInput {
+                bind: "$right".to_owned(),
+                value: ImplValueId::new("iv2"),
+            },
+        ],
+    );
+    proposal.replacement.operations[0].constant = Some(ConstantValue::I32 { value: 5 });
+    proposal.allow_speculative = false;
+    workspace
+        .candidate_propose(
+            &CandidateId::new("c1"),
+            &CandidateRevisionId::new("cr1"),
+            &proposal,
+        )
+        .unwrap();
+    workspace
+}
+
+fn insert_proof_debt(step_count: usize) -> Workspace {
+    let mut workspace = speculative_base("add", false);
+    let mut revision = CandidateRevisionId::new("cr1");
+    let mut before = workspace
+        .candidate_revision(&CandidateId::new("c1"), &revision)
+        .unwrap()
+        .impl_hash
+        .clone();
+    for step in 0..step_count {
+        let proposal = chain_proposal(
+            ImplOperationId::new(format!("iop{}", step + 3)),
+            before,
+            1,
+            if step % 2 == 0 { "sub" } else { "add" },
+        );
+        let report = workspace
+            .candidate_propose(&CandidateId::new("c1"), &revision, &proposal)
+            .unwrap();
+        revision = report.candidate_revision;
+        before = report.impl_hash;
+    }
+    workspace
+}
+
 fn main() {
     let mut timings = BTreeMap::<String, Measurement>::new();
     for count in [1_usize, 10, 100] {
@@ -531,6 +784,10 @@ fn main() {
         .unwrap();
     canonical_sizes.insert(
         "exact_candidate_state_100_operations".to_owned(),
+        serde_json::to_vec(candidate_100_revision).unwrap().len(),
+    );
+    canonical_sizes.insert(
+        "candidate_exact_v1_100_operations".to_owned(),
         serde_json::to_vec(candidate_100_revision).unwrap().len(),
     );
     timings.insert(
@@ -715,6 +972,308 @@ fn main() {
         }
     }
 
+    let proposal_base = speculative_base("add", false);
+    let proposal_revision = proposal_base
+        .candidate_revision(&CandidateId::new("c1"), &CandidateRevisionId::new("cr1"))
+        .unwrap();
+    for count in [10_usize, 100, 1_000] {
+        let proposal = chain_proposal(
+            ImplOperationId::new("iop3"),
+            proposal_revision.impl_hash.clone(),
+            count,
+            "sub",
+        );
+        timings.insert(
+            format!("proposal_normalization_{count}_operations"),
+            measure(
+                || elapsed_ns(|| black_box(normalize_speculative_proposal(&proposal).unwrap())),
+                json!({"fragment_operations": count}),
+            ),
+        );
+        let canonical = canonicalize_proposal_with_limit(
+            &proposal_revision.impl_program,
+            &proposal,
+            &ResourceLimits::default(),
+        )
+        .unwrap();
+        canonical_sizes.insert(
+            format!("proposal_canonical_{count}_operations"),
+            canonical.bytes.len(),
+        );
+        timings.insert(
+            format!("proposal_hash_{count}_operations"),
+            measure(
+                || {
+                    elapsed_ns(|| {
+                        black_box(
+                            canonicalize_proposal_with_limit(
+                                &proposal_revision.impl_program,
+                                &proposal,
+                                &ResourceLimits::default(),
+                            )
+                            .unwrap(),
+                        )
+                    })
+                },
+                json!({"fragment_operations": count, "canonical_bytes": canonical.bytes.len()}),
+            ),
+        );
+    }
+    let speculative_proposal = chain_proposal(
+        ImplOperationId::new("iop3"),
+        proposal_revision.impl_hash.clone(),
+        1,
+        "sub",
+    );
+    timings.insert(
+        "speculative_transaction_apply".to_owned(),
+        measure(
+            || {
+                let mut workspace = proposal_base.clone();
+                elapsed_ns(|| {
+                    black_box(
+                        workspace
+                            .candidate_propose(
+                                &CandidateId::new("c1"),
+                                &CandidateRevisionId::new("cr1"),
+                                &speculative_proposal,
+                            )
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"fragment_operations": 1, "new_obligations": 1}),
+        ),
+    );
+    for steps in [1_usize, 10, 100] {
+        timings.insert(
+            format!("proof_debt_insertion_{steps}_steps"),
+            measure(
+                || elapsed_ns(|| black_box(insert_proof_debt(steps))),
+                json!({"speculative_steps": steps}),
+            ),
+        );
+    }
+
+    let open_speculative = open_speculative_candidate();
+    let open_revision = open_speculative
+        .candidate_revision(&CandidateId::new("c1"), &CandidateRevisionId::new("cr2"))
+        .unwrap();
+    canonical_sizes.insert(
+        "candidate_exact_v2_speculative".to_owned(),
+        serde_json::to_vec(open_revision).unwrap().len(),
+    );
+    canonical_sizes.insert(
+        "proof_debt_speculative".to_owned(),
+        serde_json::to_vec(&open_revision.proof_debt).unwrap().len(),
+    );
+    timings.insert(
+        "proof_frontier_query".to_owned(),
+        measure(
+            || {
+                elapsed_ns(|| {
+                    black_box(
+                        open_speculative
+                            .candidate_check(
+                                &CandidateId::new("c1"),
+                                &CandidateRevisionId::new("cr2"),
+                            )
+                            .unwrap()
+                            .proof_frontier,
+                    )
+                })
+            },
+            json!({"proof_debt": 1}),
+        ),
+    );
+    timings.insert(
+        "candidate_hash_v2".to_owned(),
+        measure(
+            || {
+                elapsed_ns(|| {
+                    black_box(
+                        open_speculative
+                            .candidate_check(
+                                &CandidateId::new("c1"),
+                                &CandidateRevisionId::new("cr2"),
+                            )
+                            .unwrap()
+                            .candidate_hash,
+                    )
+                })
+            },
+            json!({"proof_debt": 1, "hash_version": 2}),
+        ),
+    );
+    timings.insert(
+        "candidate_continuation_speculative_escape".to_owned(),
+        measure(
+            || {
+                elapsed_ns(|| {
+                    black_box(
+                        open_speculative
+                            .candidate_continuation(
+                                &CandidateId::new("c1"),
+                                &CandidateRevisionId::new("cr2"),
+                            )
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"proof_debt": 1, "escape_schemas": 1}),
+        ),
+    );
+
+    let known_validation = prepared_known_validation();
+    timings.insert(
+        "known_rewrite_recognition".to_owned(),
+        measure(
+            || {
+                let mut workspace = known_validation.clone();
+                elapsed_ns(|| {
+                    black_box(
+                        workspace
+                            .candidate_translation_check(
+                                &CandidateId::new("c1"),
+                                &CandidateRevisionId::new("cr2"),
+                                &ProposalId::new("p1"),
+                            )
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"production_rules": 1}),
+        ),
+    );
+    timings.insert(
+        "unsupported_translation_validation".to_owned(),
+        measure(
+            || {
+                let mut workspace = open_speculative.clone();
+                elapsed_ns(|| {
+                    black_box(
+                        workspace
+                            .candidate_translation_check(
+                                &CandidateId::new("c1"),
+                                &CandidateRevisionId::new("cr2"),
+                                &ProposalId::new("p1"),
+                            )
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"proof_debt": 1}),
+        ),
+    );
+    let identity_validation = prepared_identity_validation();
+    timings.insert(
+        "canonical_identity_validation".to_owned(),
+        measure(
+            || {
+                let mut workspace = identity_validation.clone();
+                elapsed_ns(|| {
+                    black_box(
+                        workspace
+                            .candidate_translation_check(
+                                &CandidateId::new("c1"),
+                                &CandidateRevisionId::new("cr2"),
+                                &ProposalId::new("p1"),
+                            )
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"equal_impl_hashes": true}),
+        ),
+    );
+    let guarded_validation = prepared_guarded_validation();
+    timings.insert(
+        "guarded_validation".to_owned(),
+        measure(
+            || {
+                let mut workspace = guarded_validation.clone();
+                elapsed_ns(|| {
+                    black_box(
+                        workspace
+                            .candidate_translation_check(
+                                &CandidateId::new("c1"),
+                                &CandidateRevisionId::new("cr2"),
+                                &ProposalId::new("p1"),
+                            )
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"guard_dependencies": 1, "fallback_depth": 1}),
+        ),
+    );
+
+    let guarded_workspace = load_workspace_bytes(include_bytes!(
+        "../../agentir-store/tests/fixtures/guarded-candidate-v5.json"
+    ))
+    .unwrap()
+    .workspace;
+    for (name, input, succeeds) in [
+        ("guarded_evaluation_guard_true", 7, true),
+        ("guarded_evaluation_guard_false_fallback", 0, false),
+    ] {
+        timings.insert(
+            name.to_owned(),
+            measure(
+                || {
+                    elapsed_ns(|| {
+                        let result = agentir_eval::evaluate_candidate_with_limits(
+                            guarded_workspace.candidate_forest(),
+                            &CandidateId::new("c1"),
+                            &CandidateRevisionId::new("cr3"),
+                            &BTreeMap::from([("x".to_owned(), json!(input))]),
+                            &ResourceLimits::default(),
+                        );
+                        assert_eq!(result.is_ok(), succeeds);
+                        black_box(result)
+                    })
+                },
+                json!({"guard_dependencies": 1, "guard_true": succeeds}),
+            ),
+        );
+    }
+
+    let speculative_spec = &open_speculative
+        .revision(&RevisionId::new("r2"))
+        .unwrap()
+        .program;
+    let refutation = agentir_eval::differential_validate_candidate(
+        speculative_spec,
+        open_speculative.candidate_forest(),
+        &CandidateId::new("c1"),
+        &CandidateRevisionId::new("cr2"),
+        17,
+        16,
+        &ResourceLimits::default(),
+    )
+    .unwrap();
+    assert!(!refutation.passed);
+    timings.insert(
+        "refutation_counterexample_publication".to_owned(),
+        measure(
+            || {
+                let mut workspace = open_speculative.clone();
+                elapsed_ns(|| {
+                    black_box(
+                        workspace
+                            .candidate_record_validation(
+                                &CandidateId::new("c1"),
+                                &CandidateRevisionId::new("cr2"),
+                                refutation.clone(),
+                            )
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"executed_cases": refutation.executed_cases}),
+        ),
+    );
+
     for count in [10_usize, 100, 1_000] {
         timings.insert(
             format!("constraint_fact_insertion_{count}"),
@@ -872,6 +1431,57 @@ fn main() {
         "archive_v4_with_candidate_history".to_owned(),
         v4_with_candidates.len(),
     );
+    let legacy_v4: WorkspaceArchiveV4 = serde_json::from_slice(v4_with_candidates).unwrap();
+    timings.insert(
+        "archive_v4_to_v5_migration".to_owned(),
+        measure(
+            || {
+                elapsed_ns(|| {
+                    for _ in 0..25 {
+                        black_box(migrate_archive_v4_to_v5(legacy_v4.clone()).unwrap());
+                    }
+                })
+            },
+            json!({"candidate_events": legacy_v4.snapshot.candidate_forest.events.len(), "migrations": 25}),
+        ),
+    );
+    for (name, bytes) in [
+        (
+            "v5_replay_exact_only",
+            include_bytes!("../../agentir-store/tests/fixtures/migrated-v4-exact-v5.json")
+                .as_slice(),
+        ),
+        (
+            "v5_replay_speculative",
+            include_bytes!("../../agentir-store/tests/fixtures/speculative-open-v5.json")
+                .as_slice(),
+        ),
+        (
+            "v5_replay_guarded",
+            include_bytes!("../../agentir-store/tests/fixtures/guarded-candidate-v5.json")
+                .as_slice(),
+        ),
+        (
+            "v5_replay_refuted",
+            include_bytes!("../../agentir-store/tests/fixtures/refuted-candidate-v5.json")
+                .as_slice(),
+        ),
+    ] {
+        timings.insert(
+            name.to_owned(),
+            measure(
+                || {
+                    elapsed_ns(|| {
+                        for _ in 0..25 {
+                            black_box(load_workspace_bytes(bytes).unwrap());
+                        }
+                    })
+                },
+                json!({"archive_bytes": bytes.len(), "loads": 25}),
+            ),
+        );
+        canonical_sizes.insert(format!("archive_{name}"), bytes.len());
+    }
 
     let saxpy = load_workspace_bytes(v3_bytes).unwrap();
     let saxpy_program = &saxpy

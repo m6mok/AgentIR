@@ -1,12 +1,12 @@
-//! Deterministic CPU reference interpreter for AgentIR SpecIR.
+//! Deterministic CPU reference interpreter for SpecIR, ImplIR and guarded candidates.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
 use agentir_core::{
-    candidate::DifferentialValidation,
+    candidate::{CandidateForest, DifferentialValidation, GuardPredicate},
     diagnostics::{AgentError, AgentResult, ErrorCode},
-    ids::ValueId,
+    ids::{CandidateId, CandidateRevisionId, ImplValueId, ValueId},
     impl_ir::{ImplProgram, impl_as_program},
     ir::{ConstantValue, Opcode, Operation, Program, Region, RegionValue, ValueOrigin},
     resources::{BudgetCheck, ResourceKind, ResourceLimits},
@@ -896,6 +896,26 @@ pub fn evaluate_with_limits(
     inputs: &BTreeMap<String, JsonValue>,
     limits: &ResourceLimits,
 ) -> AgentResult<EvaluationResult> {
+    let (mut evaluator, dimensions) = prepare_evaluator(program, inputs, limits)?;
+    let outputs = program
+        .outputs
+        .iter()
+        .map(|(name, value)| {
+            let runtime = evaluator.value(value)?;
+            runtime_json(&runtime).map(|value| (name.clone(), value))
+        })
+        .collect::<AgentResult<BTreeMap<_, _>>>()?;
+    Ok(EvaluationResult {
+        outputs,
+        dimensions,
+    })
+}
+
+fn prepare_evaluator<'a>(
+    program: &'a Program,
+    inputs: &BTreeMap<String, JsonValue>,
+    limits: &ResourceLimits,
+) -> AgentResult<(Evaluator<'a>, BTreeMap<String, usize>)> {
     let open_holes: Vec<_> = program
         .holes
         .iter()
@@ -942,24 +962,15 @@ pub fn evaluate_with_limits(
         parameters.insert(value_id.clone(), value);
     }
     preflight_evaluation(program, &dimensions, limits)?;
-    let mut evaluator = Evaluator {
-        program,
-        parameters,
-        memo: BTreeMap::new(),
-        visiting: BTreeSet::new(),
-    };
-    let outputs = program
-        .outputs
-        .iter()
-        .map(|(name, value)| {
-            let runtime = evaluator.value(value)?;
-            runtime_json(&runtime).map(|value| (name.clone(), value))
-        })
-        .collect::<AgentResult<BTreeMap<_, _>>>()?;
-    Ok(EvaluationResult {
-        outputs,
+    Ok((
+        Evaluator {
+            program,
+            parameters,
+            memo: BTreeMap::new(),
+            visiting: BTreeSet::new(),
+        },
         dimensions,
-    })
+    ))
 }
 
 /// Evaluates a verified separate ImplIR graph using the same strict reference semantics.
@@ -969,6 +980,109 @@ pub fn evaluate_impl_with_limits(
     limits: &ResourceLimits,
 ) -> AgentResult<EvaluationResult> {
     evaluate_with_limits(&impl_as_program(program), inputs, limits)
+}
+
+/// Evaluates only the dependency cone of one ImplIR value.
+///
+/// Candidate-level guards use this entry point so the primary outputs and
+/// fallback are never evaluated eagerly.
+pub fn evaluate_impl_value_with_limits(
+    program: &ImplProgram,
+    value: &ImplValueId,
+    inputs: &BTreeMap<String, JsonValue>,
+    limits: &ResourceLimits,
+) -> AgentResult<JsonValue> {
+    let adapter = impl_as_program(program);
+    let (mut evaluator, _dimensions) = prepare_evaluator(&adapter, inputs, limits)?;
+    runtime_json(&evaluator.value(&ValueId::new(value.as_str()))?)
+}
+
+/// Evaluates exact, speculative, or guarded candidate-level semantics.
+pub fn evaluate_candidate_with_limits(
+    forest: &CandidateForest,
+    candidate: &CandidateId,
+    revision: &CandidateRevisionId,
+    inputs: &BTreeMap<String, JsonValue>,
+    limits: &ResourceLimits,
+) -> AgentResult<EvaluationResult> {
+    fn evaluate_at(
+        forest: &CandidateForest,
+        candidate: &CandidateId,
+        revision: &CandidateRevisionId,
+        inputs: &BTreeMap<String, JsonValue>,
+        limits: &ResourceLimits,
+        depth: u64,
+        visiting: &mut BTreeSet<(CandidateId, CandidateRevisionId)>,
+    ) -> AgentResult<EvaluationResult> {
+        BudgetCheck::against(
+            limits,
+            ResourceKind::FallbackDepth,
+            depth,
+            "candidate guarded evaluation before recursion",
+        )?;
+        if !visiting.insert((candidate.clone(), revision.clone())) {
+            return Err(AgentError::new(
+                ErrorCode::FallbackCycle,
+                "candidate guarded fallback cycle detected",
+            ));
+        }
+        let candidate_data = forest.candidates.get(candidate).ok_or_else(|| {
+            AgentError::new(
+                ErrorCode::CandidateNotFound,
+                format!("candidate `{candidate}` does not exist"),
+            )
+        })?;
+        let revision_data = candidate_data.revisions.get(revision).ok_or_else(|| {
+            AgentError::new(
+                ErrorCode::CandidateRevisionNotFound,
+                format!("candidate revision `{revision}` does not exist"),
+            )
+        })?;
+        let result = if let Some(fallback) = &revision_data.guarded_fallback {
+            let guard = match &fallback.guard {
+                GuardPredicate::I32NonZero { value } => {
+                    let value = evaluate_impl_value_with_limits(
+                        &revision_data.impl_program,
+                        value,
+                        inputs,
+                        limits,
+                    )?;
+                    value.as_i64().ok_or_else(|| {
+                        AgentError::new(
+                            ErrorCode::GuardInvalid,
+                            "i32 non-zero guard did not evaluate to an integer",
+                        )
+                    })? != 0
+                }
+            };
+            if guard {
+                evaluate_impl_with_limits(&revision_data.impl_program, inputs, limits)
+            } else {
+                evaluate_at(
+                    forest,
+                    &fallback.fallback_candidate,
+                    &fallback.fallback_revision,
+                    inputs,
+                    limits,
+                    depth.saturating_add(1),
+                    visiting,
+                )
+            }
+        } else {
+            evaluate_impl_with_limits(&revision_data.impl_program, inputs, limits)
+        };
+        visiting.remove(&(candidate.clone(), revision.clone()));
+        result
+    }
+    evaluate_at(
+        forest,
+        candidate,
+        revision,
+        inputs,
+        limits,
+        0,
+        &mut BTreeSet::new(),
+    )
 }
 
 fn next_random(state: &mut u64) -> u64 {
@@ -1227,6 +1341,100 @@ pub fn differential_validate(
                     "inputs": inputs,
                     "spec_result": spec_result.map_err(|error| error.code),
                     "impl_result": impl_result.map_err(|error| error.code),
+                })),
+            });
+        }
+    }
+    Ok(DifferentialValidation {
+        seed,
+        requested_cases: cases,
+        executed_cases: cases,
+        passed: true,
+        counterexample: None,
+    })
+}
+
+/// Runs fixed-seed differential validation against candidate-level guarded semantics.
+///
+/// A successful result remains confidence evidence and never discharges proof debt.
+pub fn differential_validate_candidate(
+    spec: &Program,
+    forest: &CandidateForest,
+    candidate: &CandidateId,
+    revision: &CandidateRevisionId,
+    seed: u64,
+    cases: u64,
+    limits: &ResourceLimits,
+) -> AgentResult<DifferentialValidation> {
+    let implementation = forest
+        .candidates
+        .get(candidate)
+        .and_then(|candidate| candidate.revisions.get(revision))
+        .ok_or_else(|| {
+            AgentError::new(
+                ErrorCode::CandidateRevisionNotFound,
+                "candidate differential revision does not exist",
+            )
+        })?;
+    let generated_case_size = u64::try_from(spec.operations.len())
+        .unwrap_or(u64::MAX)
+        .saturating_add(
+            u64::try_from(implementation.impl_program.operations.len()).unwrap_or(u64::MAX),
+        );
+    BudgetCheck::against(
+        limits,
+        ResourceKind::GeneratedSpeculativeCaseSize,
+        generated_case_size,
+        "speculative candidate differential graph case",
+    )?;
+    BudgetCheck::against(
+        limits,
+        ResourceKind::DifferentialCases,
+        cases,
+        "candidate-level differential validation before generation",
+    )?;
+    if cases == 0 {
+        return Err(AgentError::new(
+            ErrorCode::InvalidRequest,
+            "candidate differential validation requires at least one case",
+        ));
+    }
+    let mut state = seed;
+    let mut accumulated_elements = 0_u64;
+    for case in 0..cases {
+        let mut inputs = generate_inputs(spec, &mut state, limits, &mut accumulated_elements)?;
+        if case < 2 {
+            if let Some(fallback) = &implementation.guarded_fallback {
+                let GuardPredicate::I32NonZero { value } = &fallback.guard;
+                if let Some((name, _)) = implementation
+                    .impl_program
+                    .parameters
+                    .iter()
+                    .find(|(_, parameter)| *parameter == value)
+                {
+                    inputs.insert(name.clone(), json!(i32::from(case != 0)));
+                }
+            }
+        }
+        let spec_result = evaluate_with_limits(spec, &inputs, limits);
+        let candidate_result =
+            evaluate_candidate_with_limits(forest, candidate, revision, &inputs, limits);
+        let matches = match (&spec_result, &candidate_result) {
+            (Ok(left), Ok(right)) => equivalent_results(spec, left, right),
+            (Err(left), Err(right)) => left.code == right.code,
+            _ => false,
+        };
+        if !matches {
+            return Ok(DifferentialValidation {
+                seed,
+                requested_cases: cases,
+                executed_cases: case + 1,
+                passed: false,
+                counterexample: Some(json!({
+                    "case": case,
+                    "inputs": inputs,
+                    "spec_result": spec_result.map_err(|error| error.code),
+                    "candidate_result": candidate_result.map_err(|error| error.code),
                 })),
             });
         }

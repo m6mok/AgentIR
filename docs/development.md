@@ -22,6 +22,9 @@ RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 cargo run -p agentir-cli --bin agentir < examples/saxpy.jsonl
 cargo run -p agentir-cli --bin agentir < examples/candidate_identity.jsonl
 cargo run -p agentir-cli --bin agentir < examples/candidate_rewrite.jsonl
+cargo run -p agentir-cli --bin agentir < examples/speculative_open.jsonl
+cargo run -p agentir-cli --bin agentir < examples/speculative_promote.jsonl
+cargo run -p agentir-cli --bin agentir < examples/guarded_candidate.jsonl
 cargo run --release -p agentir-protocol --example baseline
 ```
 
@@ -35,13 +38,15 @@ Run the intentionally dependency-free measurement harness in release mode:
 cargo run --release -p agentir-protocol --example baseline
 ```
 
-Benchmark schema v2 reports warm-ups plus min/median/p95/max for SpecIR, candidate, rewrite, evidence, migration and replay paths. It records crate/git/dirty/target/OS/rustc/build metadata and separates SpecIR/ImplIR/candidate/archive byte sizes from timings. See [benchmarking.md](benchmarking.md); timing changes never fail CI.
+Benchmark schema v2 reports warm-ups plus min/median/p95/max for SpecIR, candidate, proposal/debt/guard, rewrite, evidence, migration and replay paths. It records crate/git/dirty/target/OS/rustc/build metadata and separates SpecIR/ImplIR/proposal/candidate/debt/archive byte sizes from timings. See [benchmarking.md](benchmarking.md); timing changes never fail CI.
 
-Golden v1 archives came from commit `97c821a`; v2 and v3 inputs are also immutable and pinned by SHA-256. Never regenerate them with the v4 writer. V4 candidate fixtures have separate provenance in the fixture README.
+Golden v1 archives came from commit `97c821a`; v2, v3 and v4 inputs are immutable and pinned by SHA-256. Never regenerate them with the v5 writer. V5 fixtures are reproducible with `cargo run -p agentir-store --example generate_v5_fixtures`; review their pinned hashes in the fixture README.
 
 ## Adding a known rewrite
 
 Add one stable rule ID, deterministic matcher, exact side-condition checker, staged transform and certificate builder. Cover applicability/non-applicability, atomic rejection, exact evaluator behavior, proof-chain composition, continuation order, archive replay and bounded soundness. Agent-provided proof claims are never accepted as correctness evidence.
+
+For a new speculative validator path, keep proposal parsing/type verification separate from proof recognition. Reproduce the proposed result through compiler-owned production logic, add exact evidence/debt/frontier replay checks, and cover spoofed provenance, counterexamples, budgets and archive corruption.
 
 ## Adding an opcode
 

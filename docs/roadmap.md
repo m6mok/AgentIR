@@ -23,9 +23,16 @@ Process locking remains deferred until concurrent workspace access is required. 
 - correctness/confidence EvidenceIR and deterministic differential validation;
 - candidate semantics v1 and archive/snapshot v4.
 
-## Stage 2B: speculative candidate space
+## Completed Stage 2B: bounded speculative candidate space
 
-Introduce agent-proposed rewrites, explicit proof debt and guarded/refuted states only with a clear trust boundary. Approximate refinement, e-graph/equality-space exploration, search policy and ranking remain separate opt-in work; none should weaken Stage 2A exact certificates.
+- typed agent proposals with alpha-normalized `proposal_hash` and explicit opt-in;
+- persistent ordered debt plus a proof frontier distinct from candidate head;
+- compiler-owned identity/known-rewrite translation validation and deterministic refutation;
+- one exact lazy guarded self-division fallback;
+- candidate hash/semantics v2 and mixed v1/v2 replay;
+- archive/snapshot v5 and explicit exact v4 migration.
+
+Approximate refinement, e-graph/equality-space exploration, search policy and ranking remain separate future work; none may weaken exact certificates.
 
 ## Stage 3: MemoryIR
 

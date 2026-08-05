@@ -4,15 +4,17 @@ use agentir_core::{
     ids::{CandidateId, CandidateRevisionId, ImplOperationId},
     persistence::{
         CORE_SEMANTICS_VERSION, LEGACY_CORE_SEMANTICS_VERSION, LegacyWorkspaceSnapshotV1,
-        LegacyWorkspaceSnapshotV2, LegacyWorkspaceSnapshotV3, WorkspaceSnapshot,
+        LegacyWorkspaceSnapshotV2, LegacyWorkspaceSnapshotV3, LegacyWorkspaceSnapshotV4,
+        WorkspaceSnapshot,
     },
     semantic::SpecHash,
 };
 use agentir_store::{
     ARCHIVE_FORMAT_VERSION, LEGACY_ARCHIVE_FORMAT_V2, LEGACY_ARCHIVE_FORMAT_V3,
-    LEGACY_ARCHIVE_FORMAT_VERSION, MIGRATION_V1_TO_V2, MIGRATION_V2_TO_V3, MIGRATION_V3_TO_V4,
-    MIGRATION_V4_NOOP, WorkspaceArchiveV1, WorkspaceArchiveV2, WorkspaceArchiveV3,
-    WorkspaceArchiveV4, load_workspace, load_workspace_bytes, migrate_archive,
+    LEGACY_ARCHIVE_FORMAT_V4, LEGACY_ARCHIVE_FORMAT_VERSION, MIGRATION_V1_TO_V2,
+    MIGRATION_V2_TO_V3, MIGRATION_V3_TO_V4, MIGRATION_V4_TO_V5, MIGRATION_V5_NOOP,
+    WorkspaceArchiveV1, WorkspaceArchiveV2, WorkspaceArchiveV3, WorkspaceArchiveV4,
+    WorkspaceArchiveV5, load_workspace, load_workspace_bytes, migrate_archive,
     migrate_archive_v1_to_v2, migrate_archive_v2_to_v3, save_workspace, verify_archive,
 };
 use serde::Serialize;
@@ -49,6 +51,25 @@ const CORRUPTED_CANDIDATE_HASH_V4: &[u8] =
 const CORRUPTED_SPEC_ANCHOR_V4: &[u8] = include_bytes!("fixtures/corrupted-spec-anchor-v4.json");
 const CORRUPTED_EVIDENCE_CHAIN_V4: &[u8] =
     include_bytes!("fixtures/corrupted-evidence-chain-v4.json");
+const MINIMAL_V5: &[u8] = include_bytes!("fixtures/minimal-v5.json");
+const MIGRATED_V4_EXACT_V5: &[u8] = include_bytes!("fixtures/migrated-v4-exact-v5.json");
+const SPECULATIVE_OPEN_V5: &[u8] = include_bytes!("fixtures/speculative-open-v5.json");
+const RECOGNIZED_V5: &[u8] = include_bytes!("fixtures/recognized-known-rewrite-v5.json");
+const GUARDED_V5: &[u8] = include_bytes!("fixtures/guarded-candidate-v5.json");
+const SEALED_GUARDED_V5: &[u8] = include_bytes!("fixtures/sealed-guarded-v5.json");
+const REFUTED_V5: &[u8] = include_bytes!("fixtures/refuted-candidate-v5.json");
+const MIXED_CANDIDATE_V5: &[u8] = include_bytes!("fixtures/mixed-candidate-semantics-v5.json");
+const CORRUPTED_PROPOSAL_HASH_V5: &[u8] =
+    include_bytes!("fixtures/corrupted-proposal-hash-v5.json");
+const CORRUPTED_FRONTIER_V5: &[u8] = include_bytes!("fixtures/corrupted-proof-frontier-v5.json");
+const CORRUPTED_DEBT_V5: &[u8] = include_bytes!("fixtures/corrupted-debt-chain-v5.json");
+const CORRUPTED_GUARD_V5: &[u8] = include_bytes!("fixtures/corrupted-guard-v5.json");
+const CORRUPTED_FALLBACK_V5: &[u8] = include_bytes!("fixtures/corrupted-fallback-v5.json");
+const CORRUPTED_CANDIDATE_HASH_V2_V5: &[u8] =
+    include_bytes!("fixtures/corrupted-candidate-hash-v2-v5.json");
+const CORRUPTED_CANDIDATE_SEMANTICS_V2_V5: &[u8] =
+    include_bytes!("fixtures/corrupted-candidate-semantics-v2-v5.json");
+const FUTURE_V6: &[u8] = include_bytes!("fixtures/future-v6.json");
 const FUTURE_V5: &[u8] = include_bytes!("fixtures/future-v5.json");
 
 static PATH_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -154,6 +175,78 @@ fn immutable_legacy_fixture_bytes_are_pinned() {
     );
 }
 
+#[test]
+fn stage_2b_v5_fixture_bytes_are_pinned() {
+    for (bytes, expected) in [
+        (
+            MINIMAL_V5,
+            "315f39f987119285e7e441962515ef1a09bbb384686fbb989e8b49665906bf17",
+        ),
+        (
+            MIGRATED_V4_EXACT_V5,
+            "aab676dba60973349f5dca3e8faf6c93439259cf880108d6ec9d03447bb55b3f",
+        ),
+        (
+            SPECULATIVE_OPEN_V5,
+            "e713531ffda0dca2625c67db6f53ea950be050c5500f351bd001a53653cd0b9f",
+        ),
+        (
+            RECOGNIZED_V5,
+            "1869110f297be26ebea70b0b4f5b2ebb5a54b820dad41542e6ff17e76fef4c78",
+        ),
+        (
+            GUARDED_V5,
+            "d898a7b83ce8cc6ec09665fb097205ecd0f9b2e7b132dedbc38d18eef0404d1d",
+        ),
+        (
+            SEALED_GUARDED_V5,
+            "3639d7aa6b92e4b067b2fbc8f931d7e31038b1e0e72f8a7fd5f755732c9c5bab",
+        ),
+        (
+            REFUTED_V5,
+            "70dec571e21ac4c85c8b144c22e11fe10ec133f40fd6373db4df5131899a91e7",
+        ),
+        (
+            MIXED_CANDIDATE_V5,
+            "d898a7b83ce8cc6ec09665fb097205ecd0f9b2e7b132dedbc38d18eef0404d1d",
+        ),
+        (
+            CORRUPTED_PROPOSAL_HASH_V5,
+            "6175a11031588ad115f5e2be4cf0b7db72dc11e4ea1839c8720186e9e42348b2",
+        ),
+        (
+            CORRUPTED_FRONTIER_V5,
+            "a48ab7fe4df2410ddf6726cba577c12d65cfdac8b58a389bbd50c55814b9a240",
+        ),
+        (
+            CORRUPTED_DEBT_V5,
+            "3754bde2dd805d39de0ed28f73e8a617d96dc595a89b0ae3977366fb2e921ddb",
+        ),
+        (
+            CORRUPTED_GUARD_V5,
+            "e40df73aefb6d83c097e95ac69c15dba7107ca02c385d41473c3754666962f47",
+        ),
+        (
+            CORRUPTED_FALLBACK_V5,
+            "bb0e4601bf4fbe4debffca5b122f5406318af1a4df702808f7de91b795db73b4",
+        ),
+        (
+            CORRUPTED_CANDIDATE_HASH_V2_V5,
+            "9b6c7d3d95394e16b926b1332f7556b1636a4eb41949ad08dc7a3703fd51c718",
+        ),
+        (
+            CORRUPTED_CANDIDATE_SEMANTICS_V2_V5,
+            "b7fc62546783cf545bf3de8127223143b778ffbc1e68b0b292502a3c8a7a8b2d",
+        ),
+        (
+            FUTURE_V6,
+            "d8c46c798c5220c058408d6fb9ead73e6db5919e25a742b960b2a46741cfada0",
+        ),
+    ] {
+        assert_eq!(hash_bytes(bytes), expected);
+    }
+}
+
 #[derive(Serialize)]
 struct BodyV1<'a> {
     format: &'a str,
@@ -180,6 +273,14 @@ struct BodyV3<'a> {
 
 #[derive(Serialize)]
 struct BodyV4<'a> {
+    format: &'a str,
+    format_version: u32,
+    compiler_version: &'a str,
+    snapshot: &'a LegacyWorkspaceSnapshotV4,
+}
+
+#[derive(Serialize)]
+struct BodyV5<'a> {
     format: &'a str,
     format_version: u32,
     compiler_version: &'a str,
@@ -250,7 +351,7 @@ fn candidate_workspace() -> Workspace {
 }
 
 #[test]
-fn archive_round_trip_writes_v4_replays_and_resumes_ids() {
+fn archive_round_trip_writes_v5_replays_and_resumes_ids() {
     let archive = TestArchive::new("round-trip");
     let workspace = simple_workspace();
     let expected = workspace.snapshot();
@@ -264,7 +365,7 @@ fn archive_round_trip_writes_v4_replays_and_resumes_ids() {
     assert_eq!(loaded.replay.revisions_verified, 2);
     assert_eq!(loaded.replay.content_hashes_verified, 2);
     assert_eq!(loaded.metadata.archive_hash, saved.archive_hash);
-    assert_eq!(loaded.migration.applied_steps, [MIGRATION_V4_NOOP]);
+    assert_eq!(loaded.migration.applied_steps, [MIGRATION_V5_NOOP]);
     assert!(
         expected
             .events
@@ -316,7 +417,12 @@ fn golden_v1_migrates_purely_and_preserves_content_hashes() {
     );
     assert_eq!(
         loaded.migration.applied_steps,
-        [MIGRATION_V1_TO_V2, MIGRATION_V2_TO_V3, MIGRATION_V3_TO_V4]
+        [
+            MIGRATION_V1_TO_V2,
+            MIGRATION_V2_TO_V3,
+            MIGRATION_V3_TO_V4,
+            MIGRATION_V4_TO_V5,
+        ]
     );
     assert_eq!(loaded.replay.spec_hashes_verified, 1);
 }
@@ -342,7 +448,7 @@ fn golden_saxpy_v1_migrates_and_evaluates() {
 }
 
 #[test]
-fn saving_a_loaded_v1_workspace_writes_only_v4() {
+fn saving_a_loaded_v1_workspace_writes_only_v5() {
     let destination = TestArchive::new("save-migrated");
     let loaded = load_workspace_bytes(MINIMAL_V1).expect("v1 load");
     let saved = save_workspace(destination.path(), &loaded.workspace).expect("v3 save");
@@ -350,7 +456,7 @@ fn saving_a_loaded_v1_workspace_writes_only_v4() {
     let document: Value =
         serde_json::from_slice(&fs::read(destination.path()).expect("read")).expect("JSON");
     assert_eq!(document["format_version"], ARCHIVE_FORMAT_VERSION);
-    assert_eq!(document["snapshot"]["schema_version"], 4);
+    assert_eq!(document["snapshot"]["schema_version"], 5);
     assert_eq!(
         document["snapshot"]["events"][0]["semantics_version"],
         LEGACY_CORE_SEMANTICS_VERSION
@@ -368,7 +474,7 @@ fn golden_v2_load_runs_explicit_v2_to_v3_migration() {
     );
     assert_eq!(
         loaded.migration.applied_steps,
-        [MIGRATION_V2_TO_V3, MIGRATION_V3_TO_V4]
+        [MIGRATION_V2_TO_V3, MIGRATION_V3_TO_V4, MIGRATION_V4_TO_V5]
     );
     assert!(
         loaded
@@ -530,7 +636,10 @@ fn archive_round_trip_property_harness_is_deterministic() {
 fn golden_v3_fixtures_cover_minimal_saxpy_and_mixed_history() {
     let minimal = load_workspace_bytes(MINIMAL_V3).expect("minimal v3");
     assert_eq!(minimal.metadata.format_version, LEGACY_ARCHIVE_FORMAT_V3);
-    assert_eq!(minimal.migration.applied_steps, [MIGRATION_V3_TO_V4]);
+    assert_eq!(
+        minimal.migration.applied_steps,
+        [MIGRATION_V3_TO_V4, MIGRATION_V4_TO_V5]
+    );
     assert!(minimal.workspace.snapshot().events.is_empty());
 
     let saxpy = load_workspace_bytes(SAXPY_V3).expect("SAXPY v3");
@@ -624,6 +733,12 @@ fn archive_mutation_sequence(seed: u64) -> Vec<String> {
         SAXPY_IDENTITY_V4,
         REWRITTEN_SEALED_V4,
         MIGRATED_CANDIDATE_V4,
+        MINIMAL_V5,
+        SPECULATIVE_OPEN_V5,
+        RECOGNIZED_V5,
+        GUARDED_V5,
+        REFUTED_V5,
+        MIXED_CANDIDATE_V5,
     ];
     let mut state = seed;
     let mut results = Vec::new();
@@ -681,12 +796,12 @@ fn archive_checksum_tampering_is_rejected() {
 }
 
 #[test]
-fn v4_candidate_history_round_trips_byte_deterministically() {
+fn v5_candidate_history_round_trips_byte_deterministically() {
     let workspace = candidate_workspace();
     let first = agentir_store::encode_workspace_archive(&workspace).unwrap();
-    let archive: WorkspaceArchiveV4 = serde_json::from_slice(&first).unwrap();
+    let archive: WorkspaceArchiveV5 = serde_json::from_slice(&first).unwrap();
     assert_eq!(archive.format_version, ARCHIVE_FORMAT_VERSION);
-    assert_eq!(archive.snapshot.schema_version, 4);
+    assert_eq!(archive.snapshot.schema_version, 5);
     assert_eq!(archive.snapshot.candidate_forest.candidates.len(), 1);
     assert_eq!(archive.snapshot.candidate_forest.events.len(), 3);
     let loaded = load_workspace_bytes(&first).expect("candidate archive replay");
@@ -715,12 +830,14 @@ fn golden_v4_fixtures_cover_empty_frozen_identity_rewrite_and_migration() {
         (MIGRATED_CANDIDATE_V4, 1, 1),
     ] {
         let loaded = load_workspace_bytes(bytes).expect("valid golden v4 fixture");
-        assert_eq!(loaded.metadata.format_version, ARCHIVE_FORMAT_VERSION);
+        assert_eq!(loaded.metadata.format_version, LEGACY_ARCHIVE_FORMAT_V4);
         assert_eq!(loaded.replay.candidates_verified, candidates);
         assert_eq!(loaded.replay.candidate_events_replayed, candidate_events);
+        let migrated = agentir_store::encode_workspace_archive(&loaded.workspace).unwrap();
+        let replayed = load_workspace_bytes(&migrated).unwrap();
         assert_eq!(
-            agentir_store::encode_workspace_archive(&loaded.workspace).unwrap(),
-            bytes
+            agentir_store::encode_workspace_archive(&replayed.workspace).unwrap(),
+            migrated
         );
     }
     assert_eq!(
@@ -743,6 +860,49 @@ fn golden_v4_fixtures_cover_empty_frozen_identity_rewrite_and_migration() {
         hash_bytes(MIGRATED_CANDIDATE_V4),
         "3fc4e8df8c4f5cd5d2ec56a1af28fbe28ba1f4dd2128e1a501030a54002cec0a"
     );
+}
+
+#[test]
+fn v4_to_v5_preserves_legacy_candidate_ids_hashes_state_and_evidence() {
+    let source: WorkspaceArchiveV4 = serde_json::from_slice(REWRITTEN_SEALED_V4).unwrap();
+    let loaded = load_workspace_bytes(REWRITTEN_SEALED_V4).unwrap();
+    assert!(loaded.workspace.candidate_forest().proposals.is_empty());
+    assert_eq!(
+        loaded.workspace.candidate_forest().events.len(),
+        source.snapshot.candidate_forest.events.len()
+    );
+    assert_eq!(
+        loaded
+            .workspace
+            .candidate_forest()
+            .evidence
+            .keys()
+            .collect::<Vec<_>>(),
+        source
+            .snapshot
+            .candidate_forest
+            .evidence
+            .keys()
+            .collect::<Vec<_>>()
+    );
+    for (candidate_id, legacy_candidate) in &source.snapshot.candidate_forest.candidates {
+        let current = &loaded.workspace.candidate_forest().candidates[candidate_id];
+        assert_eq!(current.id, legacy_candidate.id);
+        assert_eq!(current.head, legacy_candidate.head);
+        for (revision_id, legacy_revision) in &legacy_candidate.revisions {
+            let revision = &current.revisions[revision_id];
+            assert_eq!(revision.candidate_hash_version, 1);
+            assert_eq!(revision.candidate_hash, legacy_revision.candidate_hash);
+            assert_eq!(revision.impl_hash, legacy_revision.impl_hash);
+            assert_eq!(revision.evidence, legacy_revision.evidence);
+            assert_eq!(
+                serde_json::to_value(revision.state).unwrap(),
+                serde_json::to_value(legacy_revision.state).unwrap()
+            );
+            assert!(revision.proof_debt.is_empty());
+            assert!(revision.guarded_fallback.is_none());
+        }
+    }
 }
 
 #[test]
@@ -773,8 +933,70 @@ fn golden_v4_candidate_corruption_fixtures_pass_envelope_then_fail_replay() {
     }
 }
 
-fn rehash_v4(archive: &mut WorkspaceArchiveV4) -> Vec<u8> {
-    archive.archive_hash = hash_body(&BodyV4 {
+#[test]
+fn golden_v5_fixtures_round_trip_exact_speculative_guarded_and_refuted_histories() {
+    for bytes in [
+        MINIMAL_V5,
+        MIGRATED_V4_EXACT_V5,
+        SPECULATIVE_OPEN_V5,
+        RECOGNIZED_V5,
+        GUARDED_V5,
+        SEALED_GUARDED_V5,
+        REFUTED_V5,
+        MIXED_CANDIDATE_V5,
+    ] {
+        let loaded = load_workspace_bytes(bytes).expect("valid golden v5 fixture");
+        assert_eq!(loaded.metadata.format_version, ARCHIVE_FORMAT_VERSION);
+        assert_eq!(loaded.migration.applied_steps, [MIGRATION_V5_NOOP]);
+        assert_eq!(
+            agentir_store::encode_workspace_archive(&loaded.workspace).unwrap(),
+            bytes
+        );
+    }
+    let mixed = load_workspace_bytes(MIXED_CANDIDATE_V5).unwrap();
+    assert_eq!(mixed.replay.candidate_events_replayed, 3);
+    let semantics = mixed
+        .workspace
+        .candidate_forest()
+        .events
+        .iter()
+        .map(|event| event.semantics_version)
+        .collect::<Vec<_>>();
+    assert_eq!(semantics, [1, 2, 2]);
+}
+
+#[test]
+fn corrupted_v5_fixtures_have_valid_envelopes_and_fail_before_publication() {
+    for bytes in [
+        CORRUPTED_PROPOSAL_HASH_V5,
+        CORRUPTED_FRONTIER_V5,
+        CORRUPTED_DEBT_V5,
+        CORRUPTED_GUARD_V5,
+        CORRUPTED_FALLBACK_V5,
+        CORRUPTED_CANDIDATE_HASH_V2_V5,
+        CORRUPTED_CANDIDATE_SEMANTICS_V2_V5,
+    ] {
+        let archive: WorkspaceArchiveV5 =
+            serde_json::from_slice(bytes).expect("exact v5 source codec");
+        assert_eq!(
+            archive.archive_hash,
+            hash_body(&BodyV5 {
+                format: &archive.format,
+                format_version: archive.format_version,
+                compiler_version: &archive.compiler_version,
+                snapshot: &archive.snapshot,
+            })
+        );
+        assert!(load_workspace_bytes(bytes).is_err());
+    }
+    assert_eq!(
+        load_workspace_bytes(FUTURE_V6).unwrap_err().code,
+        ErrorCode::PersistenceFormat
+    );
+}
+
+fn rehash_v5(archive: &mut WorkspaceArchiveV5) -> Vec<u8> {
+    archive.archive_hash = hash_body(&BodyV5 {
         format: &archive.format,
         format_version: archive.format_version,
         compiler_version: &archive.compiler_version,
@@ -784,10 +1006,10 @@ fn rehash_v4(archive: &mut WorkspaceArchiveV4) -> Vec<u8> {
 }
 
 #[test]
-fn v4_candidate_hash_anchor_evidence_and_semantics_corruption_are_rejected() {
+fn v5_candidate_hash_anchor_evidence_and_semantics_corruption_are_rejected() {
     let bytes = agentir_store::encode_workspace_archive(&candidate_workspace()).unwrap();
 
-    let mut impl_hash: WorkspaceArchiveV4 = serde_json::from_slice(&bytes).unwrap();
+    let mut impl_hash: WorkspaceArchiveV5 = serde_json::from_slice(&bytes).unwrap();
     impl_hash
         .snapshot
         .candidate_forest
@@ -798,9 +1020,9 @@ fn v4_candidate_hash_anchor_evidence_and_semantics_corruption_are_rejected() {
         .get_mut(&CandidateRevisionId::new("cr3"))
         .unwrap()
         .impl_hash = agentir_core::impl_ir::ImplHash::new("corrupted");
-    assert!(load_workspace_bytes(&rehash_v4(&mut impl_hash)).is_err());
+    assert!(load_workspace_bytes(&rehash_v5(&mut impl_hash)).is_err());
 
-    let mut candidate_hash: WorkspaceArchiveV4 = serde_json::from_slice(&bytes).unwrap();
+    let mut candidate_hash: WorkspaceArchiveV5 = serde_json::from_slice(&bytes).unwrap();
     candidate_hash
         .snapshot
         .candidate_forest
@@ -811,9 +1033,9 @@ fn v4_candidate_hash_anchor_evidence_and_semantics_corruption_are_rejected() {
         .get_mut(&CandidateRevisionId::new("cr3"))
         .unwrap()
         .candidate_hash = agentir_core::candidate::CandidateHash::new("corrupted");
-    assert!(load_workspace_bytes(&rehash_v4(&mut candidate_hash)).is_err());
+    assert!(load_workspace_bytes(&rehash_v5(&mut candidate_hash)).is_err());
 
-    let mut anchor: WorkspaceArchiveV4 = serde_json::from_slice(&bytes).unwrap();
+    let mut anchor: WorkspaceArchiveV5 = serde_json::from_slice(&bytes).unwrap();
     anchor
         .snapshot
         .candidate_forest
@@ -821,9 +1043,9 @@ fn v4_candidate_hash_anchor_evidence_and_semantics_corruption_are_rejected() {
         .get_mut(&CandidateId::new("c1"))
         .unwrap()
         .spec_hash = SpecHash::new("corrupted");
-    assert!(load_workspace_bytes(&rehash_v4(&mut anchor)).is_err());
+    assert!(load_workspace_bytes(&rehash_v5(&mut anchor)).is_err());
 
-    let mut evidence: WorkspaceArchiveV4 = serde_json::from_slice(&bytes).unwrap();
+    let mut evidence: WorkspaceArchiveV5 = serde_json::from_slice(&bytes).unwrap();
     evidence
         .snapshot
         .candidate_forest
@@ -835,19 +1057,19 @@ fn v4_candidate_hash_anchor_evidence_and_semantics_corruption_are_rejected() {
         .unwrap()
         .proof_chain[1]
         .rule = "corrupted".to_owned();
-    assert!(load_workspace_bytes(&rehash_v4(&mut evidence)).is_err());
+    assert!(load_workspace_bytes(&rehash_v5(&mut evidence)).is_err());
 
-    let mut semantics: WorkspaceArchiveV4 = serde_json::from_slice(&bytes).unwrap();
+    let mut semantics: WorkspaceArchiveV5 = serde_json::from_slice(&bytes).unwrap();
     semantics.snapshot.candidate_forest.events[0].semantics_version = 99;
-    let error = load_workspace_bytes(&rehash_v4(&mut semantics))
+    let error = load_workspace_bytes(&rehash_v5(&mut semantics))
         .expect_err("unknown candidate semantics is rejected");
     assert_eq!(error.code, ErrorCode::PersistenceFormat);
 
-    let mut allocator: WorkspaceArchiveV4 = serde_json::from_slice(&bytes).unwrap();
+    let mut allocator: WorkspaceArchiveV5 = serde_json::from_slice(&bytes).unwrap();
     let mut snapshot = serde_json::to_value(&allocator.snapshot).unwrap();
     snapshot["candidate_forest"]["allocator"]["candidate"] = json!(999);
     allocator.snapshot = serde_json::from_value(snapshot).unwrap();
-    let error = load_workspace_bytes(&rehash_v4(&mut allocator))
+    let error = load_workspace_bytes(&rehash_v5(&mut allocator))
         .expect_err("candidate allocator tampering is rejected");
     assert_eq!(error.code, ErrorCode::ReplayMismatch);
 }

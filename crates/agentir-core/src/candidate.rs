@@ -4,11 +4,12 @@ use crate::{
     diagnostics::{AgentError, AgentResult, ErrorCode},
     ids::{
         CandidateId, CandidateObligationId, CandidateRevisionId, EvidenceId, ImplOperationId,
-        ImplValueId, RevisionId,
+        ImplValueId, ProposalId, RevisionId,
     },
     impl_ir::{
-        IMPL_SEMANTICS_VERSION, ImplHash, ImplProgram, ImplRegionValue, ImplSourceLink,
-        ImplValueOrigin, identity_lower, impl_hash, verify_impl,
+        IMPL_SEMANTICS_VERSION, ImplHash, ImplOperation, ImplProgram, ImplRegionValue,
+        ImplSourceLink, ImplValue, ImplValueOrigin, identity_lower, impl_hash,
+        infer_proposed_operation, verify_impl,
     },
     ir::{ConstantValue, Opcode, Program},
     resources::{BudgetCheck, ResourceKind, ResourceLimits},
@@ -23,14 +24,35 @@ use std::{
     fmt::{self, Write as _},
 };
 
+/// Immutable Stage 2A candidate-event semantics version.
+pub const LEGACY_CANDIDATE_SEMANTICS_VERSION: u32 = 1;
+
 /// Candidate event semantics version, independent of core and archive versions.
-pub const CANDIDATE_SEMANTICS_VERSION: u32 = 1;
+pub const CANDIDATE_SEMANTICS_VERSION: u32 = 2;
 
-/// Exact candidate-state canonical codec version.
-pub const CANDIDATE_CANONICAL_VERSION: u32 = 1;
+/// Immutable Stage 2A exact candidate-state canonical codec version.
+pub const LEGACY_CANDIDATE_CANONICAL_VERSION: u32 = 1;
 
-/// Domain separator for exact, history-sensitive candidate hashes.
-pub const CANDIDATE_HASH_DOMAIN: &[u8] = b"agentir.candidate.exact.v1\0";
+/// Current exact candidate-state canonical codec version.
+pub const CANDIDATE_CANONICAL_VERSION: u32 = 2;
+
+/// Immutable domain separator for candidate hash v1.
+pub const LEGACY_CANDIDATE_HASH_DOMAIN: &[u8] = b"agentir.candidate.exact.v1\0";
+
+/// Domain separator for speculative/guarded candidate hash v2.
+pub const CANDIDATE_HASH_DOMAIN: &[u8] = b"agentir.candidate.exact.v2\0";
+
+/// Current proposal canonical codec version.
+pub const PROPOSAL_CANONICAL_VERSION: u32 = 1;
+
+/// Domain separator for alpha-normalized proposal hashes.
+pub const PROPOSAL_HASH_DOMAIN: &[u8] = b"agentir.proposal.semantic.v1\0";
+
+/// Stable validator identity for Stage 2B translation validation.
+pub const TRANSLATION_VALIDATOR_ID: &str = "agentir.translation_validator";
+
+/// Current trusted translation-validator version.
+pub const TRANSLATION_VALIDATOR_VERSION: u32 = 1;
 
 /// Stable ID for unreachable implementation pruning.
 pub const PRUNE_UNREACHABLE_RULE: &str = "prune_unreachable_impl_nodes";
@@ -105,6 +127,31 @@ impl fmt::Display for CandidateHash {
     }
 }
 
+/// SHA-256 identity of one normalized speculative replacement proposal.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ProposalHash(String);
+
+impl ProposalHash {
+    /// Creates a proposal hash from a lowercase hexadecimal digest.
+    #[must_use]
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    /// Returns the lowercase hexadecimal digest.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for ProposalHash {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
 /// Monotonic allocator isolated from the legacy SpecIR allocator contract.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CandidateAllocator {
@@ -114,6 +161,7 @@ pub struct CandidateAllocator {
     value: u64,
     evidence: u64,
     obligation: u64,
+    proposal: u64,
 }
 
 macro_rules! candidate_allocator_method {
@@ -133,9 +181,29 @@ impl CandidateAllocator {
     candidate_allocator_method!(impl_value, value, "iv", ImplValueId);
     candidate_allocator_method!(evidence, evidence, "ev", EvidenceId);
     candidate_allocator_method!(obligation, obligation, "co", CandidateObligationId);
+    candidate_allocator_method!(proposal, proposal, "p", ProposalId);
+
+    pub(crate) fn from_legacy_counters(
+        candidate: u64,
+        revision: u64,
+        operation: u64,
+        value: u64,
+        evidence: u64,
+        obligation: u64,
+    ) -> Self {
+        Self {
+            candidate,
+            revision,
+            operation,
+            value,
+            evidence,
+            obligation,
+            proposal: 0,
+        }
+    }
 }
 
-/// Stage 2A candidate lifecycle state.
+/// Candidate lifecycle state through Stage 2B.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CandidateState {
@@ -145,6 +213,10 @@ pub enum CandidateState {
     WellTyped,
     /// Trusted certificates prove exact equivalence to frozen SpecIR.
     Equivalent,
+    /// Well-typed implementation with ordered proof debt after its proved frontier.
+    Speculative,
+    /// Exact candidate-level semantics use a compiler-owned guard and proved fallback.
+    Guarded,
     /// Immutable accepted implementation revision.
     Sealed,
     /// Deterministic validation found a counterexample or integrity failure.
@@ -155,7 +227,7 @@ pub enum CandidateState {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RelationKind {
-    /// Exact semantic equivalence supported by Stage 2A.
+    /// Exact semantic equivalence supported through Stage 2B.
     #[default]
     EquivalentToSpec,
     /// Approximate refinement, reserved for a later stage.
@@ -170,6 +242,12 @@ pub enum EquivalenceStatus {
     Open,
     /// The trusted compositional certificate chain verifies.
     Proved,
+    /// Exactness is established by a trusted guard plus proved lazy fallback.
+    Guarded,
+    /// A deterministic counterexample disproved the claimed exact relation.
+    Refuted,
+    /// The trusted validator has no proof path for the current proposal.
+    Unsupported,
 }
 
 /// Structured exact relation owned by one candidate revision.
@@ -177,7 +255,7 @@ pub enum EquivalenceStatus {
 pub struct EquivalenceObligation {
     /// Compiler-assigned obligation ID.
     pub id: CandidateObligationId,
-    /// Only exact equivalence is accepted in Stage 2A.
+    /// Only exact equivalence is accepted through Stage 2B.
     pub relation: RelationKind,
     /// Immutable frozen SpecIR semantic anchor.
     pub spec_hash: SpecHash,
@@ -215,6 +293,280 @@ pub enum EvidenceKind {
     DifferentialTest,
     /// Fixed-seed bounded property oracle.
     PropertyTest,
+    /// Trusted validation of an unchanged implementation semantic hash.
+    CanonicalIdentityValidation,
+    /// Trusted recognition of an agent proposal as a production known rewrite.
+    RecognizedKnownRewrite,
+    /// Trusted certificate for the bounded self-division guarded fallback.
+    GuardedRewriteCertificate,
+    /// Composition of consecutively discharged speculative obligations.
+    CompositionalSpeculativeDischarge,
+    /// Fixed-seed differential testing of a speculative candidate.
+    SpeculativeDifferentialTest,
+    /// Fixed-seed bounded property testing of a speculative candidate.
+    SpeculativePropertyTest,
+    /// Deterministic search that may publish a first counterexample.
+    CounterexampleSearch,
+}
+
+/// Compiler-owned proposal classification at the Stage 2B trust boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProposalClassification {
+    /// Malformed, ill-typed, boundary-invalid, or over budget; never persisted.
+    Illegal,
+    /// Exactly recognized by a trusted existing proof path.
+    Legal,
+    /// Recognized by the one bounded guarded rule.
+    Conditional,
+    /// Well-typed but not proved by the compiler.
+    Unknown,
+    /// Well-typed structure for which no validator exists.
+    Unsupported,
+}
+
+/// One declared fragment boundary input.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProposalInput {
+    /// Transaction-local binding beginning with `$`.
+    pub bind: String,
+    /// Existing target operand exposed at the fragment boundary.
+    pub value: ImplValueId,
+}
+
+/// One ordered pure operation inside a proposed replacement fragment.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProposalOperation {
+    /// Transaction-local result binding beginning with `$`.
+    pub bind: String,
+    /// Existing ImplIR opcode spelling.
+    pub opcode: String,
+    /// Ordered boundary or earlier-local references.
+    pub operands: Vec<String>,
+    /// Stable semantic attributes.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub attributes: BTreeMap<String, JsonValue>,
+    /// Exact scalar literal for `constant`; absent for every other opcode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub constant: Option<ConstantValue>,
+    /// Optional existing closed typed region model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<crate::impl_ir::ImplRegion>,
+}
+
+/// The single yielded value of a proposed replacement fragment.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProposalResult {
+    /// Boundary or local binding yielded by the fragment.
+    pub value: String,
+}
+
+/// Alpha-normalizable typed replacement fragment.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProposedImplFragment {
+    /// Ordered declaration of the target operand boundary.
+    pub inputs: Vec<ProposalInput>,
+    /// Ordered pure operations.
+    pub operations: Vec<ProposalOperation>,
+    /// Exactly one yielded replacement value.
+    pub result: ProposalResult,
+}
+
+/// Agent-proposed replacement of one top-level single-result ImplIR operation.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpeculativeRewriteProposal {
+    /// Persistent target operation in the explicit base candidate revision.
+    pub target: ImplOperationId,
+    /// Proposed pure replacement fragment.
+    pub replacement: ProposedImplFragment,
+    /// Required stale-state precondition.
+    pub expected_before_impl_hash: ImplHash,
+    /// Explicit permission to retain unknown/unsupported proof debt.
+    #[serde(default)]
+    pub allow_speculative: bool,
+    /// Untrusted advisory label; never used as a certificate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claimed_rule: Option<String>,
+}
+
+/// State of one ordered speculative proof-debt item.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProofDebtStatus {
+    /// Awaiting a trusted translation check.
+    Open,
+    /// Discharged by exact compiler-owned validation.
+    Proved,
+    /// Discharged by the bounded guard and exact fallback contract.
+    Guarded,
+    /// Disproved by the first deterministic counterexample.
+    Refuted,
+    /// No trusted validator path exists; not a correctness failure.
+    Unsupported,
+}
+
+/// Compiler-owned predicate supported by Stage 2B guarded execution.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum GuardPredicate {
+    /// Tests one scalar i32 value without evaluating the primary implementation.
+    I32NonZero {
+        /// Primary/fallback boundary value whose runtime input is tested.
+        value: ImplValueId,
+    },
+}
+
+/// Candidate-level exact lazy fallback contract.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuardedFallback {
+    /// Normalized compiler-owned guard.
+    pub guard: GuardPredicate,
+    /// Candidate containing the immutable proved fallback revision.
+    pub fallback_candidate: CandidateId,
+    /// Fully proved exact fallback revision.
+    pub fallback_revision: CandidateRevisionId,
+    /// Exact fallback candidate-state hash.
+    pub fallback_candidate_hash: CandidateHash,
+    /// Only supported failure strategy, always `evaluate_fallback`.
+    pub failure_strategy: String,
+    /// Correctness evidence for the guarded contract.
+    pub evidence: EvidenceId,
+}
+
+/// Last consecutive exact/guarded prefix before any remaining debt.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProofFrontier {
+    /// Candidate branch containing the frontier revision.
+    pub candidate: CandidateId,
+    /// Candidate revision through which the relation is trusted.
+    pub candidate_revision: CandidateRevisionId,
+    /// Terminal implementation hash at that trusted prefix.
+    pub terminal_proved_impl_hash: ImplHash,
+}
+
+/// One persistent ordered speculative correctness obligation.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProofDebtItem {
+    /// Compiler-assigned obligation identity.
+    pub id: CandidateObligationId,
+    /// Proposal record that created the debt.
+    pub proposal: ProposalId,
+    /// Proposal semantic identity.
+    pub proposal_hash: ProposalHash,
+    /// Candidate revision used as the proposal base.
+    pub base_candidate_revision: CandidateRevisionId,
+    /// Implementation hash before replacement.
+    pub before_impl_hash: ImplHash,
+    /// Implementation hash immediately after replacement.
+    pub after_impl_hash: ImplHash,
+    /// Replaced operation.
+    pub target: ImplOperationId,
+    /// Ordered boundary values.
+    pub boundary: Vec<ImplValueId>,
+    /// Only exact equivalence is supported.
+    pub relation: RelationKind,
+    /// Current proof-debt state.
+    pub status: ProofDebtStatus,
+    /// Stable compiler-owned discharge method IDs.
+    pub allowed_discharge_methods: Vec<String>,
+    /// Ordered evidence records associated with validation/refutation.
+    pub evidence: Vec<EvidenceId>,
+    /// First deterministic counterexample, if refuted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_counterexample: Option<JsonValue>,
+    /// Candidate event index that accepted the proposal.
+    pub origin_candidate_event: u64,
+}
+
+/// Persistent normalized proposal provenance, never correctness evidence.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ProposalRecord {
+    /// Compiler-assigned proposal ID.
+    pub id: ProposalId,
+    /// Domain-separated alpha-normalized proposal hash.
+    pub proposal_hash: ProposalHash,
+    /// Candidate and base revision named by the proposal.
+    pub candidate: CandidateId,
+    /// Candidate base revision.
+    pub base_candidate_revision: CandidateRevisionId,
+    /// Revision created by accepting the proposal.
+    pub accepted_candidate_revision: CandidateRevisionId,
+    /// Compiler-owned action classification.
+    pub classification: ProposalClassification,
+    /// Normalized proposal independent of local binding spellings.
+    pub proposal: SpeculativeRewriteProposal,
+    /// Implementation hash after applying the normalized fragment.
+    pub after_impl_hash: ImplHash,
+    /// Ordered allocated operation IDs for the accepted fragment.
+    pub allocated_operations: Vec<ImplOperationId>,
+    /// Ordered allocated value IDs for the accepted fragment.
+    pub allocated_values: Vec<ImplValueId>,
+    /// The accepted replacement yield value.
+    pub yielded_value: ImplValueId,
+}
+
+/// Trusted result persisted by one translation-validation attempt.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "result", rename_all = "snake_case")]
+pub enum TranslationValidationResult {
+    /// Before and after semantic implementation hashes are identical.
+    CanonicalIdentity,
+    /// A production known rewrite exactly reproduced the proposal result.
+    RecognizedKnownRewrite {
+        /// Compiler-owned stable rule ID.
+        rule: String,
+        /// Discharged production side conditions.
+        side_conditions: Vec<String>,
+    },
+    /// The one bounded i32 self-division rule with lazy exact fallback.
+    GuardedSelfDivision {
+        /// Compiler-owned candidate-level fallback contract.
+        guarded_fallback: GuardedFallback,
+    },
+    /// No trusted proof path recognized the well-typed proposal.
+    Unsupported,
+    /// A deterministic counterexample refuted the obligation.
+    Refuted {
+        /// First deterministic normalized counterexample.
+        counterexample: JsonValue,
+    },
+}
+
+/// Persisted translation-validation record.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TranslationValidationRecord {
+    /// Proposal checked by the trusted validator.
+    pub proposal: ProposalId,
+    /// Proof-debt obligation affected by this result.
+    pub obligation: CandidateObligationId,
+    /// Candidate revision that records the result.
+    pub candidate_revision: CandidateRevisionId,
+    /// Stable validator ID.
+    pub validator_id: String,
+    /// Validator implementation version.
+    pub validator_version: u32,
+    /// Trusted deterministic result.
+    pub result: TranslationValidationResult,
+    /// Correctness evidence when the result discharged debt.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<EvidenceId>,
+}
+
+/// Protocol-friendly translation result paired with the resulting candidate state.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TranslationCheckReport {
+    /// Persisted trusted validator record.
+    pub validation: TranslationValidationRecord,
+    /// Fully verified candidate report after the attempt.
+    pub candidate: CandidateCheckReport,
+    /// Stable non-fatal diagnostic for unsupported validation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<ErrorCode>,
 }
 
 /// Deterministic evidence result.
@@ -305,6 +657,8 @@ pub struct CandidateRevision {
     pub impl_hash: ImplHash,
     /// Exact, history-sensitive candidate revision hash.
     pub candidate_hash: CandidateHash,
+    /// Per-revision exact candidate-hash contract version (v1 or v2).
+    pub candidate_hash_version: u32,
     /// Candidate lifecycle state at this revision.
     pub state: CandidateState,
     /// Exact equivalence obligation.
@@ -313,6 +667,18 @@ pub struct CandidateRevision {
     pub proof_chain: Vec<EquivalenceCertificate>,
     /// Ordered correctness and confidence evidence references.
     pub evidence: Vec<EvidenceId>,
+    /// Last trusted exact/guarded prefix.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proof_frontier: Option<ProofFrontier>,
+    /// Ordered proof debt after the frontier.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub proof_debt: Vec<ProofDebtItem>,
+    /// Ordered persisted translation results.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub translation_results: Vec<TranslationValidationRecord>,
+    /// Candidate-level guarded execution contract, when present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guarded_fallback: Option<GuardedFallback>,
 }
 
 /// Persistent candidate branch with its own immutable revision DAG.
@@ -403,6 +769,32 @@ pub struct CandidateContinuation {
     pub expected_before_impl_hash: ImplHash,
     /// Stable rule/target ordered matches.
     pub matches: Vec<CandidateContinuationEntry>,
+    /// Trusted known-rewrite space, identical to `matches` for compatibility.
+    pub trusted_known_rewrites: Vec<CandidateContinuationEntry>,
+    /// Bounded verifier-gated speculative escape schema.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speculative_escape: Option<SpeculativeEscapeSchema>,
+}
+
+/// One bounded proposal shape without enumerating replacement combinations.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpeculativeEscapeSchema {
+    /// Eligible single-result top-level target.
+    pub target: ImplOperationId,
+    /// Ordered target operands exposed as boundary inputs.
+    pub boundary_inputs: Vec<ImplValueId>,
+    /// Exact required fragment yield type.
+    pub required_yield_type: Type,
+    /// Stable allowed opcode subset.
+    pub allowed_opcodes: Vec<String>,
+    /// Maximum ordered fragment operation count.
+    pub fragment_operation_limit: u64,
+    /// Required stale-state implementation hash.
+    pub expected_before_impl_hash: ImplHash,
+    /// Whether unknown/unsupported proposals require explicit opt-in.
+    pub requires_speculative_opt_in: bool,
+    /// Stable explanation code.
+    pub reason_code: String,
 }
 
 /// Deterministic outcome supplied by the reference differential validator.
@@ -446,6 +838,12 @@ pub struct CandidateCheckReport {
     pub confidence_evidence: usize,
     /// Whether sealing is currently legal.
     pub sealable: bool,
+    /// Last trusted exact/guarded prefix for Stage 2B revisions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proof_frontier: Option<ProofFrontier>,
+    /// Ordered persistent proof debt.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub proof_debt: Vec<ProofDebtItem>,
 }
 
 /// Replayable candidate event payload.
@@ -515,6 +913,40 @@ pub enum CandidateEvent {
         /// Expected exact candidate hash.
         candidate_hash: CandidateHash,
     },
+    /// Accepted bounded speculative replacement proposal.
+    ProposalAccepted {
+        /// Candidate branch.
+        candidate: CandidateId,
+        /// Explicit candidate head used as the proposal base.
+        base_revision: CandidateRevisionId,
+        /// Normalized replayable proposal.
+        proposal: SpeculativeRewriteProposal,
+        /// Expected compiler-assigned proposal ID.
+        proposal_id: ProposalId,
+        /// Expected child candidate revision.
+        candidate_revision: CandidateRevisionId,
+        /// Expected proposal semantic hash.
+        proposal_hash: ProposalHash,
+        /// Expected implementation hash after replacement.
+        impl_hash: ImplHash,
+        /// Expected candidate hash v2.
+        candidate_hash: CandidateHash,
+    },
+    /// Persisted trusted translation-validation result.
+    TranslationChecked {
+        /// Candidate branch.
+        candidate: CandidateId,
+        /// Explicit candidate head used as validation base.
+        base_revision: CandidateRevisionId,
+        /// Proposal selected for ordered validation.
+        proposal: ProposalId,
+        /// Expected child candidate revision.
+        candidate_revision: CandidateRevisionId,
+        /// Expected deterministic validator result.
+        result: TranslationValidationResult,
+        /// Expected candidate hash v2.
+        candidate_hash: CandidateHash,
+    },
 }
 
 /// Candidate event paired with independent candidate semantics.
@@ -533,6 +965,8 @@ pub struct CandidateForest {
     pub candidates: BTreeMap<CandidateId, Candidate>,
     /// Evidence records by compiler-assigned ID.
     pub evidence: BTreeMap<EvidenceId, EvidenceRecord>,
+    /// Persistent normalized proposal provenance by compiler-assigned ID.
+    pub proposals: BTreeMap<ProposalId, ProposalRecord>,
     /// Candidate/ImplIR/evidence allocator state.
     pub allocator: CandidateAllocator,
     /// Ordered candidate event log.
@@ -540,7 +974,7 @@ pub struct CandidateForest {
 }
 
 #[derive(Serialize)]
-struct CandidateHashModel<'a> {
+struct CandidateHashModelV1<'a> {
     codec: &'static str,
     version: u32,
     candidate: &'a CandidateId,
@@ -558,6 +992,30 @@ struct CandidateHashModel<'a> {
     evidence: &'a [EvidenceId],
 }
 
+#[derive(Serialize)]
+struct CandidateHashModelV2<'a> {
+    codec: &'static str,
+    version: u32,
+    candidate: &'a CandidateId,
+    spec_revision: &'a RevisionId,
+    spec_hash: &'a SpecHash,
+    parent_candidate: &'a Option<CandidateId>,
+    forked_from_revision: &'a Option<CandidateRevisionId>,
+    revision: &'a CandidateRevisionId,
+    parents: &'a [CandidateRevisionId],
+    impl_program: &'a ImplProgram,
+    impl_hash: &'a ImplHash,
+    state: CandidateState,
+    equivalence: &'a EquivalenceObligation,
+    proof_chain: &'a [EquivalenceCertificate],
+    evidence: &'a [EvidenceId],
+    proposal_records: Vec<&'a ProposalRecord>,
+    proof_frontier: &'a Option<ProofFrontier>,
+    proof_debt: &'a [ProofDebtItem],
+    translation_results: &'a [TranslationValidationRecord],
+    guarded_fallback: &'a Option<GuardedFallback>,
+}
+
 fn digest_hex(bytes: &[u8]) -> CandidateHash {
     let digest = Sha256::digest(bytes);
     let mut output = String::with_capacity(digest.len() * 2);
@@ -568,46 +1026,128 @@ fn digest_hex(bytes: &[u8]) -> CandidateHash {
 }
 
 fn candidate_hash_with_limit(
+    forest: &CandidateForest,
     candidate: &Candidate,
     revision: &CandidateRevision,
     max_bytes: u64,
 ) -> AgentResult<CandidateHash> {
-    let model = CandidateHashModel {
-        codec: "agentir.candidate.exact",
-        version: CANDIDATE_CANONICAL_VERSION,
-        candidate: &candidate.id,
-        spec_revision: &candidate.spec_revision,
-        spec_hash: &candidate.spec_hash,
-        parent_candidate: &candidate.parent_candidate,
-        forked_from_revision: &candidate.forked_from_revision,
-        revision: &revision.id,
-        parents: &revision.parents,
-        impl_program: &revision.impl_program,
-        impl_hash: &revision.impl_hash,
-        state: revision.state,
-        equivalence: &revision.equivalence,
-        proof_chain: &revision.proof_chain,
-        evidence: &revision.evidence,
+    let (bytes, domain) = match revision.candidate_hash_version {
+        LEGACY_CANDIDATE_CANONICAL_VERSION => {
+            if revision.proof_frontier.is_some()
+                || !revision.proof_debt.is_empty()
+                || !revision.translation_results.is_empty()
+                || revision.guarded_fallback.is_some()
+            {
+                return Err(candidate_error(
+                    ErrorCode::PersistenceIntegrity,
+                    "candidate hash v1 revision contains Stage 2B state",
+                ));
+            }
+            let model = CandidateHashModelV1 {
+                codec: "agentir.candidate.exact",
+                version: LEGACY_CANDIDATE_CANONICAL_VERSION,
+                candidate: &candidate.id,
+                spec_revision: &candidate.spec_revision,
+                spec_hash: &candidate.spec_hash,
+                parent_candidate: &candidate.parent_candidate,
+                forked_from_revision: &candidate.forked_from_revision,
+                revision: &revision.id,
+                parents: &revision.parents,
+                impl_program: &revision.impl_program,
+                impl_hash: &revision.impl_hash,
+                state: revision.state,
+                equivalence: &revision.equivalence,
+                proof_chain: &revision.proof_chain,
+                evidence: &revision.evidence,
+            };
+            (serde_json::to_vec(&model), LEGACY_CANDIDATE_HASH_DOMAIN)
+        }
+        CANDIDATE_CANONICAL_VERSION => {
+            let proposal_records = revision
+                .proof_debt
+                .iter()
+                .map(|debt| {
+                    forest.proposals.get(&debt.proposal).ok_or_else(|| {
+                        candidate_error(
+                            ErrorCode::ProposalNotFound,
+                            format!(
+                                "candidate debt references missing proposal `{}`",
+                                debt.proposal
+                            ),
+                        )
+                    })
+                })
+                .collect::<AgentResult<Vec<_>>>()?;
+            let model = CandidateHashModelV2 {
+                codec: "agentir.candidate.exact",
+                version: CANDIDATE_CANONICAL_VERSION,
+                candidate: &candidate.id,
+                spec_revision: &candidate.spec_revision,
+                spec_hash: &candidate.spec_hash,
+                parent_candidate: &candidate.parent_candidate,
+                forked_from_revision: &candidate.forked_from_revision,
+                revision: &revision.id,
+                parents: &revision.parents,
+                impl_program: &revision.impl_program,
+                impl_hash: &revision.impl_hash,
+                state: revision.state,
+                equivalence: &revision.equivalence,
+                proof_chain: &revision.proof_chain,
+                evidence: &revision.evidence,
+                proposal_records,
+                proof_frontier: &revision.proof_frontier,
+                proof_debt: &revision.proof_debt,
+                translation_results: &revision.translation_results,
+                guarded_fallback: &revision.guarded_fallback,
+            };
+            (serde_json::to_vec(&model), CANDIDATE_HASH_DOMAIN)
+        }
+        version => {
+            return Err(candidate_error(
+                ErrorCode::PersistenceFormat,
+                format!("unsupported candidate hash version {version}"),
+            ));
+        }
     };
-    let bytes = serde_json::to_vec(&model).map_err(|error| {
+    let bytes = bytes.map_err(|error| {
         AgentError::new(
             ErrorCode::CanonicalizationFailed,
             format!("candidate exact serialization failed: {error}"),
         )
     })?;
     BudgetCheck::ensure(
-        ResourceKind::CandidateCanonicalBytes,
+        if revision.candidate_hash_version == CANDIDATE_CANONICAL_VERSION {
+            ResourceKind::CandidateCanonicalV2Bytes
+        } else {
+            ResourceKind::CandidateCanonicalBytes
+        },
         max_bytes,
         u64::try_from(bytes.len()).unwrap_or(u64::MAX),
         "candidate exact canonicalization",
     )?;
-    let mut input = Vec::with_capacity(CANDIDATE_HASH_DOMAIN.len() + bytes.len());
-    input.extend_from_slice(CANDIDATE_HASH_DOMAIN);
+    let mut input = Vec::with_capacity(domain.len() + bytes.len());
+    input.extend_from_slice(domain);
     input.extend_from_slice(&bytes);
     Ok(digest_hex(&input))
 }
 
+fn candidate_canonical_limit(revision: &CandidateRevision, limits: &ResourceLimits) -> u64 {
+    if revision.candidate_hash_version == CANDIDATE_CANONICAL_VERSION {
+        limits.candidate_canonical_v2_bytes
+    } else {
+        limits.candidate_canonical_bytes
+    }
+}
+
 fn provenance() -> EvidenceProvenance {
+    EvidenceProvenance {
+        compiler_version: env!("CARGO_PKG_VERSION").to_owned(),
+        candidate_semantics_version: LEGACY_CANDIDATE_SEMANTICS_VERSION,
+        impl_semantics_version: IMPL_SEMANTICS_VERSION,
+    }
+}
+
+fn current_provenance() -> EvidenceProvenance {
     EvidenceProvenance {
         compiler_version: env!("CARGO_PKG_VERSION").to_owned(),
         candidate_semantics_version: CANDIDATE_SEMANTICS_VERSION,
@@ -626,6 +1166,12 @@ fn total_revisions(candidates: &BTreeMap<CandidateId, Candidate>) -> u64 {
 }
 
 fn ensure_forest_budgets(forest: &CandidateForest, limits: &ResourceLimits) -> AgentResult<()> {
+    BudgetCheck::against(
+        limits,
+        ResourceKind::ProposalsPerWorkspace,
+        u64::try_from(forest.proposals.len()).unwrap_or(u64::MAX),
+        "candidate proposal store",
+    )?;
     BudgetCheck::against(
         limits,
         ResourceKind::CandidatesPerWorkspace,
@@ -673,6 +1219,89 @@ fn ensure_forest_budgets(forest: &CandidateForest, limits: &ResourceLimits) -> A
         ResourceKind::OpenEquivalenceObligations,
         open_equivalence,
         "candidate equivalence obligations",
+    )?;
+    let mut open_debt = 0_u64;
+    let mut guarded_candidates = 0_u64;
+    for candidate in forest.candidates.values() {
+        let head = candidate.revisions.get(&candidate.head).ok_or_else(|| {
+            candidate_error(
+                ErrorCode::PersistenceIntegrity,
+                "candidate head is missing while checking resource budgets",
+            )
+        })?;
+        let retained_debt = u64::try_from(head.proof_debt.len()).unwrap_or(u64::MAX);
+        BudgetCheck::against(
+            limits,
+            ResourceKind::ProposalsPerCandidate,
+            retained_debt,
+            "proposals reachable from candidate head",
+        )?;
+        BudgetCheck::against(
+            limits,
+            ResourceKind::SpeculativeNodesPerCandidate,
+            retained_debt,
+            "speculative nodes reachable from candidate head",
+        )?;
+        let unknown_actions = head
+            .proof_debt
+            .iter()
+            .filter(|debt| {
+                forest
+                    .proposals
+                    .get(&debt.proposal)
+                    .is_some_and(|proposal| {
+                        matches!(
+                            proposal.classification,
+                            ProposalClassification::Unknown | ProposalClassification::Unsupported
+                        )
+                    })
+            })
+            .count();
+        BudgetCheck::against(
+            limits,
+            ResourceKind::UnknownActionsPerBranch,
+            u64::try_from(unknown_actions).unwrap_or(u64::MAX),
+            "unknown speculative actions reachable from candidate head",
+        )?;
+        open_debt = open_debt.saturating_add(
+            head.proof_debt
+                .iter()
+                .filter(|debt| {
+                    matches!(
+                        debt.status,
+                        ProofDebtStatus::Open | ProofDebtStatus::Unsupported
+                    )
+                })
+                .count()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        );
+        if head.guarded_fallback.is_some() {
+            guarded_candidates = guarded_candidates.saturating_add(1);
+        }
+    }
+    BudgetCheck::against(
+        limits,
+        ResourceKind::OpenProofDebtObligations,
+        open_debt,
+        "candidate proof debt",
+    )?;
+    BudgetCheck::against(
+        limits,
+        ResourceKind::GuardedCandidates,
+        guarded_candidates,
+        "guarded candidate heads",
+    )?;
+    let v2_events = forest
+        .events
+        .iter()
+        .filter(|event| event.semantics_version == CANDIDATE_SEMANTICS_VERSION)
+        .count();
+    BudgetCheck::against(
+        limits,
+        ResourceKind::CandidateSemanticsV2Events,
+        u64::try_from(v2_events).unwrap_or(u64::MAX),
+        "candidate semantics v2 event log",
     )?;
     let evidence_bytes = serde_json::to_vec(&forest.evidence).map_err(|error| {
         candidate_error(
@@ -772,25 +1401,277 @@ fn verify_proof_chain(
                 "certificate uses an unsupported ImplIR semantics version",
             ));
         }
-        if index > 0 && known_rewrite_rule(&certificate.rule).is_none() {
+        if index > 0
+            && known_rewrite_rule(&certificate.rule).is_none()
+            && certificate.rule != "canonical_identity_validation"
+            && certificate.rule != "guarded_i32_self_division"
+        {
             return Err(candidate_error(
                 ErrorCode::EvidenceInvalid,
                 format!("certificate uses unknown rule `{}`", certificate.rule),
             ));
         }
+        if certificate.rule == "canonical_identity_validation"
+            && certificate.before_impl_hash.as_ref() != Some(&certificate.after_impl_hash)
+        {
+            return Err(candidate_error(
+                ErrorCode::EvidenceInvalid,
+                "canonical identity certificate changed impl_hash",
+            ));
+        }
+        if certificate.rule == "guarded_i32_self_division"
+            && evidence.kind != EvidenceKind::GuardedRewriteCertificate
+        {
+            return Err(candidate_error(
+                ErrorCode::EvidenceInvalid,
+                "guarded proof-chain edge lacks its compiler-owned certificate",
+            ));
+        }
         current = Some(certificate.after_impl_hash.clone());
     }
-    if current.as_ref() != Some(&revision.impl_hash)
+    let expected_terminal = revision
+        .proof_frontier
+        .as_ref()
+        .map_or(&revision.impl_hash, |frontier| {
+            &frontier.terminal_proved_impl_hash
+        });
+    if current.as_ref() != Some(expected_terminal)
         || revision.equivalence.impl_hash != revision.impl_hash
         || revision.equivalence.spec_hash != candidate.spec_hash
         || revision.equivalence.candidate != candidate.id
         || revision.equivalence.candidate_revision != revision.id
         || revision.equivalence.relation != RelationKind::EquivalentToSpec
-        || revision.equivalence.status != EquivalenceStatus::Proved
     {
         return Err(candidate_error(
             ErrorCode::EquivalenceNotProved,
             "proof chain does not establish the current exact candidate relation",
+        ));
+    }
+    Ok(())
+}
+
+fn verify_proof_debt(
+    forest: &CandidateForest,
+    candidate: &Candidate,
+    revision: &CandidateRevision,
+) -> AgentResult<()> {
+    if revision.candidate_hash_version == LEGACY_CANDIDATE_CANONICAL_VERSION {
+        return Ok(());
+    }
+    let frontier = revision.proof_frontier.as_ref().ok_or_else(|| {
+        candidate_error(
+            ErrorCode::PersistenceIntegrity,
+            "candidate hash v2 revision lacks a proof frontier",
+        )
+    })?;
+    let frontier_exists = if frontier.candidate == candidate.id {
+        candidate
+            .revisions
+            .contains_key(&frontier.candidate_revision)
+            || frontier.candidate_revision == revision.id
+    } else {
+        forest
+            .candidates
+            .get(&frontier.candidate)
+            .is_some_and(|candidate| {
+                candidate
+                    .revisions
+                    .contains_key(&frontier.candidate_revision)
+            })
+    };
+    if !frontier_exists {
+        return Err(candidate_error(
+            ErrorCode::PersistenceIntegrity,
+            "proof frontier references a missing candidate revision",
+        ));
+    }
+    if revision.proof_debt.is_empty() {
+        return Err(candidate_error(
+            ErrorCode::PersistenceIntegrity,
+            "candidate hash v2 revision has no proposal proof-debt history",
+        ));
+    }
+    let mut previous_after = None::<ImplHash>;
+    let mut encountered_blocker = false;
+    let mut guarded = false;
+    for debt in &revision.proof_debt {
+        let proposal = forest.proposals.get(&debt.proposal).ok_or_else(|| {
+            candidate_error(
+                ErrorCode::ProposalNotFound,
+                format!("proof debt references missing proposal `{}`", debt.proposal),
+            )
+        })?;
+        if proposal.id != debt.proposal
+            || proposal.proposal_hash != debt.proposal_hash
+            || proposal.base_candidate_revision != debt.base_candidate_revision
+            || proposal.after_impl_hash != debt.after_impl_hash
+            || proposal.proposal.target != debt.target
+            || proposal
+                .proposal
+                .replacement
+                .inputs
+                .iter()
+                .map(|input| input.value.clone())
+                .collect::<Vec<_>>()
+                != debt.boundary
+            || debt.relation != RelationKind::EquivalentToSpec
+        {
+            return Err(candidate_error(
+                ErrorCode::PersistenceIntegrity,
+                "proposal record and ordered proof debt are inconsistent",
+            ));
+        }
+        if previous_after
+            .as_ref()
+            .is_some_and(|after| after != &debt.before_impl_hash)
+        {
+            return Err(candidate_error(
+                ErrorCode::PersistenceIntegrity,
+                "ordered proof-debt implementation hashes are discontinuous",
+            ));
+        }
+        if encountered_blocker
+            && matches!(
+                debt.status,
+                ProofDebtStatus::Proved | ProofDebtStatus::Guarded
+            )
+        {
+            return Err(candidate_error(
+                ErrorCode::PersistenceIntegrity,
+                "proof frontier skips an earlier open/unsupported/refuted obligation",
+            ));
+        }
+        match debt.status {
+            ProofDebtStatus::Proved => {}
+            ProofDebtStatus::Guarded => {
+                guarded = true;
+                encountered_blocker = true;
+            }
+            ProofDebtStatus::Open | ProofDebtStatus::Unsupported | ProofDebtStatus::Refuted => {
+                encountered_blocker = true;
+            }
+        }
+        previous_after = Some(debt.after_impl_hash.clone());
+    }
+    if guarded != revision.guarded_fallback.is_some()
+        || (guarded
+            && !matches!(
+                revision.state,
+                CandidateState::Guarded | CandidateState::Sealed
+            ))
+    {
+        return Err(candidate_error(
+            ErrorCode::FallbackInvalid,
+            "guarded proof debt and candidate fallback contract disagree",
+        ));
+    }
+    if let Some(fallback) = &revision.guarded_fallback {
+        if (fallback.fallback_candidate == candidate.id
+            && fallback.fallback_revision == revision.id)
+            || fallback.failure_strategy != "evaluate_fallback"
+        {
+            return Err(candidate_error(
+                ErrorCode::FallbackInvalid,
+                "guarded fallback has an invalid candidate anchor or strategy",
+            ));
+        }
+        let fallback_candidate = forest
+            .candidates
+            .get(&fallback.fallback_candidate)
+            .ok_or_else(|| {
+                candidate_error(
+                    ErrorCode::FallbackInvalid,
+                    "guarded fallback candidate is missing",
+                )
+            })?;
+        if fallback_candidate.spec_hash != candidate.spec_hash {
+            return Err(candidate_error(
+                ErrorCode::FallbackInvalid,
+                "guarded fallback candidate has a different spec_hash anchor",
+            ));
+        }
+        let fallback_revision = fallback_candidate
+            .revisions
+            .get(&fallback.fallback_revision)
+            .ok_or_else(|| {
+                candidate_error(
+                    ErrorCode::FallbackInvalid,
+                    "guarded fallback revision is missing",
+                )
+            })?;
+        if fallback_revision.candidate_hash != fallback.fallback_candidate_hash
+            || fallback_revision.equivalence.status != EquivalenceStatus::Proved
+            || fallback_revision.state == CandidateState::Rejected
+            || fallback_revision.guarded_fallback.is_some()
+        {
+            return Err(candidate_error(
+                ErrorCode::FallbackInvalid,
+                "guarded fallback is not an immutable fully proved exact revision",
+            ));
+        }
+        let GuardPredicate::I32NonZero { value } = &fallback.guard;
+        if revision
+            .impl_program
+            .values
+            .get(value)
+            .is_none_or(|definition| definition.ty != Type::Scalar(ScalarType::I32))
+        {
+            return Err(candidate_error(
+                ErrorCode::GuardInvalid,
+                "guard predicate does not reference a scalar i32 value",
+            ));
+        }
+        let evidence = forest.evidence.get(&fallback.evidence).ok_or_else(|| {
+            candidate_error(
+                ErrorCode::EvidenceInvalid,
+                "guarded fallback certificate evidence is missing",
+            )
+        })?;
+        if evidence.kind != EvidenceKind::GuardedRewriteCertificate
+            || evidence.class != EvidenceClass::Correctness
+            || evidence.result != EvidenceResult::Passed
+        {
+            return Err(candidate_error(
+                ErrorCode::EvidenceInvalid,
+                "guarded fallback evidence is not a trusted passed certificate",
+            ));
+        }
+    }
+    for record in &revision.translation_results {
+        if record.validator_id != TRANSLATION_VALIDATOR_ID
+            || record.validator_version != TRANSLATION_VALIDATOR_VERSION
+            || !revision
+                .proof_debt
+                .iter()
+                .any(|debt| debt.id == record.obligation && debt.proposal == record.proposal)
+            || record
+                .evidence
+                .as_ref()
+                .is_some_and(|evidence| !forest.evidence.contains_key(evidence))
+        {
+            return Err(candidate_error(
+                ErrorCode::EvidenceInvalid,
+                "translation validation record is inconsistent",
+            ));
+        }
+    }
+    let all_proved = revision
+        .proof_debt
+        .iter()
+        .all(|debt| debt.status == ProofDebtStatus::Proved);
+    let has_refuted = revision
+        .proof_debt
+        .iter()
+        .any(|debt| debt.status == ProofDebtStatus::Refuted);
+    if (all_proved && revision.equivalence.status != EquivalenceStatus::Proved)
+        || (guarded && revision.equivalence.status != EquivalenceStatus::Guarded)
+        || (has_refuted
+            && (revision.equivalence.status != EquivalenceStatus::Refuted
+                || revision.state != CandidateState::Rejected))
+    {
+        return Err(candidate_error(
+            ErrorCode::PersistenceIntegrity,
+            "proof-debt statuses disagree with candidate lifecycle state",
         ));
     }
     Ok(())
@@ -815,6 +1696,7 @@ fn verify_candidate_revision(
         ));
     }
     verify_impl(&revision.impl_program, source, limits)?;
+    verify_proof_debt(forest, candidate, revision)?;
     let mut unique_evidence = BTreeSet::new();
     for evidence_id in &revision.evidence {
         if !unique_evidence.insert(evidence_id) {
@@ -831,7 +1713,10 @@ fn verify_candidate_revision(
         })?;
         if evidence.id != *evidence_id
             || evidence.spec_hash != candidate.spec_hash
-            || evidence.provenance.candidate_semantics_version != CANDIDATE_SEMANTICS_VERSION
+            || !matches!(
+                evidence.provenance.candidate_semantics_version,
+                LEGACY_CANDIDATE_SEMANTICS_VERSION | CANDIDATE_SEMANTICS_VERSION
+            )
             || evidence.provenance.impl_semantics_version != IMPL_SEMANTICS_VERSION
         {
             return Err(candidate_error(
@@ -861,9 +1746,17 @@ fn verify_candidate_revision(
                 EvidenceKind::IdentityLowering
                     | EvidenceKind::KnownRewriteCertificate
                     | EvidenceKind::CompositionalEquivalence
+                    | EvidenceKind::CanonicalIdentityValidation
+                    | EvidenceKind::RecognizedKnownRewrite
+                    | EvidenceKind::GuardedRewriteCertificate
+                    | EvidenceKind::CompositionalSpeculativeDischarge
             ) | (
                 EvidenceClass::Confidence,
-                EvidenceKind::DifferentialTest | EvidenceKind::PropertyTest
+                EvidenceKind::DifferentialTest
+                    | EvidenceKind::PropertyTest
+                    | EvidenceKind::SpeculativeDifferentialTest
+                    | EvidenceKind::SpeculativePropertyTest
+                    | EvidenceKind::CounterexampleSearch
             )
         );
         if !class_matches_kind
@@ -885,8 +1778,12 @@ fn verify_candidate_revision(
         .with_types(revision.impl_hash.to_string(), actual_impl_hash.to_string()));
     }
     verify_proof_chain(forest, candidate, revision, source)?;
-    let actual_candidate_hash =
-        candidate_hash_with_limit(candidate, revision, limits.candidate_canonical_bytes)?;
+    let actual_candidate_hash = candidate_hash_with_limit(
+        forest,
+        candidate,
+        revision,
+        candidate_canonical_limit(revision, limits),
+    )?;
     if actual_candidate_hash != revision.candidate_hash {
         return Err(candidate_error(
             ErrorCode::PersistenceIntegrity,
@@ -1428,6 +2325,512 @@ fn apply_rewrite(
     }
 }
 
+fn invalid_proposal(message: impl Into<String>) -> AgentError {
+    candidate_error(ErrorCode::InvalidProposal, message)
+        .with_repair("use the bounded candidate.continuation speculative escape schema")
+}
+
+fn normalize_region(
+    region: &crate::impl_ir::ImplRegion,
+) -> AgentResult<crate::impl_ir::ImplRegion> {
+    let mut arguments = BTreeMap::new();
+    let normalized_arguments = region
+        .arguments
+        .iter()
+        .enumerate()
+        .map(|(index, argument)| {
+            let name = format!("%arg{index}");
+            if arguments
+                .insert(argument.name.clone(), name.clone())
+                .is_some()
+            {
+                return Err(invalid_proposal("proposal region repeats a block argument"));
+            }
+            Ok(crate::impl_ir::ImplBlockArgument {
+                name,
+                ty: argument.ty.clone(),
+            })
+        })
+        .collect::<AgentResult<Vec<_>>>()?;
+    let mut locals = BTreeMap::new();
+    let mut operations = Vec::with_capacity(region.operations.len());
+    for (index, operation) in region.operations.iter().enumerate() {
+        let result = format!("%local{index}");
+        if locals
+            .insert(operation.result.clone(), result.clone())
+            .is_some()
+        {
+            return Err(invalid_proposal("proposal region repeats a local result"));
+        }
+        let normalize_value = |value: &ImplRegionValue| -> AgentResult<ImplRegionValue> {
+            match value {
+                ImplRegionValue::Argument(name) => arguments
+                    .get(name)
+                    .cloned()
+                    .map(ImplRegionValue::Argument)
+                    .ok_or_else(|| invalid_proposal("proposal region uses an unknown argument")),
+                ImplRegionValue::Local(name) => locals
+                    .get(name)
+                    .cloned()
+                    .map(ImplRegionValue::Local)
+                    .ok_or_else(|| {
+                        invalid_proposal("proposal region uses an unknown or forward local")
+                    }),
+                ImplRegionValue::Capture(value) => Ok(ImplRegionValue::Capture(value.clone())),
+            }
+        };
+        operations.push(crate::impl_ir::ImplRegionOperation {
+            result,
+            opcode: operation.opcode,
+            operands: operation
+                .operands
+                .iter()
+                .map(normalize_value)
+                .collect::<AgentResult<Vec<_>>>()?,
+            attributes: operation.attributes.clone(),
+            result_type: operation.result_type.clone(),
+        });
+    }
+    let yield_value = match &region.yield_value {
+        ImplRegionValue::Argument(name) => arguments
+            .get(name)
+            .cloned()
+            .map(ImplRegionValue::Argument)
+            .ok_or_else(|| invalid_proposal("proposal region yields an unknown argument"))?,
+        ImplRegionValue::Local(name) => locals
+            .get(name)
+            .cloned()
+            .map(ImplRegionValue::Local)
+            .ok_or_else(|| invalid_proposal("proposal region yields an unknown local"))?,
+        ImplRegionValue::Capture(value) => ImplRegionValue::Capture(value.clone()),
+    };
+    Ok(crate::impl_ir::ImplRegion {
+        arguments: normalized_arguments,
+        captures: region.captures.clone(),
+        operations,
+        yield_value,
+        yield_type: region.yield_type.clone(),
+    })
+}
+
+/// Alpha-normalizes transaction-local proposal bindings before ID allocation.
+pub fn normalize_speculative_proposal(
+    proposal: &SpeculativeRewriteProposal,
+) -> AgentResult<SpeculativeRewriteProposal> {
+    let mut bindings = BTreeMap::new();
+    let mut inputs = Vec::with_capacity(proposal.replacement.inputs.len());
+    for (index, input) in proposal.replacement.inputs.iter().enumerate() {
+        if !input.bind.starts_with('$') || input.bind.len() < 2 {
+            return Err(invalid_proposal(
+                "proposal boundary bindings must begin with `$`",
+            ));
+        }
+        let normalized = format!("$b{index}");
+        if bindings
+            .insert(input.bind.clone(), normalized.clone())
+            .is_some()
+        {
+            return Err(invalid_proposal("proposal repeats a boundary binding"));
+        }
+        inputs.push(ProposalInput {
+            bind: normalized,
+            value: input.value.clone(),
+        });
+    }
+    let mut operations = Vec::with_capacity(proposal.replacement.operations.len());
+    for (index, operation) in proposal.replacement.operations.iter().enumerate() {
+        if !operation.bind.starts_with('$') || operation.bind.len() < 2 {
+            return Err(invalid_proposal(
+                "proposal operation bindings must begin with `$`",
+            ));
+        }
+        let operands = operation
+            .operands
+            .iter()
+            .map(|operand| {
+                bindings.get(operand).cloned().ok_or_else(|| {
+                    invalid_proposal(format!(
+                        "proposal operand `{operand}` is not a boundary or earlier local binding"
+                    ))
+                })
+            })
+            .collect::<AgentResult<Vec<_>>>()?;
+        let normalized = format!("$n{index}");
+        if bindings
+            .insert(operation.bind.clone(), normalized.clone())
+            .is_some()
+        {
+            return Err(invalid_proposal("proposal repeats a local binding"));
+        }
+        operations.push(ProposalOperation {
+            bind: normalized,
+            opcode: operation.opcode.clone(),
+            operands,
+            attributes: operation.attributes.clone(),
+            constant: operation.constant.clone(),
+            region: operation
+                .region
+                .as_ref()
+                .map(normalize_region)
+                .transpose()?,
+        });
+    }
+    let result = bindings
+        .get(&proposal.replacement.result.value)
+        .cloned()
+        .ok_or_else(|| invalid_proposal("proposal yield references an unknown binding"))?;
+    Ok(SpeculativeRewriteProposal {
+        target: proposal.target.clone(),
+        replacement: ProposedImplFragment {
+            inputs,
+            operations,
+            result: ProposalResult { value: result },
+        },
+        expected_before_impl_hash: proposal.expected_before_impl_hash.clone(),
+        allow_speculative: proposal.allow_speculative,
+        claimed_rule: proposal.claimed_rule.clone(),
+    })
+}
+
+#[derive(Serialize)]
+struct ProposalHashModel<'a> {
+    codec: &'static str,
+    version: u32,
+    base_impl_hash: &'a ImplHash,
+    target: &'a ImplOperationId,
+    boundary: Vec<&'a ImplValueId>,
+    replacement: &'a ProposedImplFragment,
+    expected_output_type: &'a Type,
+    numeric_contract: &'a crate::types::NumericContract,
+}
+
+/// Domain-separated canonical proposal bytes and their semantic hash.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProposalCanonical {
+    /// Deterministic proposal-hash model encoding.
+    pub bytes: Vec<u8>,
+    /// SHA-256 digest under the proposal semantic v1 domain.
+    pub proposal_hash: ProposalHash,
+}
+
+fn proposal_canonical_with_target(
+    program: &ImplProgram,
+    target: &ImplOperation,
+    proposal: &SpeculativeRewriteProposal,
+    limits: &ResourceLimits,
+) -> AgentResult<ProposalCanonical> {
+    let output_type = target
+        .result_types
+        .first()
+        .ok_or_else(|| invalid_proposal("proposal target has no result type"))?;
+    let model = ProposalHashModel {
+        codec: "agentir.proposal.semantic",
+        version: PROPOSAL_CANONICAL_VERSION,
+        base_impl_hash: &proposal.expected_before_impl_hash,
+        target: &proposal.target,
+        boundary: proposal
+            .replacement
+            .inputs
+            .iter()
+            .map(|input| &input.value)
+            .collect(),
+        replacement: &proposal.replacement,
+        expected_output_type: output_type,
+        numeric_contract: &program.numeric_contract,
+    };
+    let bytes = serde_json::to_vec(&model).map_err(|error| {
+        invalid_proposal(format!("proposal canonical serialization failed: {error}"))
+    })?;
+    BudgetCheck::against(
+        limits,
+        ResourceKind::ProposalEncodedBytes,
+        u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+        "normalized proposal before persistent ID allocation",
+    )?;
+    let mut input = Vec::with_capacity(PROPOSAL_HASH_DOMAIN.len() + bytes.len());
+    input.extend_from_slice(PROPOSAL_HASH_DOMAIN);
+    input.extend_from_slice(&bytes);
+    let CandidateHash(hash) = digest_hex(&input);
+    Ok(ProposalCanonical {
+        bytes,
+        proposal_hash: ProposalHash(hash),
+    })
+}
+
+/// Normalizes and canonicalizes a proposal against its explicit base implementation.
+///
+/// This is the exact production codec used before speculative acceptance. It does not
+/// allocate persistent IDs or claim that the replacement is well typed or equivalent.
+pub fn canonicalize_proposal_with_limit(
+    program: &ImplProgram,
+    proposal: &SpeculativeRewriteProposal,
+    limits: &ResourceLimits,
+) -> AgentResult<ProposalCanonical> {
+    let normalized = normalize_speculative_proposal(proposal)?;
+    let target = program.operations.get(&normalized.target).ok_or_else(|| {
+        invalid_proposal(format!(
+            "proposal target `{}` does not exist",
+            normalized.target
+        ))
+    })?;
+    proposal_canonical_with_target(program, target, &normalized, limits)
+}
+
+struct AppliedProposal {
+    program: ImplProgram,
+    allocated_operations: Vec<ImplOperationId>,
+    allocated_values: Vec<ImplValueId>,
+    yielded_value: ImplValueId,
+}
+
+fn apply_proposal_fragment(
+    program: &ImplProgram,
+    target: &ImplOperation,
+    proposal: &SpeculativeRewriteProposal,
+    allocator: &mut CandidateAllocator,
+    source: &Program,
+    limits: &ResourceLimits,
+) -> AgentResult<AppliedProposal> {
+    if target.results.len() != 1 || target.result_types.len() != 1 {
+        return Err(invalid_proposal(
+            "Stage 2B replaces only single-result top-level operations",
+        ));
+    }
+    let boundary = proposal
+        .replacement
+        .inputs
+        .iter()
+        .map(|input| input.value.clone())
+        .collect::<Vec<_>>();
+    if boundary != target.operands {
+        return Err(invalid_proposal(
+            "proposal boundary must equal the target operand list in order",
+        )
+        .with_detail("target", target.id.to_string())
+        .with_detail("expected_boundary", json!(target.operands))
+        .with_detail("actual_boundary", json!(boundary)));
+    }
+    BudgetCheck::against(
+        limits,
+        ResourceKind::ProposalFragmentOperations,
+        u64::try_from(proposal.replacement.operations.len()).unwrap_or(u64::MAX),
+        "proposal fragment before persistent ID allocation",
+    )?;
+    BudgetCheck::against(
+        limits,
+        ResourceKind::ProposalFragmentValues,
+        u64::try_from(proposal.replacement.operations.len())
+            .unwrap_or(u64::MAX)
+            .saturating_add(u64::try_from(boundary.len()).unwrap_or(u64::MAX)),
+        "proposal fragment before persistent ID allocation",
+    )?;
+    let boundary_set = boundary.iter().collect::<BTreeSet<_>>();
+    for operation in &proposal.replacement.operations {
+        if let Some(region) = &operation.region {
+            if region
+                .captures
+                .iter()
+                .any(|capture| !boundary_set.contains(capture))
+            {
+                return Err(invalid_proposal(
+                    "proposal region captures a value outside the declared target boundary",
+                ));
+            }
+        }
+    }
+    let mut next = program.clone();
+    let mut values = proposal
+        .replacement
+        .inputs
+        .iter()
+        .map(|input| (input.bind.clone(), input.value.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let mut allocated_operations = Vec::new();
+    let mut allocated_values = Vec::new();
+    for proposed in &proposal.replacement.operations {
+        let opcode = proposed
+            .opcode
+            .parse::<Opcode>()
+            .map_err(invalid_proposal)?;
+        if opcode == Opcode::Parameter {
+            return Err(invalid_proposal(
+                "proposal fragments cannot create parameters",
+            ));
+        }
+        let operands = proposed
+            .operands
+            .iter()
+            .map(|operand| {
+                values.get(operand).cloned().ok_or_else(|| {
+                    invalid_proposal(format!("proposal binding `{operand}` is unavailable"))
+                })
+            })
+            .collect::<AgentResult<Vec<_>>>()?;
+        let result_type = infer_proposed_operation(
+            &next,
+            opcode,
+            &operands,
+            &proposed.attributes,
+            proposed.constant.as_ref(),
+            proposed.region.as_ref(),
+        )
+        .map_err(|error| {
+            invalid_proposal(format!(
+                "proposal operation failed inference: {}",
+                error.message
+            ))
+            .with_detail("opcode", proposed.opcode.clone())
+        })?;
+        let operation_id = allocator.impl_operation();
+        let value_id = allocator.impl_value();
+        next.values.insert(
+            value_id.clone(),
+            ImplValue {
+                id: value_id.clone(),
+                ty: result_type.clone(),
+                origin: ImplValueOrigin::Operation(operation_id.clone()),
+                name: None,
+                source_link: ImplSourceLink {
+                    spec_operation: target.source_link.spec_operation.clone(),
+                    spec_value: target.source_link.spec_value.clone(),
+                    rewrite_rule: Some("speculative_proposal".to_owned()),
+                },
+            },
+        );
+        if let Some(constant) = &proposed.constant {
+            next.constants.insert(value_id.clone(), constant.clone());
+        }
+        let attributes = if let Some(constant) = &proposed.constant {
+            if !proposed.attributes.is_empty() {
+                return Err(invalid_proposal(
+                    "proposal constant uses its exact literal instead of arbitrary attributes",
+                ));
+            }
+            BTreeMap::from([("value".to_owned(), json!(constant))])
+        } else {
+            proposed.attributes.clone()
+        };
+        next.operations.insert(
+            operation_id.clone(),
+            ImplOperation {
+                id: operation_id.clone(),
+                opcode,
+                operands,
+                results: vec![value_id.clone()],
+                attributes,
+                region: proposed.region.clone(),
+                result_types: vec![result_type],
+                source_link: ImplSourceLink {
+                    spec_operation: target.source_link.spec_operation.clone(),
+                    spec_value: target.source_link.spec_value.clone(),
+                    rewrite_rule: Some("speculative_proposal".to_owned()),
+                },
+            },
+        );
+        values.insert(proposed.bind.clone(), value_id.clone());
+        allocated_operations.push(operation_id);
+        allocated_values.push(value_id);
+    }
+    let yielded_value = values
+        .get(&proposal.replacement.result.value)
+        .cloned()
+        .ok_or_else(|| invalid_proposal("normalized proposal yield is unavailable"))?;
+    let yielded_type = next
+        .values
+        .get(&yielded_value)
+        .map(|value| value.ty.clone())
+        .ok_or_else(|| invalid_proposal("proposal yield value is absent"))?;
+    if yielded_type != target.result_types[0] {
+        return Err(
+            invalid_proposal("proposal yield type differs from target result type")
+                .with_types(target.result_types[0].to_string(), yielded_type.to_string()),
+        );
+    }
+    let target_position = next
+        .operation_order
+        .iter()
+        .position(|operation| operation == &target.id)
+        .ok_or_else(|| invalid_proposal("proposal target is absent from operation order"))?;
+    let insertion_position = target_position + 1;
+    next.operation_order.splice(
+        insertion_position..insertion_position,
+        allocated_operations.iter().cloned(),
+    );
+    replace_value(&mut next, &target.results[0], &yielded_value);
+    verify_impl(&next, source, limits).map_err(|error| {
+        invalid_proposal(format!(
+            "proposed ImplIR failed verification: {}",
+            error.message
+        ))
+    })?;
+    Ok(AppliedProposal {
+        program: next,
+        allocated_operations,
+        allocated_values,
+        yielded_value,
+    })
+}
+
+fn guarded_self_division_matches(
+    before: &ImplProgram,
+    target: &ImplOperation,
+    applied: &AppliedProposal,
+) -> bool {
+    if target.opcode != Opcode::Div
+        || target.operands.len() != 2
+        || target.operands[0] != target.operands[1]
+        || target.result_types != vec![Type::Scalar(ScalarType::I32)]
+    {
+        return false;
+    }
+    let Some(value) = applied.program.constants.get(&applied.yielded_value) else {
+        return false;
+    };
+    matches!(value, ConstantValue::I32 { value: 1 })
+        && before
+            .values
+            .get(&target.operands[0])
+            .is_some_and(|value| value.ty == Type::Scalar(ScalarType::I32))
+}
+
+fn classify_proposal(
+    before: &ImplProgram,
+    target: &ImplOperation,
+    applied: &AppliedProposal,
+) -> AgentResult<ProposalClassification> {
+    let before_hash = impl_hash(before)?;
+    let after_hash = impl_hash(&applied.program)?;
+    if before_hash == after_hash {
+        return Ok(ProposalClassification::Legal);
+    }
+    for rule in KNOWN_REWRITE_RULES {
+        let mut recognized = before.clone();
+        if apply_rewrite(&mut recognized, rule.id, &target.id).is_ok()
+            && impl_hash(&recognized)? == after_hash
+        {
+            return Ok(ProposalClassification::Legal);
+        }
+    }
+    if guarded_self_division_matches(before, target, applied) {
+        return Ok(ProposalClassification::Conditional);
+    }
+    if applied.program.operations.values().any(|operation| {
+        operation.source_link.rewrite_rule.as_deref() == Some("speculative_proposal")
+            && operation.region.is_some()
+    }) {
+        Ok(ProposalClassification::Unsupported)
+    } else {
+        Ok(ProposalClassification::Unknown)
+    }
+}
+
+enum TrustedPath {
+    Identity,
+    Known { rule: String, side: Vec<String> },
+    Guarded { guard_value: ImplValueId },
+    Unsupported,
+}
+
 fn push_bounded_match(
     matches: &mut Vec<CandidateContinuationEntry>,
     entry: CandidateContinuationEntry,
@@ -1465,6 +2868,16 @@ impl CandidateForest {
         candidate_revision(self, candidate, revision).map(|(_, revision)| revision)
     }
 
+    /// Returns one persistent normalized speculative proposal record.
+    pub fn proposal(&self, proposal: &ProposalId) -> AgentResult<&ProposalRecord> {
+        self.proposals.get(proposal).ok_or_else(|| {
+            candidate_error(
+                ErrorCode::ProposalNotFound,
+                format!("proposal `{proposal}` does not exist"),
+            )
+        })
+    }
+
     /// Creates an identity candidate for one complete frozen SpecIR revision.
     pub fn create(
         &mut self,
@@ -1477,7 +2890,7 @@ impl CandidateForest {
         if relation != RelationKind::EquivalentToSpec {
             return Err(candidate_error(
                 ErrorCode::UnsupportedRefinement,
-                "Stage 2A supports only EquivalentToSpec",
+                "Stage 2B supports only EquivalentToSpec",
             ));
         }
         BudgetCheck::against(
@@ -1538,10 +2951,15 @@ impl CandidateForest {
             impl_program,
             impl_hash: implementation_hash.clone(),
             candidate_hash: CandidateHash::new("pending"),
+            candidate_hash_version: LEGACY_CANDIDATE_CANONICAL_VERSION,
             state: CandidateState::Equivalent,
             equivalence,
             proof_chain: vec![certificate],
             evidence: vec![evidence_id.clone()],
+            proof_frontier: None,
+            proof_debt: Vec::new(),
+            translation_results: Vec::new(),
+            guarded_fallback: None,
         };
         let mut candidate = Candidate {
             id: candidate_id.clone(),
@@ -1554,14 +2972,18 @@ impl CandidateForest {
             forked_from_revision: None,
         };
         let mut revision = revision;
-        revision.candidate_hash =
-            candidate_hash_with_limit(&candidate, &revision, limits.candidate_canonical_bytes)?;
+        revision.candidate_hash = candidate_hash_with_limit(
+            &staged,
+            &candidate,
+            &revision,
+            candidate_canonical_limit(&revision, limits),
+        )?;
         let exact_hash = revision.candidate_hash.clone();
         candidate.revisions.insert(revision_id.clone(), revision);
         staged.evidence.insert(evidence_id, evidence);
         staged.candidates.insert(candidate_id.clone(), candidate);
         staged.events.push(VersionedCandidateEvent {
-            semantics_version: CANDIDATE_SEMANTICS_VERSION,
+            semantics_version: LEGACY_CANDIDATE_SEMANTICS_VERSION,
             event: CandidateEvent::Created {
                 candidate: candidate_id.clone(),
                 spec_revision,
@@ -1611,6 +3033,17 @@ impl CandidateForest {
             return Err(candidate_error(
                 ErrorCode::CandidateSealed,
                 "sealed candidate cannot be edited",
+            ));
+        }
+        if base_revision.equivalence.status != EquivalenceStatus::Proved
+            || base_revision
+                .proof_debt
+                .iter()
+                .any(|debt| debt.status != ProofDebtStatus::Proved)
+        {
+            return Err(candidate_error(
+                ErrorCode::CandidateHasProofDebt,
+                "known rewrites require an exact proved candidate head",
             ));
         }
         verify_candidate_revision(
@@ -1696,6 +3129,13 @@ impl CandidateForest {
         }
         next.equivalence.impl_hash = next.impl_hash.clone();
         next.equivalence.status = EquivalenceStatus::Proved;
+        if next.candidate_hash_version == CANDIDATE_CANONICAL_VERSION {
+            next.proof_frontier = Some(ProofFrontier {
+                candidate: transaction.candidate.clone(),
+                candidate_revision: revision_id.clone(),
+                terminal_proved_impl_hash: next.impl_hash.clone(),
+            });
+        }
         next.candidate_hash = CandidateHash::new("pending");
         let candidate_snapshot = staged
             .candidates
@@ -1703,9 +3143,10 @@ impl CandidateForest {
             .expect("candidate was checked")
             .clone();
         next.candidate_hash = candidate_hash_with_limit(
+            &staged,
             &candidate_snapshot,
             &next,
-            limits.candidate_canonical_bytes,
+            candidate_canonical_limit(&next, limits),
         )?;
         let implementation_hash = next.impl_hash.clone();
         let exact_hash = next.candidate_hash.clone();
@@ -1716,7 +3157,16 @@ impl CandidateForest {
         candidate.revisions.insert(revision_id.clone(), next);
         candidate.head = revision_id.clone();
         staged.events.push(VersionedCandidateEvent {
-            semantics_version: CANDIDATE_SEMANTICS_VERSION,
+            semantics_version: if candidate_snapshot
+                .revisions
+                .get(&transaction.base_revision)
+                .is_some_and(|revision| {
+                    revision.candidate_hash_version == CANDIDATE_CANONICAL_VERSION
+                }) {
+                CANDIDATE_SEMANTICS_VERSION
+            } else {
+                LEGACY_CANDIDATE_SEMANTICS_VERSION
+            },
             event: CandidateEvent::TransactionApplied {
                 transaction: transaction.clone(),
                 candidate_revision: revision_id.clone(),
@@ -1728,6 +3178,645 @@ impl CandidateForest {
         let report = staged.check(&transaction.candidate, &revision_id, source, limits)?;
         *self = staged;
         Ok(report)
+    }
+
+    /// Atomically accepts one bounded typed replacement and creates ordered proof debt.
+    pub fn propose(
+        &mut self,
+        candidate_id: &CandidateId,
+        base_revision_id: &CandidateRevisionId,
+        proposal: &SpeculativeRewriteProposal,
+        source: &Program,
+        expected_spec_hash: &SpecHash,
+        limits: &ResourceLimits,
+    ) -> AgentResult<CandidateCheckReport> {
+        BudgetCheck::against(
+            limits,
+            ResourceKind::ProposalActionsPerTransaction,
+            u64::try_from(proposal.replacement.operations.len()).unwrap_or(u64::MAX),
+            "candidate proposal before graph clone",
+        )?;
+        let (candidate, base) = candidate_revision(self, candidate_id, base_revision_id)?;
+        if candidate.head != *base_revision_id {
+            return Err(candidate_error(
+                ErrorCode::CandidateRevisionNotFound,
+                "candidate proposal base is stale",
+            )
+            .with_detail("current_head", candidate.head.to_string())
+            .with_detail("base_revision", base_revision_id.to_string()));
+        }
+        if matches!(
+            base.state,
+            CandidateState::Sealed | CandidateState::Rejected
+        ) {
+            return Err(candidate_error(
+                if base.state == CandidateState::Sealed {
+                    ErrorCode::CandidateSealed
+                } else {
+                    ErrorCode::ObligationRefuted
+                },
+                "sealed or rejected candidate cannot accept a proposal",
+            ));
+        }
+        verify_candidate_revision(self, candidate, base, source, expected_spec_hash, limits)?;
+        if proposal.expected_before_impl_hash != base.impl_hash {
+            return Err(candidate_error(
+                ErrorCode::RewritePreconditionFailed,
+                "proposal expected_before_impl_hash is stale",
+            )
+            .with_types(
+                proposal.expected_before_impl_hash.to_string(),
+                base.impl_hash.to_string(),
+            )
+            .with_detail("target", proposal.target.to_string())
+            .with_repair("refresh candidate.proposal_query or candidate.continuation"));
+        }
+        let normalized = normalize_speculative_proposal(proposal)?;
+        let target = base
+            .impl_program
+            .operations
+            .get(&normalized.target)
+            .ok_or_else(|| {
+                invalid_proposal(format!(
+                    "proposal target `{}` does not exist",
+                    normalized.target
+                ))
+            })?
+            .clone();
+        let proposal_hash =
+            proposal_canonical_with_target(&base.impl_program, &target, &normalized, limits)?
+                .proposal_hash;
+        BudgetCheck::against(
+            limits,
+            ResourceKind::ProposalsPerWorkspace,
+            u64::try_from(self.proposals.len())
+                .unwrap_or(u64::MAX)
+                .saturating_add(1),
+            "candidate proposal before persistent ID allocation",
+        )?;
+        let projected_debt = u64::try_from(base.proof_debt.len())
+            .unwrap_or(u64::MAX)
+            .saturating_add(1);
+        if projected_debt > limits.open_proof_debt_obligations {
+            return Err(candidate_error(
+                ErrorCode::ProofDebtLimitExceeded,
+                "candidate proposal would exceed the ordered proof-debt limit",
+            )
+            .with_types(limits.open_proof_debt_obligations, projected_debt)
+            .with_detail("candidate", candidate_id.to_string())
+            .with_repair("fork the proved proof-frontier ancestor"));
+        }
+        BudgetCheck::against(
+            limits,
+            ResourceKind::SpeculativeDepthPerBranch,
+            projected_debt,
+            "candidate proposal before persistent ID allocation",
+        )?;
+
+        let mut staged = self.clone();
+        let mut staged_allocator = staged.allocator.clone();
+        let applied = apply_proposal_fragment(
+            &base.impl_program,
+            &target,
+            &normalized,
+            &mut staged_allocator,
+            source,
+            limits,
+        )?;
+        let classification = classify_proposal(&base.impl_program, &target, &applied)?;
+        if matches!(
+            classification,
+            ProposalClassification::Conditional
+                | ProposalClassification::Unknown
+                | ProposalClassification::Unsupported
+        ) && !normalized.allow_speculative
+        {
+            return Err(candidate_error(
+                ErrorCode::SpeculativeOptInRequired,
+                "proposal is not yet an exact trusted rewrite",
+            )
+            .with_detail("classification", json!(classification))
+            .with_detail("target", normalized.target.to_string())
+            .with_repair("set allow_speculative to true to create bounded proof debt"));
+        }
+        if classification == ProposalClassification::Conditional
+            && (!base.proof_debt.is_empty() || base.equivalence.status != EquivalenceStatus::Proved)
+        {
+            return Err(candidate_error(
+                ErrorCode::FallbackInvalid,
+                "guarded self-division requires the exact parent revision as fallback",
+            )
+            .with_repair("fork or propose from the proved proof-frontier revision"));
+        }
+        staged.allocator = staged_allocator;
+        let proposal_id = staged.allocator.proposal();
+        let revision_id = staged.allocator.revision();
+        let obligation_id = staged.allocator.obligation();
+        let after_impl_hash = impl_hash(&applied.program)?;
+        let record = ProposalRecord {
+            id: proposal_id.clone(),
+            proposal_hash: proposal_hash.clone(),
+            candidate: candidate_id.clone(),
+            base_candidate_revision: base_revision_id.clone(),
+            accepted_candidate_revision: revision_id.clone(),
+            classification,
+            proposal: normalized.clone(),
+            after_impl_hash: after_impl_hash.clone(),
+            allocated_operations: applied.allocated_operations,
+            allocated_values: applied.allocated_values,
+            yielded_value: applied.yielded_value,
+        };
+        staged.proposals.insert(proposal_id.clone(), record);
+        let mut next = base.clone();
+        next.id = revision_id.clone();
+        next.parents = vec![base_revision_id.clone()];
+        next.impl_program = applied.program;
+        next.impl_hash = after_impl_hash.clone();
+        next.candidate_hash_version = CANDIDATE_CANONICAL_VERSION;
+        next.state = CandidateState::Speculative;
+        next.equivalence.candidate_revision = revision_id.clone();
+        next.equivalence.impl_hash = after_impl_hash.clone();
+        next.equivalence.status = EquivalenceStatus::Open;
+        if next.proof_frontier.is_none() {
+            next.proof_frontier = Some(ProofFrontier {
+                candidate: candidate_id.clone(),
+                candidate_revision: base_revision_id.clone(),
+                terminal_proved_impl_hash: base.impl_hash.clone(),
+            });
+        }
+        next.proof_debt.push(ProofDebtItem {
+            id: obligation_id,
+            proposal: proposal_id.clone(),
+            proposal_hash: proposal_hash.clone(),
+            base_candidate_revision: base_revision_id.clone(),
+            before_impl_hash: base.impl_hash.clone(),
+            after_impl_hash: after_impl_hash.clone(),
+            target: target.id,
+            boundary: target.operands,
+            relation: RelationKind::EquivalentToSpec,
+            status: ProofDebtStatus::Open,
+            allowed_discharge_methods: vec![
+                "canonical_identity_validation".to_owned(),
+                "recognized_known_rewrite".to_owned(),
+                "guarded_self_division".to_owned(),
+            ],
+            evidence: Vec::new(),
+            first_counterexample: None,
+            origin_candidate_event: u64::try_from(staged.events.len())
+                .unwrap_or(u64::MAX)
+                .saturating_add(1),
+        });
+        next.candidate_hash = CandidateHash::new("pending");
+        let candidate_snapshot = staged
+            .candidates
+            .get(candidate_id)
+            .expect("checked")
+            .clone();
+        next.candidate_hash = candidate_hash_with_limit(
+            &staged,
+            &candidate_snapshot,
+            &next,
+            candidate_canonical_limit(&next, limits),
+        )?;
+        let exact_hash = next.candidate_hash.clone();
+        let candidate_mut = staged.candidates.get_mut(candidate_id).expect("checked");
+        candidate_mut.revisions.insert(revision_id.clone(), next);
+        candidate_mut.head = revision_id.clone();
+        staged.events.push(VersionedCandidateEvent {
+            semantics_version: CANDIDATE_SEMANTICS_VERSION,
+            event: CandidateEvent::ProposalAccepted {
+                candidate: candidate_id.clone(),
+                base_revision: base_revision_id.clone(),
+                proposal: normalized,
+                proposal_id,
+                candidate_revision: revision_id.clone(),
+                proposal_hash,
+                impl_hash: after_impl_hash,
+                candidate_hash: exact_hash,
+            },
+        });
+        ensure_forest_budgets(&staged, limits)?;
+        let report = staged.check(candidate_id, &revision_id, source, limits)?;
+        *self = staged;
+        Ok(report)
+    }
+
+    /// Runs the compiler-owned validator on the next ordered proof-debt item.
+    pub fn translation_check(
+        &mut self,
+        candidate_id: &CandidateId,
+        base_revision_id: &CandidateRevisionId,
+        proposal_id: &ProposalId,
+        source: &Program,
+        expected_spec_hash: &SpecHash,
+        limits: &ResourceLimits,
+    ) -> AgentResult<TranslationCheckReport> {
+        BudgetCheck::against(
+            limits,
+            ResourceKind::TranslationValidationWorkUnits,
+            u64::try_from(KNOWN_REWRITE_RULES.len())
+                .unwrap_or(u64::MAX)
+                .saturating_add(2),
+            "trusted translation validator",
+        )?;
+        let (candidate, base) = candidate_revision(self, candidate_id, base_revision_id)?;
+        if candidate.head != *base_revision_id {
+            return Err(candidate_error(
+                ErrorCode::CandidateRevisionNotFound,
+                "translation check base is stale",
+            ));
+        }
+        if base.state == CandidateState::Sealed {
+            return Err(candidate_error(
+                ErrorCode::CandidateSealed,
+                "sealed candidate cannot record translation validation",
+            ));
+        }
+        verify_candidate_revision(self, candidate, base, source, expected_spec_hash, limits)?;
+        let debt_index = base
+            .proof_debt
+            .iter()
+            .position(|debt| &debt.proposal == proposal_id)
+            .ok_or_else(|| {
+                candidate_error(
+                    ErrorCode::ProposalNotFound,
+                    format!("proposal `{proposal_id}` is not in candidate proof debt"),
+                )
+            })?;
+        if base.proof_debt[debt_index].status != ProofDebtStatus::Open {
+            let existing = base
+                .translation_results
+                .iter()
+                .rev()
+                .find(|record| &record.proposal == proposal_id)
+                .cloned()
+                .ok_or_else(|| {
+                    candidate_error(
+                        ErrorCode::EvidenceInvalid,
+                        "terminal proof debt lacks its translation result",
+                    )
+                })?;
+            let report = self.check(candidate_id, base_revision_id, source, limits)?;
+            return Ok(TranslationCheckReport {
+                diagnostic: matches!(existing.result, TranslationValidationResult::Unsupported)
+                    .then_some(ErrorCode::TranslationUnsupported),
+                validation: existing,
+                candidate: report,
+            });
+        }
+        if base
+            .proof_debt
+            .iter()
+            .take(debt_index)
+            .any(|debt| !matches!(debt.status, ProofDebtStatus::Proved))
+        {
+            return Err(candidate_error(
+                ErrorCode::CandidateHasProofDebt,
+                "translation validation cannot skip earlier ordered proof debt",
+            )
+            .with_detail("proposal", proposal_id.to_string())
+            .with_repair("validate the first open obligation in order"));
+        }
+        let proposal = self.proposal(proposal_id)?.clone();
+        let proposal_candidate = self.candidates.get(&proposal.candidate).ok_or_else(|| {
+            candidate_error(
+                ErrorCode::CandidateNotFound,
+                "proposal origin candidate is missing",
+            )
+        })?;
+        let before_revision = proposal_candidate
+            .revisions
+            .get(&proposal.base_candidate_revision)
+            .ok_or_else(|| {
+                candidate_error(
+                    ErrorCode::CandidateRevisionNotFound,
+                    "proposal base revision is missing",
+                )
+            })?;
+        let accepted_revision = proposal_candidate
+            .revisions
+            .get(&proposal.accepted_candidate_revision)
+            .ok_or_else(|| {
+                candidate_error(
+                    ErrorCode::CandidateRevisionNotFound,
+                    "proposal acceptance revision is missing",
+                )
+            })?;
+        let target = before_revision
+            .impl_program
+            .operations
+            .get(&proposal.proposal.target)
+            .ok_or_else(|| invalid_proposal("proposal target disappeared from exact base"))?;
+
+        let path = if proposal.proposal.expected_before_impl_hash == proposal.after_impl_hash {
+            TrustedPath::Identity
+        } else {
+            let mut recognized = None;
+            for rule in KNOWN_REWRITE_RULES {
+                let mut transformed = before_revision.impl_program.clone();
+                if let Ok(side) = apply_rewrite(&mut transformed, rule.id, &target.id) {
+                    if impl_hash(&transformed)? == proposal.after_impl_hash {
+                        recognized = Some(TrustedPath::Known {
+                            rule: rule.id.to_owned(),
+                            side,
+                        });
+                        break;
+                    }
+                }
+            }
+            if let Some(path) = recognized {
+                path
+            } else {
+                let applied = AppliedProposal {
+                    program: accepted_revision.impl_program.clone(),
+                    allocated_operations: proposal.allocated_operations.clone(),
+                    allocated_values: proposal.allocated_values.clone(),
+                    yielded_value: proposal.yielded_value.clone(),
+                };
+                if guarded_self_division_matches(&before_revision.impl_program, target, &applied) {
+                    TrustedPath::Guarded {
+                        guard_value: target.operands[0].clone(),
+                    }
+                } else {
+                    TrustedPath::Unsupported
+                }
+            }
+        };
+
+        let mut staged = self.clone();
+        BudgetCheck::against(
+            limits,
+            ResourceKind::TranslationValidationAttempts,
+            staged
+                .events
+                .iter()
+                .filter(|event| matches!(&event.event, CandidateEvent::TranslationChecked { .. }))
+                .count()
+                .try_into()
+                .unwrap_or(u64::MAX)
+                .saturating_add(1),
+            "translation validation before persistent ID allocation",
+        )?;
+        let revision_id = staged.allocator.revision();
+        let mut next = base.clone();
+        next.id = revision_id.clone();
+        next.parents = vec![base_revision_id.clone()];
+        next.equivalence.candidate_revision = revision_id.clone();
+        next.candidate_hash_version = CANDIDATE_CANONICAL_VERSION;
+        let debt = next
+            .proof_debt
+            .get_mut(debt_index)
+            .expect("debt index was checked");
+        let (result, evidence_id) = match path {
+            TrustedPath::Identity => {
+                let evidence_id = staged.allocator.evidence();
+                debt.status = ProofDebtStatus::Proved;
+                debt.evidence.push(evidence_id.clone());
+                next.evidence.push(evidence_id.clone());
+                next.proof_chain.push(EquivalenceCertificate {
+                    rule: "canonical_identity_validation".to_owned(),
+                    before_impl_hash: Some(debt.before_impl_hash.clone()),
+                    after_impl_hash: debt.after_impl_hash.clone(),
+                    targets: vec![debt.target.clone()],
+                    side_conditions: vec!["before_impl_hash == after_impl_hash".to_owned()],
+                    impl_semantics_version: IMPL_SEMANTICS_VERSION,
+                    evidence: evidence_id.clone(),
+                });
+                staged.evidence.insert(
+                    evidence_id.clone(),
+                    EvidenceRecord {
+                        id: evidence_id.clone(),
+                        class: EvidenceClass::Correctness,
+                        kind: EvidenceKind::CanonicalIdentityValidation,
+                        spec_hash: candidate.spec_hash.clone(),
+                        candidate: candidate_id.clone(),
+                        candidate_revision: revision_id.clone(),
+                        input_impl_hash: Some(debt.before_impl_hash.clone()),
+                        output_impl_hash: debt.after_impl_hash.clone(),
+                        method: "canonical_identity_validation".to_owned(),
+                        parameters: BTreeMap::from([
+                            ("proposal_hash".to_owned(), json!(proposal.proposal_hash)),
+                            ("target".to_owned(), json!(debt.target)),
+                        ]),
+                        result: EvidenceResult::Passed,
+                        counterexample: None,
+                        provenance: current_provenance(),
+                    },
+                );
+                (
+                    TranslationValidationResult::CanonicalIdentity,
+                    Some(evidence_id),
+                )
+            }
+            TrustedPath::Known { rule, side } => {
+                let evidence_id = staged.allocator.evidence();
+                debt.status = ProofDebtStatus::Proved;
+                debt.evidence.push(evidence_id.clone());
+                next.evidence.push(evidence_id.clone());
+                next.proof_chain.push(EquivalenceCertificate {
+                    rule: rule.clone(),
+                    before_impl_hash: Some(debt.before_impl_hash.clone()),
+                    after_impl_hash: debt.after_impl_hash.clone(),
+                    targets: vec![debt.target.clone()],
+                    side_conditions: side.clone(),
+                    impl_semantics_version: IMPL_SEMANTICS_VERSION,
+                    evidence: evidence_id.clone(),
+                });
+                staged.evidence.insert(
+                    evidence_id.clone(),
+                    EvidenceRecord {
+                        id: evidence_id.clone(),
+                        class: EvidenceClass::Correctness,
+                        kind: EvidenceKind::RecognizedKnownRewrite,
+                        spec_hash: candidate.spec_hash.clone(),
+                        candidate: candidate_id.clone(),
+                        candidate_revision: revision_id.clone(),
+                        input_impl_hash: Some(debt.before_impl_hash.clone()),
+                        output_impl_hash: debt.after_impl_hash.clone(),
+                        method: rule.clone(),
+                        parameters: BTreeMap::from([
+                            ("proposal_hash".to_owned(), json!(proposal.proposal_hash)),
+                            ("target".to_owned(), json!(debt.target)),
+                        ]),
+                        result: EvidenceResult::Passed,
+                        counterexample: None,
+                        provenance: current_provenance(),
+                    },
+                );
+                (
+                    TranslationValidationResult::RecognizedKnownRewrite {
+                        rule,
+                        side_conditions: side,
+                    },
+                    Some(evidence_id),
+                )
+            }
+            TrustedPath::Guarded { guard_value } => {
+                if before_revision.equivalence.status != EquivalenceStatus::Proved
+                    || before_revision.state == CandidateState::Rejected
+                    || !before_revision
+                        .proof_debt
+                        .iter()
+                        .all(|debt| debt.status == ProofDebtStatus::Proved)
+                {
+                    return Err(candidate_error(
+                        ErrorCode::FallbackInvalid,
+                        "guarded rewrite fallback is not fully proved exact",
+                    ));
+                }
+                let evidence_id = staged.allocator.evidence();
+                let guarded_fallback = GuardedFallback {
+                    guard: GuardPredicate::I32NonZero { value: guard_value },
+                    fallback_candidate: proposal.candidate.clone(),
+                    fallback_revision: proposal.base_candidate_revision.clone(),
+                    fallback_candidate_hash: before_revision.candidate_hash.clone(),
+                    failure_strategy: "evaluate_fallback".to_owned(),
+                    evidence: evidence_id.clone(),
+                };
+                debt.status = ProofDebtStatus::Guarded;
+                debt.evidence.push(evidence_id.clone());
+                next.evidence.push(evidence_id.clone());
+                next.guarded_fallback = Some(guarded_fallback.clone());
+                next.proof_chain.push(EquivalenceCertificate {
+                    rule: "guarded_i32_self_division".to_owned(),
+                    before_impl_hash: Some(debt.before_impl_hash.clone()),
+                    after_impl_hash: debt.after_impl_hash.clone(),
+                    targets: vec![debt.target.clone()],
+                    side_conditions: vec![
+                        "x != 0 selects exact constant-one primary".to_owned(),
+                        "x == 0 selects the proved exact fallback".to_owned(),
+                    ],
+                    impl_semantics_version: IMPL_SEMANTICS_VERSION,
+                    evidence: evidence_id.clone(),
+                });
+                staged.evidence.insert(
+                    evidence_id.clone(),
+                    EvidenceRecord {
+                        id: evidence_id.clone(),
+                        class: EvidenceClass::Correctness,
+                        kind: EvidenceKind::GuardedRewriteCertificate,
+                        spec_hash: candidate.spec_hash.clone(),
+                        candidate: candidate_id.clone(),
+                        candidate_revision: revision_id.clone(),
+                        input_impl_hash: Some(debt.before_impl_hash.clone()),
+                        output_impl_hash: debt.after_impl_hash.clone(),
+                        method: "guarded_i32_self_division".to_owned(),
+                        parameters: BTreeMap::from([
+                            ("proposal_hash".to_owned(), json!(proposal.proposal_hash)),
+                            ("target".to_owned(), json!(debt.target)),
+                            (
+                                "fallback_revision".to_owned(),
+                                json!(proposal.base_candidate_revision),
+                            ),
+                        ]),
+                        result: EvidenceResult::Passed,
+                        counterexample: None,
+                        provenance: current_provenance(),
+                    },
+                );
+                (
+                    TranslationValidationResult::GuardedSelfDivision { guarded_fallback },
+                    Some(evidence_id),
+                )
+            }
+            TrustedPath::Unsupported => {
+                debt.status = ProofDebtStatus::Unsupported;
+                (TranslationValidationResult::Unsupported, None)
+            }
+        };
+        match &result {
+            TranslationValidationResult::CanonicalIdentity
+            | TranslationValidationResult::RecognizedKnownRewrite { .. } => {
+                let all_proved = next
+                    .proof_debt
+                    .iter()
+                    .all(|debt| debt.status == ProofDebtStatus::Proved);
+                let terminal = next.proof_debt[debt_index].after_impl_hash.clone();
+                next.proof_frontier = Some(ProofFrontier {
+                    candidate: if all_proved {
+                        candidate_id.clone()
+                    } else {
+                        proposal.candidate.clone()
+                    },
+                    candidate_revision: if all_proved {
+                        revision_id.clone()
+                    } else {
+                        proposal.accepted_candidate_revision.clone()
+                    },
+                    terminal_proved_impl_hash: terminal,
+                });
+                next.equivalence.status = if all_proved {
+                    EquivalenceStatus::Proved
+                } else {
+                    EquivalenceStatus::Open
+                };
+                next.state = if all_proved {
+                    CandidateState::Equivalent
+                } else {
+                    CandidateState::Speculative
+                };
+            }
+            TranslationValidationResult::GuardedSelfDivision { .. } => {
+                next.proof_frontier = Some(ProofFrontier {
+                    candidate: candidate_id.clone(),
+                    candidate_revision: revision_id.clone(),
+                    terminal_proved_impl_hash: next.proof_debt[debt_index].after_impl_hash.clone(),
+                });
+                next.state = CandidateState::Guarded;
+                next.equivalence.status = EquivalenceStatus::Guarded;
+            }
+            TranslationValidationResult::Unsupported => {
+                next.state = CandidateState::Speculative;
+                next.equivalence.status = EquivalenceStatus::Unsupported;
+            }
+            TranslationValidationResult::Refuted { .. } => unreachable!("not produced here"),
+        }
+        let validation = TranslationValidationRecord {
+            proposal: proposal_id.clone(),
+            obligation: next.proof_debt[debt_index].id.clone(),
+            candidate_revision: revision_id.clone(),
+            validator_id: TRANSLATION_VALIDATOR_ID.to_owned(),
+            validator_version: TRANSLATION_VALIDATOR_VERSION,
+            result: result.clone(),
+            evidence: evidence_id,
+        };
+        next.translation_results.push(validation.clone());
+        next.candidate_hash = CandidateHash::new("pending");
+        let candidate_snapshot = staged
+            .candidates
+            .get(candidate_id)
+            .expect("checked")
+            .clone();
+        next.candidate_hash = candidate_hash_with_limit(
+            &staged,
+            &candidate_snapshot,
+            &next,
+            candidate_canonical_limit(&next, limits),
+        )?;
+        let exact_hash = next.candidate_hash.clone();
+        let candidate_mut = staged.candidates.get_mut(candidate_id).expect("checked");
+        candidate_mut.revisions.insert(revision_id.clone(), next);
+        candidate_mut.head = revision_id.clone();
+        staged.events.push(VersionedCandidateEvent {
+            semantics_version: CANDIDATE_SEMANTICS_VERSION,
+            event: CandidateEvent::TranslationChecked {
+                candidate: candidate_id.clone(),
+                base_revision: base_revision_id.clone(),
+                proposal: proposal_id.clone(),
+                candidate_revision: revision_id.clone(),
+                result: result.clone(),
+                candidate_hash: exact_hash,
+            },
+        });
+        ensure_forest_budgets(&staged, limits)?;
+        let report = staged.check(candidate_id, &revision_id, source, limits)?;
+        *self = staged;
+        Ok(TranslationCheckReport {
+            diagnostic: matches!(result, TranslationValidationResult::Unsupported)
+                .then_some(ErrorCode::TranslationUnsupported),
+            validation,
+            candidate: report,
+        })
     }
 
     /// Forks one candidate revision into a new editable branch identity.
@@ -1756,7 +3845,11 @@ impl CandidateForest {
         let mut child_revision = revision.clone();
         child_revision.id = revision_id.clone();
         child_revision.parents.clear();
-        child_revision.state = CandidateState::Draft;
+        child_revision.state = if revision.state == CandidateState::Sealed {
+            CandidateState::Draft
+        } else {
+            revision.state
+        };
         child_revision.equivalence = EquivalenceObligation {
             id: obligation_id,
             relation: RelationKind::EquivalentToSpec,
@@ -1764,7 +3857,7 @@ impl CandidateForest {
             candidate: candidate_id.clone(),
             candidate_revision: revision_id.clone(),
             impl_hash: child_revision.impl_hash.clone(),
-            status: EquivalenceStatus::Proved,
+            status: revision.equivalence.status,
         };
         let mut child = Candidate {
             id: candidate_id.clone(),
@@ -1776,13 +3869,23 @@ impl CandidateForest {
             parent_candidate: Some(parent_candidate.clone()),
             forked_from_revision: Some(parent_revision.clone()),
         };
-        child_revision.candidate_hash =
-            candidate_hash_with_limit(&child, &child_revision, limits.candidate_canonical_bytes)?;
+        child_revision.candidate_hash = candidate_hash_with_limit(
+            &staged,
+            &child,
+            &child_revision,
+            candidate_canonical_limit(&child_revision, limits),
+        )?;
+        let event_semantics =
+            if child_revision.candidate_hash_version == CANDIDATE_CANONICAL_VERSION {
+                CANDIDATE_SEMANTICS_VERSION
+            } else {
+                LEGACY_CANDIDATE_SEMANTICS_VERSION
+            };
         let exact_hash = child_revision.candidate_hash.clone();
         child.revisions.insert(revision_id.clone(), child_revision);
         staged.candidates.insert(candidate_id.clone(), child);
         staged.events.push(VersionedCandidateEvent {
-            semantics_version: CANDIDATE_SEMANTICS_VERSION,
+            semantics_version: event_semantics,
             event: CandidateEvent::Forked {
                 parent_candidate: parent_candidate.clone(),
                 parent_revision: parent_revision.clone(),
@@ -1828,6 +3931,20 @@ impl CandidateForest {
             validation.requested_cases,
             "candidate differential validation",
         )?;
+        if let Some(counterexample) = &validation.counterexample {
+            let bytes = serde_json::to_vec(counterexample).map_err(|error| {
+                candidate_error(
+                    ErrorCode::EvidenceInvalid,
+                    format!("counterexample serialization failed: {error}"),
+                )
+            })?;
+            BudgetCheck::against(
+                limits,
+                ResourceKind::CounterexampleBytes,
+                u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+                "counterexample before EvidenceIR publication",
+            )?;
+        }
         let (candidate, base) = candidate_revision(self, candidate_id, base_revision)?;
         if candidate.head != *base_revision {
             return Err(candidate_error(
@@ -1851,12 +3968,41 @@ impl CandidateForest {
         next.equivalence.candidate_revision = revision_id.clone();
         if !validation.passed {
             next.state = CandidateState::Rejected;
+            if next.candidate_hash_version == CANDIDATE_CANONICAL_VERSION {
+                let debt = next
+                    .proof_debt
+                    .iter_mut()
+                    .find(|debt| {
+                        matches!(
+                            debt.status,
+                            ProofDebtStatus::Open
+                                | ProofDebtStatus::Unsupported
+                                | ProofDebtStatus::Guarded
+                        )
+                    })
+                    .ok_or_else(|| {
+                        candidate_error(
+                            ErrorCode::EvidenceInvalid,
+                            "speculative counterexample has no affected proof-debt item",
+                        )
+                    })?;
+                debt.status = ProofDebtStatus::Refuted;
+                debt.first_counterexample
+                    .clone_from(&validation.counterexample);
+                debt.evidence.push(evidence_id.clone());
+                next.equivalence.status = EquivalenceStatus::Refuted;
+                next.guarded_fallback = None;
+            }
         }
         next.evidence.push(evidence_id.clone());
         let evidence = EvidenceRecord {
             id: evidence_id.clone(),
             class: EvidenceClass::Confidence,
-            kind: EvidenceKind::DifferentialTest,
+            kind: if base.candidate_hash_version == CANDIDATE_CANONICAL_VERSION {
+                EvidenceKind::SpeculativeDifferentialTest
+            } else {
+                EvidenceKind::DifferentialTest
+            },
             spec_hash: candidate.spec_hash.clone(),
             candidate: candidate_id.clone(),
             candidate_revision: revision_id.clone(),
@@ -1873,7 +4019,11 @@ impl CandidateForest {
                 EvidenceResult::Failed
             },
             counterexample: validation.counterexample.clone(),
-            provenance: provenance(),
+            provenance: if base.candidate_hash_version == CANDIDATE_CANONICAL_VERSION {
+                current_provenance()
+            } else {
+                provenance()
+            },
         };
         staged.evidence.insert(evidence_id, evidence);
         next.candidate_hash = CandidateHash::new("pending");
@@ -1883,16 +4033,22 @@ impl CandidateForest {
             .expect("checked")
             .clone();
         next.candidate_hash = candidate_hash_with_limit(
+            &staged,
             &candidate_snapshot,
             &next,
-            limits.candidate_canonical_bytes,
+            candidate_canonical_limit(&next, limits),
         )?;
+        let event_semantics = if next.candidate_hash_version == LEGACY_CANDIDATE_CANONICAL_VERSION {
+            LEGACY_CANDIDATE_SEMANTICS_VERSION
+        } else {
+            CANDIDATE_SEMANTICS_VERSION
+        };
         let exact_hash = next.candidate_hash.clone();
         let candidate_mut = staged.candidates.get_mut(candidate_id).expect("checked");
         candidate_mut.revisions.insert(revision_id.clone(), next);
         candidate_mut.head = revision_id.clone();
         staged.events.push(VersionedCandidateEvent {
-            semantics_version: CANDIDATE_SEMANTICS_VERSION,
+            semantics_version: event_semantics,
             event: CandidateEvent::Validated {
                 candidate: candidate_id.clone(),
                 base_revision: base_revision.clone(),
@@ -1928,12 +4084,28 @@ impl CandidateForest {
             return self.check(candidate_id, base_revision, source, limits);
         }
         if base.state == CandidateState::Rejected
-            || base.equivalence.status != EquivalenceStatus::Proved
+            || base.equivalence.status == EquivalenceStatus::Refuted
         {
             return Err(candidate_error(
-                ErrorCode::EquivalenceNotProved,
-                "candidate cannot be sealed without proved exact equivalence",
+                ErrorCode::ObligationRefuted,
+                "refuted candidate cannot be sealed",
             ));
+        }
+        if !matches!(
+            base.equivalence.status,
+            EquivalenceStatus::Proved | EquivalenceStatus::Guarded
+        ) || base.proof_debt.iter().any(|debt| {
+            !matches!(
+                debt.status,
+                ProofDebtStatus::Proved | ProofDebtStatus::Guarded
+            )
+        }) {
+            return Err(candidate_error(
+                ErrorCode::CandidateHasProofDebt,
+                "candidate cannot be sealed with open or unsupported proof debt",
+            )
+            .with_detail("candidate", candidate_id.to_string())
+            .with_repair("run candidate.translation_check or recover from the proof frontier"));
         }
         let mut staged = self.clone();
         let revision_id = staged.allocator.revision();
@@ -1949,7 +4121,11 @@ impl CandidateForest {
             EvidenceRecord {
                 id: evidence_id,
                 class: EvidenceClass::Correctness,
-                kind: EvidenceKind::CompositionalEquivalence,
+                kind: if base.candidate_hash_version == CANDIDATE_CANONICAL_VERSION {
+                    EvidenceKind::CompositionalSpeculativeDischarge
+                } else {
+                    EvidenceKind::CompositionalEquivalence
+                },
                 spec_hash: candidate.spec_hash.clone(),
                 candidate: candidate_id.clone(),
                 candidate_revision: revision_id.clone(),
@@ -1962,7 +4138,11 @@ impl CandidateForest {
                 )]),
                 result: EvidenceResult::Passed,
                 counterexample: None,
-                provenance: provenance(),
+                provenance: if base.candidate_hash_version == CANDIDATE_CANONICAL_VERSION {
+                    current_provenance()
+                } else {
+                    provenance()
+                },
             },
         );
         next.candidate_hash = CandidateHash::new("pending");
@@ -1972,16 +4152,22 @@ impl CandidateForest {
             .expect("checked")
             .clone();
         next.candidate_hash = candidate_hash_with_limit(
+            &staged,
             &candidate_snapshot,
             &next,
-            limits.candidate_canonical_bytes,
+            candidate_canonical_limit(&next, limits),
         )?;
+        let event_semantics = if next.candidate_hash_version == LEGACY_CANDIDATE_CANONICAL_VERSION {
+            LEGACY_CANDIDATE_SEMANTICS_VERSION
+        } else {
+            CANDIDATE_SEMANTICS_VERSION
+        };
         let exact_hash = next.candidate_hash.clone();
         let candidate_mut = staged.candidates.get_mut(candidate_id).expect("checked");
         candidate_mut.revisions.insert(revision_id.clone(), next);
         candidate_mut.head = revision_id.clone();
         staged.events.push(VersionedCandidateEvent {
-            semantics_version: CANDIDATE_SEMANTICS_VERSION,
+            semantics_version: event_semantics,
             event: CandidateEvent::Sealed {
                 candidate: candidate_id.clone(),
                 base_revision: base_revision.clone(),
@@ -2028,7 +4214,30 @@ impl CandidateForest {
                         None => (correctness, confidence),
                     },
                 );
-        let proved = revision.equivalence.status == EquivalenceStatus::Proved;
+        let proved = matches!(
+            revision.equivalence.status,
+            EquivalenceStatus::Proved | EquivalenceStatus::Guarded
+        );
+        let open_obligations =
+            if revision.candidate_hash_version == LEGACY_CANDIDATE_CANONICAL_VERSION {
+                if proved {
+                    Vec::new()
+                } else {
+                    vec![revision.equivalence.id.clone()]
+                }
+            } else {
+                revision
+                    .proof_debt
+                    .iter()
+                    .filter(|debt| {
+                        !matches!(
+                            debt.status,
+                            ProofDebtStatus::Proved | ProofDebtStatus::Guarded
+                        )
+                    })
+                    .map(|debt| debt.id.clone())
+                    .collect()
+            };
         Ok(CandidateCheckReport {
             candidate: candidate_id.clone(),
             candidate_revision: revision_id.clone(),
@@ -2037,18 +4246,22 @@ impl CandidateForest {
             equivalence: revision.equivalence.clone(),
             impl_hash: revision.impl_hash.clone(),
             candidate_hash: revision.candidate_hash.clone(),
-            open_obligations: if proved {
-                Vec::new()
-            } else {
-                vec![revision.equivalence.id.clone()]
-            },
+            open_obligations,
             correctness_evidence,
             confidence_evidence,
             sealable: proved
                 && !matches!(
                     revision.state,
                     CandidateState::Rejected | CandidateState::Sealed
-                ),
+                )
+                && revision.proof_debt.iter().all(|debt| {
+                    matches!(
+                        debt.status,
+                        ProofDebtStatus::Proved | ProofDebtStatus::Guarded
+                    )
+                }),
+            proof_frontier: revision.proof_frontier.clone(),
+            proof_debt: revision.proof_debt.clone(),
         })
     }
 
@@ -2119,11 +4332,45 @@ impl CandidateForest {
         }
         matches
             .sort_by(|left, right| (&left.rule, &left.target).cmp(&(&right.rule, &right.target)));
+        let speculative_escape = revision
+            .impl_program
+            .operation_order
+            .iter()
+            .filter_map(|operation| revision.impl_program.operations.get(operation))
+            .find(|operation| operation.results.len() == 1 && operation.opcode != Opcode::Parameter)
+            .map(|operation| SpeculativeEscapeSchema {
+                target: operation.id.clone(),
+                boundary_inputs: operation.operands.clone(),
+                required_yield_type: operation.result_types[0].clone(),
+                allowed_opcodes: [
+                    Opcode::Constant,
+                    Opcode::Add,
+                    Opcode::Sub,
+                    Opcode::Mul,
+                    Opcode::Div,
+                    Opcode::Fma,
+                    Opcode::Compare,
+                    Opcode::Select,
+                    Opcode::Cast,
+                    Opcode::Map,
+                    Opcode::ZipMap,
+                    Opcode::Reduce,
+                ]
+                .into_iter()
+                .map(|opcode| opcode.to_string())
+                .collect(),
+                fragment_operation_limit: limits.proposal_fragment_operations,
+                expected_before_impl_hash: revision.impl_hash.clone(),
+                requires_speculative_opt_in: true,
+                reason_code: "BOUNDED_TYPED_REPLACEMENT".to_owned(),
+            });
         Ok(CandidateContinuation {
             candidate: candidate_id.clone(),
             candidate_revision: revision_id.clone(),
             expected_before_impl_hash: revision.impl_hash.clone(),
+            trusted_known_rewrites: matches.clone(),
             matches,
+            speculative_escape,
         })
     }
 

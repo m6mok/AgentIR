@@ -5,7 +5,8 @@ use crate::{
     candidate::{
         CANDIDATE_SEMANTICS_VERSION, Candidate, CandidateCheckReport, CandidateContinuation,
         CandidateEvent, CandidateForest, CandidateRevision, CandidateTransaction,
-        DifferentialValidation, RelationKind,
+        DifferentialValidation, LEGACY_CANDIDATE_SEMANTICS_VERSION, ProposalRecord, RelationKind,
+        SpeculativeRewriteProposal, TranslationCheckReport,
     },
     canonical::{content_hash, content_hash_with_limit},
     constraints::{ConstraintFacts, ConstraintQueryResult},
@@ -13,8 +14,8 @@ use crate::{
     diagnostics::{AgentError, AgentResult, ErrorCode},
     holes::{ExpectedEffects, Hole, HoleStatus},
     ids::{
-        ActionId, CandidateId, CandidateRevisionId, HoleId, IdAllocator, ObligationId, RevisionId,
-        ValueId, WorkspaceId,
+        ActionId, CandidateId, CandidateRevisionId, HoleId, IdAllocator, ObligationId, ProposalId,
+        RevisionId, ValueId, WorkspaceId,
     },
     ir::{
         BlockArgument, ConstantValue, Dimension, Opcode, Operation, Program, Region,
@@ -1585,6 +1586,47 @@ impl Workspace {
             .apply(transaction, &source, &spec_hash, &self.limits)
     }
 
+    /// Accepts one bounded typed speculative replacement against an explicit candidate head.
+    pub fn candidate_propose(
+        &mut self,
+        candidate: &CandidateId,
+        base_revision: &CandidateRevisionId,
+        proposal: &SpeculativeRewriteProposal,
+    ) -> AgentResult<CandidateCheckReport> {
+        let (source, spec_hash) = self.candidate_source(candidate)?;
+        self.candidates.propose(
+            candidate,
+            base_revision,
+            proposal,
+            &source,
+            &spec_hash,
+            &self.limits,
+        )
+    }
+
+    /// Returns one persistent normalized proposal provenance record.
+    pub fn candidate_proposal_query(&self, proposal: &ProposalId) -> AgentResult<&ProposalRecord> {
+        self.candidates.proposal(proposal)
+    }
+
+    /// Runs trusted ordered translation validation for one proposal obligation.
+    pub fn candidate_translation_check(
+        &mut self,
+        candidate: &CandidateId,
+        base_revision: &CandidateRevisionId,
+        proposal: &ProposalId,
+    ) -> AgentResult<TranslationCheckReport> {
+        let (source, spec_hash) = self.candidate_source(candidate)?;
+        self.candidates.translation_check(
+            candidate,
+            base_revision,
+            proposal,
+            &source,
+            &spec_hash,
+            &self.limits,
+        )
+    }
+
     /// Forks one candidate revision into a new editable branch identity.
     pub fn candidate_fork(
         &mut self,
@@ -1637,7 +1679,10 @@ impl Workspace {
 
     fn replay_candidate_forest(&mut self, expected: &CandidateForest) -> AgentResult<()> {
         for versioned in &expected.events {
-            if versioned.semantics_version != CANDIDATE_SEMANTICS_VERSION {
+            if !matches!(
+                versioned.semantics_version,
+                LEGACY_CANDIDATE_SEMANTICS_VERSION | CANDIDATE_SEMANTICS_VERSION
+            ) {
                 return Err(AgentError::new(
                     ErrorCode::PersistenceFormat,
                     format!(
@@ -1679,6 +1724,22 @@ impl Workspace {
                     ..
                 } => {
                     self.candidate_seal(candidate, base_revision)?;
+                }
+                CandidateEvent::ProposalAccepted {
+                    candidate,
+                    base_revision,
+                    proposal,
+                    ..
+                } => {
+                    self.candidate_propose(candidate, base_revision, proposal)?;
+                }
+                CandidateEvent::TranslationChecked {
+                    candidate,
+                    base_revision,
+                    proposal,
+                    ..
+                } => {
+                    self.candidate_translation_check(candidate, base_revision, proposal)?;
                 }
             }
             if self.candidates.events.last() != Some(versioned) {

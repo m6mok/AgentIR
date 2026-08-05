@@ -668,7 +668,7 @@ fn impl_region_value_type(
     }
 }
 
-fn verify_region(
+pub(crate) fn verify_region(
     region: &ImplRegion,
     program: &ImplProgram,
     facts: &ConstraintFacts,
@@ -745,6 +745,69 @@ fn verify_region(
         );
     }
     Ok(())
+}
+
+/// Infers one proposed top-level ImplIR operation without allocating persistent IDs.
+pub(crate) fn infer_proposed_operation(
+    program: &ImplProgram,
+    opcode: Opcode,
+    operands: &[ImplValueId],
+    attributes: &BTreeMap<String, JsonValue>,
+    constant: Option<&ConstantValue>,
+    region: Option<&ImplRegion>,
+) -> AgentResult<Type> {
+    if matches!(opcode, Opcode::Parameter) {
+        return Err(impl_error(
+            "proposal fragments cannot create external parameters",
+        ));
+    }
+    let adapter = impl_as_program(program);
+    let facts = ConstraintFacts::from_program(&adapter)?;
+    let operand_types = operands
+        .iter()
+        .map(|value| {
+            program
+                .values
+                .get(value)
+                .map(|value| value.ty.clone())
+                .ok_or_else(|| impl_error(format!("proposal operand `{value}` is absent")))
+        })
+        .collect::<AgentResult<Vec<_>>>()?;
+    match opcode {
+        Opcode::Constant => {
+            if !operands.is_empty() || region.is_some() {
+                return Err(impl_error(
+                    "proposal constant cannot have operands or a region",
+                ));
+            }
+            constant
+                .map(|value| Type::Scalar(value.scalar_type()))
+                .ok_or_else(|| impl_error("proposal constant requires an exact literal"))
+        }
+        Opcode::Map | Opcode::ZipMap | Opcode::Reduce => {
+            if constant.is_some() {
+                return Err(impl_error(
+                    "higher-order proposal operation cannot carry a scalar literal",
+                ));
+            }
+            let region = region.ok_or_else(|| {
+                impl_error("higher-order proposal operation requires a closed typed region")
+            })?;
+            verify_region(region, program, &facts)?;
+            Ok(
+                infer_higher_with_facts(opcode, &operand_types, &region_to_spec(region), &facts)?
+                    .ty,
+            )
+        }
+        _ => {
+            if constant.is_some() || region.is_some() {
+                return Err(impl_error(
+                    "primitive proposal operation has an invalid literal or region",
+                ));
+            }
+            Ok(infer_primitive_with_facts(opcode, &operand_types, attributes, &facts)?.ty)
+        }
+    }
 }
 
 /// Verifies SSA, types, regions, interfaces, source links, and resource limits.

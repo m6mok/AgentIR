@@ -163,3 +163,51 @@ Potential persistent references inside generic semantic attributes are rejected 
 ## ADR-027: Stage 2A stops before memory, schedule and approximate refinement
 
 **Decision.** Stage 2A has no buffers, layouts, address spaces, raw pointers, target manifests, schedules, threads, tiles, GPU/backend integration, search/ranking, hardware benchmarks or error tolerances. Approximate refinement returns `UNSUPPORTED_REFINEMENT`. These boundaries keep the first candidate/equivalence layer auditable before physical lowering and speculative search are introduced.
+
+## ADR-028: Speculative acceptance requires explicit opt-in
+
+**Decision.** Conditional, unknown and unsupported typed proposals are accepted only with `allow_speculative: true`. Illegal proposals are always rejected atomically. Well typed means structurally executable, not equivalent, and a proposal is provenance rather than correctness evidence.
+
+## ADR-029: Proposal fragments have an exact operation boundary
+
+**Decision.** Stage 2B replaces one top-level single-result operation. The fragment declares exactly the target's ordered operands, uses only boundary or earlier `$` bindings, contains pure existing ImplIR operations and yields one exactly typed result. The core assigns all persistent ImplIR IDs. Parameters, outputs, constraints and `NumericContract` cannot change.
+
+## ADR-030: Proposal hash is a separate semantic contract
+
+**Decision.** Alpha-normalized proposals use domain `agentir.proposal.semantic.v1\0` and cover the base `impl_hash`, target/boundary, replacement, output type, numeric contract and codec version. Candidate identities, allocated IDs, evidence, timestamps and limits are excluded. `proposal_hash` never substitutes for `impl_hash` or `candidate_hash`.
+
+## ADR-031: Proof frontier and ordered proof debt
+
+**Decision.** Every speculative acceptance appends one obligation connecting consecutive implementation hashes. The candidate head may advance beyond the last consecutively proved frontier. Validators process debt in order; open, unsupported or refuted items prevent later items from advancing the frontier. Testing never discharges debt.
+
+## ADR-032: Translation proofs are compiler owned
+
+**Decision.** The trusted validator recognizes only equal implementation hashes, an exact result reproduced by the production known-rewrite transform, or ADR-034's guarded profile. Agent rule names and certificates are ignored. Unsupported checks are persisted deterministically without correctness evidence and without being treated as semantic failure.
+
+## ADR-033: Deterministic counterexamples refute obligations
+
+**Decision.** Positive differential/property validation is confidence evidence. Its first deterministic mismatch records a bounded normalized counterexample, marks the first unresolved affected obligation `refuted`, rejects the candidate and leaves the proof frontier unchanged. A refuted candidate cannot be sealed.
+
+## ADR-034: One restricted lazy guarded fallback
+
+**Decision.** The sole Stage 2B guarded rule is scalar `i32 div(x,x) -> 1` under compiler-owned `I32NonZero(x)`. False evaluates an immutable fully proved exact fallback revision lazily; true evaluates the primary. Guard dependencies, fallback recursion and cycles are bounded. No general guard DSL is introduced.
+
+## ADR-035: Candidate hash v1 and v2 coexist
+
+**Decision.** Candidate canonical/hash v1 and domain `agentir.candidate.exact.v1\0` are immutable. New speculative or guarded revisions use v2 and `agentir.candidate.exact.v2\0`, adding normalized proposal records, frontier, ordered debt/statuses, translation results, guard/fallback and lifecycle state. Each revision names its hash version; migrated ancestors retain v1 bytes and hashes.
+
+## ADR-036: Candidate semantics v2 is independent
+
+**Decision.** Proposal acceptance, translation results and Stage 2B evidence use `CANDIDATE_SEMANTICS_VERSION = 2`; legacy candidate events remain version 1. Candidate semantics, core semantics, ImplIR semantics, canonical versions and archive versions are separate compatibility axes, and one forest may replay mixed v1/v2 candidate history.
+
+## ADR-037: Archive and snapshot version 5
+
+**Decision.** Archive/snapshot v1-v4 are exact legacy inputs. V5 adds proposals, proof debt, guards and candidate semantics v2. Migration verifies the v4 body with immutable v4 types, preserves SpecIR state and all candidate v1 IDs/hashes/evidence/events, adds empty Stage 2B stores and never recalculates legacy candidate hashes. New saves write only v5.
+
+## ADR-038: Agents cannot supply correctness certificates
+
+**Decision.** Protocol proposal types expose no correctness EvidenceIR, rewrite certificate or guard field. Only compiler-owned identity lowering, production transforms and the guarded validator allocate correctness evidence. This prevents plausible agent assertions from crossing the trust boundary.
+
+## ADR-039: Stage 2B excludes approximation and search machinery
+
+**Decision.** Stage 2B adds bounded speculative history, not approximate refinement, tolerances, SMT, e-graphs, saturation, ranking, beam/population search, learned cost models or performance/hardware evidence. MemoryIR, ScheduleIR and GPU/LLVM/MLIR lowering remain later independent stages.
