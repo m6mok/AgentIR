@@ -19,6 +19,8 @@ pub mod holes;
 pub mod ids;
 pub mod impl_ir;
 pub mod ir;
+pub mod memory;
+pub mod memory_ir;
 pub mod obligations;
 pub mod persistence;
 pub mod resources;
@@ -32,5 +34,8 @@ pub mod workspace;
 
 pub use actions::{Action, Transaction};
 pub use diagnostics::{AgentError, AgentResult, ErrorCode};
-pub use ids::{CandidateId, CandidateRevisionId, HoleId, ProposalId, RevisionId, WorkspaceId};
+pub use ids::{
+    CandidateId, CandidateRevisionId, HoleId, MemoryPlanId, MemoryRevisionId, ProposalId,
+    RevisionId, WorkspaceId,
+};
 pub use workspace::Workspace;

@@ -1,5 +1,7 @@
 # Equivalence and EvidenceIR
 
+Stage 3 adds the separate `MemoryEquivalentToImpl` relation. Fresh bufferization, static reuse, guarded reuse, compositional verification, and sealing allocate compiler-owned memory correctness evidence and obligations. Reference execution and traces are confidence only; no positive test advances memory proof state. Memory evidence is stored independently from candidate EvidenceIR and is anchored to `impl_hash` plus exact input/output `memory_hash`.
+
 Stage 2C still accepts only `EquivalentToSpec`. Approximate `RefinesSpecWithinTolerance` returns `UNSUPPORTED_REFINEMENT`; tolerances and approximate math are deferred.
 
 The correctness chain has this form:

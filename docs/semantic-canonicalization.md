@@ -1,5 +1,7 @@
 # Semantic canonicalization
 
+`memory_hash` is an eighth non-substitutable contract. Its exact v1 codec covers physical MemoryIR state and uses domain `agentir.memory.exact.v1\0`; different layouts or reuse choices deliberately differ while retaining the same `impl_hash`. Resource limits, traces, timing, platform and timestamps are excluded. Existing content/spec/impl/proposal/candidate/equality codecs are unchanged.
+
 Stage 1.1 introduced two deliberately different frozen-SpecIR identities. Stage 2A/2B/2C preserve their codecs and ImplIR v1 unchanged while adding proposal, candidate and equality-layer contracts; the archive envelope remains separate.
 
 | Hash | Covers | Excludes | Primary use |

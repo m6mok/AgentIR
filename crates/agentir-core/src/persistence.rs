@@ -16,6 +16,7 @@ use crate::{
     },
     impl_ir::{ImplHash, ImplProgram},
     ir::Program,
+    memory::MemoryPlanStore,
     revision::{Revision, StatusSummary},
 };
 use serde::{Deserialize, Serialize};
@@ -28,7 +29,10 @@ pub const CORE_SEMANTICS_VERSION: u32 = 2;
 pub const LEGACY_CORE_SEMANTICS_VERSION: u32 = 1;
 
 /// Current schema version for compiler-core workspace snapshots.
-pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 6;
+pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 7;
+
+/// Immutable Stage 2C snapshot schema migrated explicitly to v7.
+pub const LEGACY_WORKSPACE_SNAPSHOT_V6_VERSION: u32 = 6;
 
 /// Immutable Stage 2B snapshot schema migrated explicitly to v6.
 pub const LEGACY_WORKSPACE_SNAPSHOT_V5_VERSION: u32 = 5;
@@ -98,6 +102,29 @@ pub struct WorkspaceSnapshot {
     /// Independent candidate forest, allocator, EvidenceIR, and candidate event log.
     pub candidate_forest: CandidateForest,
     /// Independent exact equality spaces and dependency-ordered Stage 2C event log.
+    pub equality_store: EqualityStore,
+    /// Independent MemoryIR plans, evidence, allocator, and dependency-ordered event log.
+    pub memory_store: MemoryPlanStore,
+}
+
+/// Immutable compiler-core snapshot schema embedded in archive format version 6.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LegacyWorkspaceSnapshotV6 {
+    /// Legacy schema discriminator, which must equal six.
+    pub schema_version: u32,
+    /// Workspace identity.
+    pub workspace: WorkspaceId,
+    /// Current SpecIR head revision.
+    pub head: RevisionId,
+    /// Immutable SpecIR revisions.
+    pub revisions: BTreeMap<RevisionId, Revision>,
+    /// SpecIR compiler allocator.
+    pub allocator: IdAllocator,
+    /// Semantics-versioned SpecIR event log.
+    pub events: Vec<VersionedWorkspaceEvent>,
+    /// Stage 2B CandidateForest.
+    pub candidate_forest: CandidateForest,
+    /// Stage 2C exact equality store.
     pub equality_store: EqualityStore,
 }
 
@@ -737,13 +764,38 @@ pub fn migrate_snapshot_v4(
 /// Purely migrates immutable snapshot schema v5 to v6 with an empty equality store.
 pub fn migrate_snapshot_v5(
     snapshot: LegacyWorkspaceSnapshotV5,
-) -> crate::AgentResult<WorkspaceSnapshot> {
+) -> crate::AgentResult<LegacyWorkspaceSnapshotV6> {
     if snapshot.schema_version != LEGACY_WORKSPACE_SNAPSHOT_V5_VERSION {
         return Err(crate::AgentError::new(
             crate::ErrorCode::PersistenceFormat,
             format!(
                 "legacy workspace snapshot version {} is unsupported; expected {}",
                 snapshot.schema_version, LEGACY_WORKSPACE_SNAPSHOT_V5_VERSION
+            ),
+        ));
+    }
+    Ok(LegacyWorkspaceSnapshotV6 {
+        schema_version: LEGACY_WORKSPACE_SNAPSHOT_V6_VERSION,
+        workspace: snapshot.workspace,
+        head: snapshot.head,
+        revisions: snapshot.revisions,
+        allocator: snapshot.allocator,
+        events: snapshot.events,
+        candidate_forest: snapshot.candidate_forest,
+        equality_store: EqualityStore::default(),
+    })
+}
+
+/// Purely migrates immutable snapshot schema v6 to v7 with an empty MemoryIR store.
+pub fn migrate_snapshot_v6(
+    snapshot: LegacyWorkspaceSnapshotV6,
+) -> crate::AgentResult<WorkspaceSnapshot> {
+    if snapshot.schema_version != LEGACY_WORKSPACE_SNAPSHOT_V6_VERSION {
+        return Err(crate::AgentError::new(
+            crate::ErrorCode::PersistenceFormat,
+            format!(
+                "legacy workspace snapshot version {} is unsupported; expected {}",
+                snapshot.schema_version, LEGACY_WORKSPACE_SNAPSHOT_V6_VERSION
             ),
         ));
     }
@@ -755,7 +807,8 @@ pub fn migrate_snapshot_v5(
         allocator: snapshot.allocator,
         events: snapshot.events,
         candidate_forest: snapshot.candidate_forest,
-        equality_store: EqualityStore::default(),
+        equality_store: snapshot.equality_store,
+        memory_store: MemoryPlanStore::default(),
     })
 }
 
@@ -784,4 +837,8 @@ pub struct ReplayReport {
     pub equality_spaces_verified: usize,
     /// Number of dependency-ordered Stage 2C events replayed.
     pub equality_events_replayed: usize,
+    /// Number of independent MemoryIR plans verified.
+    pub memory_plans_verified: usize,
+    /// Number of dependency-ordered MemoryIR events replayed.
+    pub memory_events_replayed: usize,
 }

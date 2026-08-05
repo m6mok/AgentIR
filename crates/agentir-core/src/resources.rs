@@ -157,6 +157,54 @@ pub enum ResourceKind {
     EqualityEvaluationElements,
     /// Exact candidate canonical-v3 bytes.
     CandidateCanonicalV3Bytes,
+    /// Persistent memory plans retained by one workspace.
+    MemoryPlansPerWorkspace,
+    /// Immutable memory revisions retained by one workspace.
+    MemoryRevisionsPerWorkspace,
+    /// Replayable memory events retained by one workspace/archive.
+    MemoryEvents,
+    /// Typed buffers retained by one memory revision.
+    MemoryBuffersPerPlan,
+    /// Memory operations retained by one memory revision.
+    MemoryOperationsPerPlan,
+    /// Typed accesses retained by one memory revision.
+    MemoryAccessesPerPlan,
+    /// Alias domains retained by one memory revision.
+    MemoryAliasDomains,
+    /// Alias facts retained by one memory revision.
+    MemoryAliasFacts,
+    /// Definition, last-use, and escape points retained by one memory revision.
+    MemoryLifetimePoints,
+    /// Lifetime use points retained by one memory revision.
+    MemoryLifetimeUses,
+    /// Memory correctness obligations retained by one memory revision.
+    MemoryObligations,
+    /// Reuse actions attempted by one memory transaction.
+    MemoryReuseAttempts,
+    /// Dependencies of one compiler-owned memory guard.
+    MemoryGuardDependencies,
+    /// Maximum nested compiler-owned memory guard depth.
+    MemoryGuardDepth,
+    /// Maximum nested guarded memory fallback depth.
+    MemoryFallbackDepth,
+    /// Tensor rank and stride entries in one buffer layout.
+    MemoryLayoutEntries,
+    /// Static abstract allocation bytes for one buffer.
+    MemoryAllocationBytesPerBuffer,
+    /// Total static abstract allocation bytes for one memory revision.
+    MemoryTotalAllocationBytes,
+    /// Bytes in one canonical exact MemoryIR state.
+    MemoryCanonicalBytes,
+    /// Bytes attributed to MemoryIR in one archive.
+    MemoryArchiveBytes,
+    /// Elements processed by one reference memory evaluation.
+    MemoryEvaluationElements,
+    /// Events retained in one deterministic reference memory trace.
+    MemoryTraceEvents,
+    /// Bytes retained in one deterministic reference memory trace.
+    MemoryTraceBytes,
+    /// Generated MemoryIR property/mutation case size.
+    GeneratedMemoryCaseSize,
 }
 
 /// Configurable interactive limits. These values never enter graph or archive hashes.
@@ -310,6 +358,54 @@ pub struct ResourceLimits {
     pub equality_evaluation_elements: u64,
     /// Maximum candidate canonical-v3 bytes.
     pub candidate_canonical_v3_bytes: u64,
+    /// Maximum persistent memory plans in one workspace.
+    pub memory_plans_per_workspace: u64,
+    /// Maximum immutable memory revisions in one workspace.
+    pub memory_revisions_per_workspace: u64,
+    /// Maximum replayable memory events.
+    pub memory_events: u64,
+    /// Maximum typed buffers in one memory revision.
+    pub memory_buffers_per_plan: u64,
+    /// Maximum memory operations in one memory revision.
+    pub memory_operations_per_plan: u64,
+    /// Maximum explicit typed accesses in one memory revision.
+    pub memory_accesses_per_plan: u64,
+    /// Maximum alias domains in one memory revision.
+    pub memory_alias_domains: u64,
+    /// Maximum alias facts in one memory revision.
+    pub memory_alias_facts: u64,
+    /// Maximum lifetime definition/last-use/escape points in one memory revision.
+    pub memory_lifetime_points: u64,
+    /// Maximum lifetime use points in one memory revision.
+    pub memory_lifetime_uses: u64,
+    /// Maximum memory obligations in one memory revision.
+    pub memory_obligations: u64,
+    /// Maximum reuse attempts in one transaction.
+    pub memory_reuse_attempts: u64,
+    /// Maximum dependencies in one compiler-owned memory guard.
+    pub memory_guard_dependencies: u64,
+    /// Maximum nested compiler-owned memory guard depth.
+    pub memory_guard_depth: u64,
+    /// Maximum nested memory fallback depth.
+    pub memory_fallback_depth: u64,
+    /// Maximum rank/stride entries in one buffer layout.
+    pub memory_layout_entries: u64,
+    /// Maximum static abstract bytes in one buffer.
+    pub memory_allocation_bytes_per_buffer: u64,
+    /// Maximum total static abstract allocation bytes.
+    pub memory_total_allocation_bytes: u64,
+    /// Maximum canonical MemoryIR bytes.
+    pub memory_canonical_bytes: u64,
+    /// Maximum archive bytes attributed to MemoryIR.
+    pub memory_archive_bytes: u64,
+    /// Maximum elements processed by one memory evaluation.
+    pub memory_evaluation_elements: u64,
+    /// Maximum events in one deterministic memory trace.
+    pub memory_trace_events: u64,
+    /// Maximum encoded bytes in one deterministic memory trace.
+    pub memory_trace_bytes: u64,
+    /// Maximum generated MemoryIR property-case size.
+    pub generated_memory_case_size: u64,
 }
 
 impl Default for ResourceLimits {
@@ -389,6 +485,30 @@ impl Default for ResourceLimits {
             equality_evaluation_cases: 1,
             equality_evaluation_elements: 50_000_000,
             candidate_canonical_v3_bytes: 64 * 1024 * 1024,
+            memory_plans_per_workspace: 1_024,
+            memory_revisions_per_workspace: 100_000,
+            memory_events: 100_000,
+            memory_buffers_per_plan: 100_000,
+            memory_operations_per_plan: 100_000,
+            memory_accesses_per_plan: 500_000,
+            memory_alias_domains: 100_000,
+            memory_alias_facts: 500_000,
+            memory_lifetime_points: 500_000,
+            memory_lifetime_uses: 500_000,
+            memory_obligations: 100_000,
+            memory_reuse_attempts: 1_024,
+            memory_guard_dependencies: 1_024,
+            memory_guard_depth: 16,
+            memory_fallback_depth: 16,
+            memory_layout_entries: 1_024,
+            memory_allocation_bytes_per_buffer: 8 * 1024 * 1024 * 1024,
+            memory_total_allocation_bytes: 64 * 1024 * 1024 * 1024,
+            memory_canonical_bytes: 64 * 1024 * 1024,
+            memory_archive_bytes: 64 * 1024 * 1024,
+            memory_evaluation_elements: 50_000_000,
+            memory_trace_events: 1_000_000,
+            memory_trace_bytes: 64 * 1024 * 1024,
+            generated_memory_case_size: 10_000,
         }
     }
 }
@@ -472,6 +592,30 @@ impl ResourceLimits {
             equality_evaluation_cases: 1,
             equality_evaluation_elements: 500_000_000,
             candidate_canonical_v3_bytes: 128 * 1024 * 1024,
+            memory_plans_per_workspace: 100_000,
+            memory_revisions_per_workspace: 250_000,
+            memory_events: 250_000,
+            memory_buffers_per_plan: 1_000_000,
+            memory_operations_per_plan: 1_000_000,
+            memory_accesses_per_plan: 5_000_000,
+            memory_alias_domains: 1_000_000,
+            memory_alias_facts: 5_000_000,
+            memory_lifetime_points: 5_000_000,
+            memory_lifetime_uses: 5_000_000,
+            memory_obligations: 1_000_000,
+            memory_reuse_attempts: 100_000,
+            memory_guard_dependencies: 100_000,
+            memory_guard_depth: 64,
+            memory_fallback_depth: 64,
+            memory_layout_entries: 4_096,
+            memory_allocation_bytes_per_buffer: 64 * 1024 * 1024 * 1024,
+            memory_total_allocation_bytes: 512 * 1024 * 1024 * 1024,
+            memory_canonical_bytes: 128 * 1024 * 1024,
+            memory_archive_bytes: 128 * 1024 * 1024,
+            memory_evaluation_elements: 500_000_000,
+            memory_trace_events: 10_000_000,
+            memory_trace_bytes: 128 * 1024 * 1024,
+            generated_memory_case_size: 100_000,
         }
     }
 
@@ -555,6 +699,30 @@ impl ResourceLimits {
             ResourceKind::EqualityEvaluationCases => self.equality_evaluation_cases,
             ResourceKind::EqualityEvaluationElements => self.equality_evaluation_elements,
             ResourceKind::CandidateCanonicalV3Bytes => self.candidate_canonical_v3_bytes,
+            ResourceKind::MemoryPlansPerWorkspace => self.memory_plans_per_workspace,
+            ResourceKind::MemoryRevisionsPerWorkspace => self.memory_revisions_per_workspace,
+            ResourceKind::MemoryEvents => self.memory_events,
+            ResourceKind::MemoryBuffersPerPlan => self.memory_buffers_per_plan,
+            ResourceKind::MemoryOperationsPerPlan => self.memory_operations_per_plan,
+            ResourceKind::MemoryAccessesPerPlan => self.memory_accesses_per_plan,
+            ResourceKind::MemoryAliasDomains => self.memory_alias_domains,
+            ResourceKind::MemoryAliasFacts => self.memory_alias_facts,
+            ResourceKind::MemoryLifetimePoints => self.memory_lifetime_points,
+            ResourceKind::MemoryLifetimeUses => self.memory_lifetime_uses,
+            ResourceKind::MemoryObligations => self.memory_obligations,
+            ResourceKind::MemoryReuseAttempts => self.memory_reuse_attempts,
+            ResourceKind::MemoryGuardDependencies => self.memory_guard_dependencies,
+            ResourceKind::MemoryGuardDepth => self.memory_guard_depth,
+            ResourceKind::MemoryFallbackDepth => self.memory_fallback_depth,
+            ResourceKind::MemoryLayoutEntries => self.memory_layout_entries,
+            ResourceKind::MemoryAllocationBytesPerBuffer => self.memory_allocation_bytes_per_buffer,
+            ResourceKind::MemoryTotalAllocationBytes => self.memory_total_allocation_bytes,
+            ResourceKind::MemoryCanonicalBytes => self.memory_canonical_bytes,
+            ResourceKind::MemoryArchiveBytes => self.memory_archive_bytes,
+            ResourceKind::MemoryEvaluationElements => self.memory_evaluation_elements,
+            ResourceKind::MemoryTraceEvents => self.memory_trace_events,
+            ResourceKind::MemoryTraceBytes => self.memory_trace_bytes,
+            ResourceKind::GeneratedMemoryCaseSize => self.generated_memory_case_size,
         }
     }
 }

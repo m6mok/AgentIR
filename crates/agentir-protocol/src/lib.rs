@@ -11,6 +11,7 @@ use agentir_core::{
     candidate::{CandidateTransaction, SpeculativeRewriteProposal},
     diagnostics::{AgentError, AgentResult, ErrorCode},
     ids::{CandidateId, CandidateRevisionId, RevisionId, WorkspaceId},
+    memory::MemoryTransaction,
     resources::{BudgetCheck, ResourceKind, ResourceLimits},
     workspace::Workspace,
 };
@@ -634,6 +635,135 @@ impl Engine {
                 &expected_equality_hash,
                 &target_node,
             )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::MemoryCreate {
+                workspace,
+                candidate,
+                candidate_revision,
+                ..
+            } => serde_json::to_value(
+                self.workspace_mut(&workspace)?
+                    .memory_create(&candidate, &candidate_revision)?,
+            )
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::MemoryQuery {
+                workspace,
+                memory_plan,
+                memory_revision,
+                ..
+            } => serde_json::to_value(
+                self.workspace(&workspace)?
+                    .memory_query(&memory_plan, &memory_revision)?,
+            )
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::MemoryCheck {
+                workspace,
+                memory_plan,
+                memory_revision,
+                ..
+            } => serde_json::to_value(
+                self.workspace(&workspace)?
+                    .memory_check(&memory_plan, &memory_revision)?,
+            )
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::MemoryApply {
+                workspace,
+                memory_plan,
+                base_memory_revision,
+                expected_memory_hash,
+                expected_impl_hash,
+                actions,
+                ..
+            } => serde_json::to_value(self.workspace_mut(&workspace)?.memory_apply(
+                &MemoryTransaction {
+                    memory_plan,
+                    base_memory_revision,
+                    expected_memory_hash,
+                    expected_impl_hash,
+                    actions,
+                },
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::MemoryFork {
+                workspace,
+                memory_plan,
+                memory_revision,
+                expected_memory_hash,
+                ..
+            } => serde_json::to_value(self.workspace_mut(&workspace)?.memory_fork(
+                &memory_plan,
+                &memory_revision,
+                &expected_memory_hash,
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::MemorySeal {
+                workspace,
+                memory_plan,
+                memory_revision,
+                expected_memory_hash,
+                ..
+            } => serde_json::to_value(self.workspace_mut(&workspace)?.memory_seal(
+                &memory_plan,
+                &memory_revision,
+                &expected_memory_hash,
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::MemoryEvaluate {
+                workspace,
+                memory_plan,
+                memory_revision,
+                inputs,
+                guard_outcomes,
+                ..
+            } => {
+                let workspace_data = self.workspace(&workspace)?;
+                workspace_data.memory_check(&memory_plan, &memory_revision)?;
+                serde_json::to_value(agentir_eval::evaluate_memory_with_limits(
+                    workspace_data
+                        .memory_store()
+                        .revision(&memory_plan, &memory_revision)?,
+                    workspace_data.memory_impl_program(&memory_plan)?,
+                    &inputs,
+                    &guard_outcomes,
+                    &self.limits,
+                )?)
+                .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
+            }
+            Request::MemoryAliasQuery {
+                workspace,
+                memory_plan,
+                memory_revision,
+                first,
+                second,
+                ..
+            } => serde_json::to_value(self.workspace(&workspace)?.memory_alias_query(
+                &memory_plan,
+                &memory_revision,
+                &first,
+                &second,
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::MemoryBufferQuery {
+                workspace,
+                memory_plan,
+                memory_revision,
+                buffer,
+                ..
+            } => serde_json::to_value(self.workspace(&workspace)?.memory_buffer_query(
+                &memory_plan,
+                &memory_revision,
+                &buffer,
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::MemoryContinuation {
+                workspace,
+                memory_plan,
+                memory_revision,
+                ..
+            } => serde_json::to_value(
+                self.workspace(&workspace)?
+                    .memory_continuation(&memory_plan, &memory_revision)?,
+            )
             .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
         }
     }

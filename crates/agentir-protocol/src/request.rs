@@ -6,10 +6,12 @@ use agentir_core::{
     continuation::InteractionMode,
     equality::EqualityHash,
     ids::{
-        CandidateId, CandidateRevisionId, EqualityNodeId, EqualityRevisionId, EqualitySpaceId,
-        HoleId, ImplOperationId, ProposalId, RevisionId, WorkspaceId,
+        BufferId, CandidateId, CandidateRevisionId, EqualityNodeId, EqualityRevisionId,
+        EqualitySpaceId, HoleId, ImplOperationId, MemoryGuardId, MemoryPlanId, MemoryRevisionId,
+        ProposalId, RevisionId, WorkspaceId,
     },
     impl_ir::ImplHash,
+    memory::{MemoryAction, MemoryHash},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -70,7 +72,7 @@ pub enum Request {
         /// Archive path to verify without retaining the workspace.
         path: String,
     },
-    /// Verifies and migrates one archive into a current v6 destination.
+    /// Verifies and migrates one archive into a current v7 destination.
     #[serde(rename = "workspace.migrate_archive")]
     WorkspaceMigrateArchive {
         /// Correlation ID echoed in the response.
@@ -514,6 +516,147 @@ pub enum Request {
         /// Selected member whose hash must match the debt target.
         target_node: EqualityNodeId,
     },
+    /// Creates a conservative exact MemoryIR plan from a proved candidate revision.
+    #[serde(rename = "memory.create")]
+    MemoryCreate {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Exact candidate branch.
+        candidate: CandidateId,
+        /// Explicit immutable proved candidate revision.
+        candidate_revision: CandidateRevisionId,
+    },
+    /// Reads one immutable MemoryIR revision summary.
+    #[serde(rename = "memory.query")]
+    MemoryQuery {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Memory plan identity.
+        memory_plan: MemoryPlanId,
+        /// Explicit immutable memory revision.
+        memory_revision: MemoryRevisionId,
+    },
+    /// Fully verifies one MemoryIR revision against its immutable ImplIR anchor.
+    #[serde(rename = "memory.check")]
+    MemoryCheck {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Memory plan identity.
+        memory_plan: MemoryPlanId,
+        /// Explicit immutable memory revision.
+        memory_revision: MemoryRevisionId,
+    },
+    /// Applies an atomic compiler-verified MemoryIR transaction.
+    #[serde(rename = "memory.apply")]
+    MemoryApply {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Memory plan identity.
+        memory_plan: MemoryPlanId,
+        /// Explicit current base memory revision.
+        base_memory_revision: MemoryRevisionId,
+        /// Required exact base memory hash.
+        expected_memory_hash: MemoryHash,
+        /// Required immutable implementation hash.
+        expected_impl_hash: ImplHash,
+        /// Ordered compiler-verified storage requests.
+        actions: Vec<MemoryAction>,
+    },
+    /// Forks an immutable MemoryIR revision into an independent plan identity.
+    #[serde(rename = "memory.fork")]
+    MemoryFork {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Parent memory plan.
+        memory_plan: MemoryPlanId,
+        /// Parent immutable memory revision.
+        memory_revision: MemoryRevisionId,
+        /// Required exact parent hash.
+        expected_memory_hash: MemoryHash,
+    },
+    /// Seals one structurally proved exact or guarded MemoryIR plan.
+    #[serde(rename = "memory.seal")]
+    MemorySeal {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Memory plan identity.
+        memory_plan: MemoryPlanId,
+        /// Explicit current base revision.
+        memory_revision: MemoryRevisionId,
+        /// Required exact base hash.
+        expected_memory_hash: MemoryHash,
+    },
+    /// Evaluates the exact physical MemoryIR plan with a deterministic trace.
+    #[serde(rename = "memory.evaluate")]
+    MemoryEvaluate {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Memory plan identity.
+        memory_plan: MemoryPlanId,
+        /// Explicit immutable memory revision.
+        memory_revision: MemoryRevisionId,
+        /// Parameter names to exact JSON scalar/tensor values.
+        inputs: BTreeMap<String, Value>,
+        /// Optional runtime outcomes for compiler-owned guards.
+        #[serde(default)]
+        guard_outcomes: BTreeMap<MemoryGuardId, bool>,
+    },
+    /// Returns one compiler-owned alias relation.
+    #[serde(rename = "memory.alias_query")]
+    MemoryAliasQuery {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Memory plan identity.
+        memory_plan: MemoryPlanId,
+        /// Explicit immutable memory revision.
+        memory_revision: MemoryRevisionId,
+        /// First typed buffer.
+        first: BufferId,
+        /// Second typed buffer.
+        second: BufferId,
+    },
+    /// Returns one immutable typed buffer region.
+    #[serde(rename = "memory.buffer_query")]
+    MemoryBufferQuery {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Memory plan identity.
+        memory_plan: MemoryPlanId,
+        /// Explicit immutable memory revision.
+        memory_revision: MemoryRevisionId,
+        /// Typed buffer to inspect.
+        buffer: BufferId,
+    },
+    /// Returns bounded deterministic legal storage choices without mutation.
+    #[serde(rename = "memory.continuation")]
+    MemoryContinuation {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Memory plan identity.
+        memory_plan: MemoryPlanId,
+        /// Explicit immutable memory revision.
+        memory_revision: MemoryRevisionId,
+    },
 }
 
 const fn default_validation_cases() -> u64 {
@@ -559,7 +702,17 @@ impl Request {
             | Self::EqualityEvaluate { request_id, .. }
             | Self::EqualityMaterialize { request_id, .. }
             | Self::EqualityContinuation { request_id, .. }
-            | Self::CandidateEqualityCheck { request_id, .. } => request_id,
+            | Self::CandidateEqualityCheck { request_id, .. }
+            | Self::MemoryCreate { request_id, .. }
+            | Self::MemoryQuery { request_id, .. }
+            | Self::MemoryCheck { request_id, .. }
+            | Self::MemoryApply { request_id, .. }
+            | Self::MemoryFork { request_id, .. }
+            | Self::MemorySeal { request_id, .. }
+            | Self::MemoryEvaluate { request_id, .. }
+            | Self::MemoryAliasQuery { request_id, .. }
+            | Self::MemoryBufferQuery { request_id, .. }
+            | Self::MemoryContinuation { request_id, .. } => request_id,
         }
     }
 }

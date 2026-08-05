@@ -128,6 +128,42 @@ pub enum ErrorCode {
     EqualityMaterializationFailed,
     /// Stage 2C optimization events violate dependency order.
     EqualityEventOrderInvalid,
+    /// Requested memory plan does not exist.
+    MemoryPlanNotFound,
+    /// Requested immutable memory revision does not exist.
+    MemoryRevisionNotFound,
+    /// Requested abstract buffer does not exist.
+    BufferNotFound,
+    /// Memory creation requires a fully proved unconditional candidate anchor.
+    MemoryAnchorUnproved,
+    /// Expected memory exact-state hash differs from the selected revision.
+    MemoryHashMismatch,
+    /// A memory mutation was based on a stale memory head.
+    StaleMemoryBase,
+    /// A physical layout or stride description is invalid.
+    InvalidMemoryLayout,
+    /// A typed buffer access is invalid.
+    InvalidMemoryAccess,
+    /// A buffer does not satisfy its required alignment.
+    AlignmentUnsatisfied,
+    /// Compiler-owned alias analysis could not prove a required fact.
+    AliasProofMissing,
+    /// A logical lifetime or last-use condition was violated.
+    LifetimeViolation,
+    /// Requested in-place storage reuse is not statically safe.
+    InPlaceReuseUnsafe,
+    /// A compiler-owned memory guard is malformed or unsupported.
+    MemoryGuardInvalid,
+    /// A guarded memory fallback is absent or not exact.
+    MemoryFallbackInvalid,
+    /// Guarded memory fallback references form a cycle.
+    MemoryFallbackCycle,
+    /// Structural MemoryIR verification did not prove equivalence to ImplIR.
+    MemoryEquivalenceUnproved,
+    /// Memory events violate explicit candidate/equality dependency order.
+    MemoryEventOrderInvalid,
+    /// A MemoryIR-specific hard resource boundary rejected the operation.
+    MemoryResourceLimit,
 }
 
 /// Structured compiler error suitable for agent repair loops.

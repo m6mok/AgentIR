@@ -1,5 +1,7 @@
 # Development
 
+Stage 3 changes should additionally run the four MemoryIR JSONL examples and verify fresh/reuse/guarded outputs agree, the unsafe reuse request is rejected without preventing the following transaction, v6 fixtures retain their pinned bytes, and v7 save/replay reproduces memory IDs/hashes. `cargo test --workspace` includes core atomicity/replay and protocol branch-laziness coverage.
+
 ## Repository layout
 
 ```text

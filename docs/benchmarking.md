@@ -1,5 +1,7 @@
 # Benchmark baseline schema v2
 
+Schema v2 is retained for Stage 3. The baseline reports median/p95 MemoryIR fresh bufferization and buffer/lifetime analysis at 10/100/1,000 operations or buffers, alias queries at 1/10/100 domains, verification, canonicalization, hash/query, reuse/rejection/guard construction, true/false evaluation, fork/seal, v6→v7 migration and v7 replay of fresh/reused/guarded/equality-materialized histories. Canonical byte sizes for fresh MemoryIR, buffers, accesses, alias/lifetime facts, certificates, guarded fallback, exact memory state and archive variants remain separate from timing and are never committed as machine-specific output.
+
 Run the dependency-light harness in release mode:
 
 ```bash

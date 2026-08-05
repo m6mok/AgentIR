@@ -1,5 +1,7 @@
 # Architecture
 
+Stage 3 adds a third immutable graph layer: frozen SpecIR states semantics, ImplIR states an exact implementation, and MemoryIR states typed physical storage for one fully proved unconditional candidate revision. `MemoryPlanStore` is workspace-owned but allocator/event/revision state is independent of CandidateForest and EqualityStore. Replay order is SpecIR → dependency-interleaved candidate/equality → memory events with explicit cross-store cursors. Core snapshot/replay remains I/O-free; only `agentir-store` reads or writes archive v7.
+
 ## Data flow
 
 ```text
@@ -23,7 +25,7 @@ agentir-core snapshot/SpecIR+candidate+equality event logs
   ↓
 agentir-store ───── version sniff → source checksum → migrate → replay
   ↓ save/migrate
-archive v6 ─────── checksum → temp write + sync → atomic rename
+archive v7 ─────── checksum → temp write + sync → atomic rename
 ```
 
 The dependency direction is one-way: `core` knows nothing about JSONL sessions, evaluation input encoding or filesystems; `eval` and `store` depend on `core`; `protocol` composes them; `cli` only streams lines.

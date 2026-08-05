@@ -1,5 +1,13 @@
 # Glossary
 
+**MemoryIR** — separate typed graph that materializes reachable ImplIR tensor values into abstract buffer regions without changing computation semantics.
+
+**Memory plan/revision** — independent `mp*` branch and immutable `mr*` physical-state revision anchored to one `spec_hash` and `impl_hash`.
+
+**MemoryEquivalentToImpl** — compiler-proved relation that storage, accesses, reuse and guarded fallback preserve the anchored ImplIR interface, numeric contract and outputs.
+
+**memory_hash** — exact history-sensitive identity of one typed MemoryIR revision, distinct from all SpecIR, candidate, equality and archive hashes.
+
 - **ActionIR** — typed algebra of graph edits submitted by an agent.
 - **Archive** — checksummed versioned workspace encoding; v1/v2/v3/v4/v5 are immutable legacy inputs and v6 is current.
 - **Archive hash** — version-specific integrity hash of a concrete archive body.
@@ -21,7 +29,7 @@
 - **Guarded fallback** — candidate-level compiler guard selecting a conditional primary or immutable proved exact fallback lazily.
 - **Impl hash** — history-independent identity of reachable typed ImplIR semantics.
 - **ImplIR** — separate typed functional graph describing one implementation of frozen SpecIR.
-- **MemoryIR** — future layer describing physical storage and mutation.
+- **MemoryIR physical boundary** — current Stage 3 layer; ScheduleIR and target lowering remain future work.
 - **Obligation** — explicit proposition that is open, proved, refuted or unsupported.
 - **Proof debt** — ordered persistent speculative obligations connecting consecutive implementation hashes.
 - **Proof frontier** — last consecutive candidate prefix whose exact equivalence has compiler-owned proof; it may lag behind head.

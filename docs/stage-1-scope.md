@@ -20,7 +20,7 @@ Stage 1 tests whether an LLM-facing compiler can work through small typed transa
 10. No open hole or proof obligation may enter a frozen/deployable specification.
 11. Traversal, wire output, `content_hash`, semantic canonical bytes and `spec_hash` are deterministic.
 12. Arithmetic has defined reference behavior and no hidden undefined behavior.
-13. Every legacy archive version is validated by its immutable codec before crossing explicit pure migrations to current v6.
+13. Every legacy archive version is validated by its immutable codec before crossing explicit pure migrations to current v7.
 14. A solver result is sound; `unknown` is neither false nor proved.
 15. Legacy events replay with semantics v1 and new events record semantics v2.
 16. Resource rejection is atomic and budgets do not enter program identities.

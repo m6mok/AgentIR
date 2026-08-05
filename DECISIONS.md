@@ -251,3 +251,43 @@ Potential persistent references inside generic semantic attributes are rejected 
 ## ADR-047: Stage 2 completes at the exact-only equality boundary
 
 **Decision.** Stage 2C contains deterministic bounded equality exploration, proof explanation, debt discharge and explicit materialization. It contains no approximate relation, e-graph, extractor, ranking, beam/population search, learned cost model, performance evidence, MemoryIR, ScheduleIR or target lowering. Stage 3 begins with MemoryIR.
+
+## ADR-048: MemoryIR is a separate typed graph
+
+**Decision.** Stage 3 stores physical decisions in `MemoryProgram`, never as ImplIR attributes. Each plan anchors one immutable frozen SpecIR/candidate/ImplIR triple and evolves through an independent `mp*`/`mr*` revision DAG. SpecIR and ImplIR remain functional and immutable.
+
+## ADR-049: High-level typed regions, not raw pointers
+
+**Decision.** Buffers are abstract typed regions with element type, shape, exact logical strides, layout, address space, access, ownership, alignment, lifetime and alias domain. Access is a region plus typed logical index. Raw pointers, byte-address arithmetic, casts and backend capacity claims are excluded.
+
+## ADR-050: Conservative fresh bufferization is the exact baseline
+
+**Decision.** Tensor inputs borrow read-only external regions, constants use immutable constant regions, and tensor results receive distinct writable plan-owned regions in reachable operation order. Scalar SSA is retained. Immutable fresh result templates remain available as repair and guarded fallback.
+
+## ADR-051: Lifetimes precede schedules only as logical facts
+
+**Decision.** First use, ordered uses, last use, escape and release eligibility use canonical high-level operation order. They prove single-threaded MemoryIR storage legality only and make no claim about future ScheduleIR order, races, target concurrency, or performance.
+
+## ADR-052: Alias provenance is compiler owned
+
+**Decision.** The core derives `must_alias`, `no_alias`, `may_alias` and `partial_overlap` with explicit provenance. Agent-supplied proofs and guards do not exist in the protocol. `unverified_claim` can be retained for audit but never closes a reuse obligation.
+
+## ADR-053: Static reuse requires a complete structural proof
+
+**Decision.** In-place reuse requires identical tensor type/shape, compatible layout/strides/alignment, writable plan ownership, last use at overwrite, no old-value escape and no overlapping live reader. Rejection is atomic and recommends the exact fresh baseline; testing cannot authorize reuse.
+
+## ADR-054: One compiler-owned NoOverlap memory guard
+
+**Decision.** Guarded memory reuse supports only `NoOverlap` over trusted typed runtime region metadata. The true reuse path is structurally verified and the false path lazily allocates an immutable proved fresh template. Both preserve the anchored `impl_hash`; no guard DSL or pointer comparison is introduced.
+
+## ADR-055: Memory hash is an independent exact-state contract
+
+**Decision.** `memory_hash` v1 uses domain `agentir.memory.exact.v1\0` and covers anchors, typed physical graph, analysis facts, decisions, proof references and lifecycle. It excludes timestamps, resource policy and platform state. Legacy content/spec/impl/proposal/candidate/equality hashes are unchanged and non-substitutable.
+
+## ADR-056: Memory events require archive and snapshot v7
+
+**Decision.** Memory events use semantics v1 and explicit candidate/equality dependency cursors. Replay restores SpecIR, interleaves CandidateForest/EqualityStore, then rebuilds memory-local IDs and verifies every plan, certificate and hash. Immutable v6 decoding and explicit v6 → v7 migration add an empty MemoryPlanStore without changing legacy state or hashes; new saves use v7.
+
+## ADR-057: Stage 3 stops before scheduling and targets
+
+**Decision.** Stage 3 completes exact logical-to-physical bufferization, alias/lifetime legality, reuse and reference tracing. ScheduleIR, TargetManifest, tiling, binding, vectorization, device execution, ranking, search, performance evidence and backend lowering remain Stage 4 or later.

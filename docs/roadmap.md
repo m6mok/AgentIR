@@ -54,9 +54,16 @@ Completion mapping from the 0.1 reference specification:
 
 Stage 2 is complete at the exact-only boundary. The equality space is not an e-graph, extractor, ranker or search policy, and it adds no approximate relation.
 
-## Stage 3: MemoryIR
+## Completed Stage 3: MemoryIR
 
-Add logical-to-physical bufferization, layouts, address spaces, alias obligations and guarded in-place reuse without exposing raw pointers.
+- separate typed MemoryIR and immutable memory-plan revision DAGs;
+- deterministic fresh bufferization with explicit layouts, strides, address spaces and ownership;
+- compiler-owned alias and logical lifetime facts;
+- structurally proved in-place reuse and restricted `NoOverlap` guarded reuse with lazy exact fallback;
+- independent `memory_hash`, memory event semantics v1, reference evaluator/trace and continuations;
+- archive/snapshot v7 with explicit immutable v6 migration and deterministic replay.
+
+Completion mapping: SpecIR → Stage 1; ImplIR/CandidateForest → Stage 2A; proof debt/guarded candidates → Stage 2B; exact equality → Stage 2C; logical-to-physical bufferization → Stage 3. ScheduleIR and TargetManifest remain Stage 4.
 
 ## Stage 4: ScheduleIR and simulator
 

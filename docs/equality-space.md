@@ -1,5 +1,7 @@
 # Exact equality space
 
+Equality nodes are not direct MemoryIR anchors. The client explicitly selects and materializes a node through `equality.materialize`; the resulting proved CandidateForest revision can then be passed to `memory.create`. Memory planning never ranks or extracts an equality member.
+
 `EqualityStore` is an independent persistent workspace component. Each `eqs*` space has an immutable candidate anchor, its own monotonic allocator and an `er*` revision DAG. An equality revision contains whole-program nodes, proof edges, a canonical pending worklist, status and `equality_hash`; per-request new/merged counters are returned in the expansion result.
 
 ## State model

@@ -1,5 +1,11 @@
 # JSONL protocol
 
+## MemoryIR commands
+
+Stage 3 adds `memory.create`, `memory.query`, `memory.check`, `memory.apply`, `memory.fork`, `memory.seal`, `memory.evaluate`, `memory.alias_query`, `memory.buffer_query`, and `memory.continuation`. Mutations name an explicit base revision and exact `memory_hash`; `memory.apply` also supplies the immutable `impl_hash` and a bounded list of desired compiler-verified actions. Proof payloads and guard expressions are unknown fields and are rejected.
+
+`memory.continuation` returns individual result/input choices, static applicability or the failed stable condition, fresh fallback availability, the sole guard profile, layout/address-space domains, and expected hashes. `memory.evaluate` is read-only and returns semantic outputs, actual guard outcomes, trace codec version, and a deterministic high-level physical trace.
+
 The `agentir` CLI accepts one JSON object per stdin line and emits exactly one response line. Command names are coarse-grained; opcodes are data inside transactions, not separate tools.
 
 The CLI uses a bounded byte reader rather than `BufRead::lines`: request bytes and JSON nesting are checked before deserialization, invalid UTF-8 is structured, and an oversized physical line is discarded through its newline before the next request is processed. `request_id` is preserved from a safe retained prefix when possible, otherwise it is `unknown`.
@@ -68,7 +74,7 @@ An optional `allow_branch: true` explicitly permits a transaction based on a non
 ## Commands
 
 - `workspace.open`: optional `workspace`; returns root `r0`.
-- `workspace.save`: workspace and destination `path`; writes an atomic archive v6.
+- `workspace.save`: workspace and destination `path`; writes an atomic archive v7.
 - `workspace.load`: archive v1/v2/v3/v4/v5/v6 `path` and optional `replace`; verifies, migrates and replays before inserting.
 - `workspace.verify_archive`: verifies checksum and replay without retaining the workspace.
 - `workspace.migrate_archive`: verifies `source_path`, migrates in memory and atomically writes `destination_path`; existing destinations require `overwrite: true`.

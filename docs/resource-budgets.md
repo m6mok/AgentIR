@@ -1,5 +1,7 @@
 # Resource budgets
 
+Memory budgets cover plans/revisions/events, buffers/operations/accesses, alias facts/domains, lifetime uses, obligations, reuse attempts, guard dependencies and fallback depth, layout entries, per-buffer/total abstract bytes, canonical/archive bytes, evaluation elements, trace events/bytes, and generated cases. Projected hard-limit failures happen against a staged store before publication; resource policy never enters `memory_hash`.
+
 `ResourceLimits`, `ResourceKind`, `ResourceUsage` and `BudgetCheck` provide one structured policy across core, evaluator, store, protocol and CLI. Limits are excluded from `Program`, snapshots and every hash identity.
 
 ## Interactive defaults and hard caps
@@ -57,6 +59,19 @@
 | equality materialization steps/events | 1,024 / 100,000 | 100,000 / 250,000 |
 | equality canonical/archive bytes | 64 MiB / 64 MiB | 128 MiB / 128 MiB |
 | equality evaluation cases/elements | 1 / 50,000,000 | 1 / 500,000,000 |
+| memory plans/revisions/events | 1,024 / 100,000 / 100,000 | 100,000 / 250,000 / 250,000 |
+| memory buffers/operations/accesses | 100,000 / 100,000 / 500,000 | 1,000,000 / 1,000,000 / 5,000,000 |
+| memory alias domains/facts | 100,000 / 500,000 | 1,000,000 / 5,000,000 |
+| memory lifetime points/uses | 500,000 / 500,000 | 5,000,000 / 5,000,000 |
+| memory obligations/reuse attempts | 100,000 / 1,024 | 1,000,000 / 100,000 |
+| memory guard dependencies/depth | 1,024 / 16 | 100,000 / 64 |
+| memory fallback depth | 16 | 64 |
+| memory layout rank/stride entries | 1,024 | 4,096 |
+| memory allocation bytes per buffer/total | 8 GiB / 64 GiB | 64 GiB / 512 GiB |
+| memory canonical/archive bytes | 64 MiB / 64 MiB | 128 MiB / 128 MiB |
+| memory evaluation elements | 50,000,000 | 500,000,000 |
+| memory trace events/bytes | 1,000,000 / 64 MiB | 10,000,000 / 128 MiB |
+| generated MemoryIR case size | 10,000 | 100,000 |
 
 The hard profile is used only while verifying/migrating/replaying persisted state. Lower interactive configuration therefore cannot arbitrarily make an archive unreplayable when it remains inside hard safety caps. A loaded workspace receives normal interactive defaults after successful publication.
 
@@ -78,7 +93,10 @@ The hard profile is used only while verifying/migrating/replaying persisted stat
 - Store checks candidate event/revision/evidence counts before candidate replay, which always uses hard safety caps.
 - Equality creation/expansion stages its local allocator and complete revision before publication; match, node, edge, worklist, canonical-byte and event bounds are checked before commit.
 - Explanation, debt discharge, evaluation and materialization independently bound traversal, proof path, tensor elements and replayed rewrite steps.
+- Memory creation and transactions stage the memory-local allocator, plan and complete revision before publication; buffer, operation, access, alias, lifetime, obligation, allocation, canonical and event bounds are rechecked structurally.
+- Compiler-owned guarded reuse independently bounds guard dependencies/depth and the exact fallback depth; memory evaluation bounds semantic elements plus deterministic trace events/bytes.
+- Archive v7 replay applies hard memory plan/revision/event/archive bounds before publishing the reconstructed workspace.
 
 At exact limit the workload is accepted. Limit plus one returns `RESOURCE_LIMIT_EXCEEDED` with the resource kind, configured limit, attempted/actual value, context and a repair. Because graph/allocator/head state is staged, budget rejection is fully atomic.
 
-These are robustness limits, not a multi-tenant security sandbox. Stage 2C still has no process isolation, authentication, locking or production server boundary.
+These are robustness limits, not a multi-tenant security sandbox. Stage 3 still has no process isolation, authentication, locking or production server boundary.

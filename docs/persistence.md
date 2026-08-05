@@ -1,5 +1,9 @@
 # Persistence, semantics versions, migration and replay
 
+The current writer emits archive/snapshot v7. V1–v6 remain immutable legacy inputs; v6 is decoded through `LegacyWorkspaceSnapshotV6`, its exact envelope checksum and complete Stage 1/2 replay are verified, then explicit v6 → v7 migration adds an empty deterministic `MemoryPlanStore`. Legacy IDs, events and hashes are not recalculated.
+
+V7 snapshots persist memory plans, memory-local allocator/evidence, and semantics-v1 events with candidate/equality dependency cursors. Publication occurs only after legacy replay, MemoryIR event replay, anchor revalidation, structural verification, exact `memory_hash` recomputation, and allocator/head/store equality. New saves never write v6.
+
 AgentIR persistence is split across two layers. `agentir-core` owns versioned snapshots, compiler-semantics-tagged events and deterministic replay but performs no I/O. `agentir-store` owns bounded file reads, exact archive codecs, integrity checks, the migration registry and atomic filesystem replacement.
 
 ## Independent version axes
@@ -17,7 +21,7 @@ Archive format, workspace snapshot schema, event compiler semantics and semantic
 | equality semantics/canonical | — | v1/v1 | equality event replay and exact state identity |
 | ImplIR semantics/canonical | — | v1/v1 | verifier/evaluator behavior and `impl_hash` codec |
 
-Archive v1 was published by commit `97c821a`. V2 added cached `spec_hash`; v3 added `VersionedWorkspaceEvent`; v4 added CandidateForest and candidate events; v5 added proposals, proof debt, translation records and guards. All five source codecs are immutable. V6 adds EqualityStore, equality events and candidate v3 linkage; new saves always write v6.
+Archive v1 was published by commit `97c821a`. V2 added cached `spec_hash`; v3 added `VersionedWorkspaceEvent`; v4 added CandidateForest and candidate events; v5 added proposals, proof debt, translation records and guards; v6 added EqualityStore, equality events and candidate v3 linkage. All six source codecs are immutable. V7 adds MemoryPlanStore and memory events; new saves always write v7.
 
 Migration tags every v1/v2 event with `LEGACY_CORE_SEMANTICS_VERSION = 1`. New transactions and forks use `CORE_SEMANTICS_VERSION = 2`. A restored draft can therefore append v2 events without rewriting old history. Replay dispatches each event independently, so legacy obligation propositions and `content_hash` values remain unchanged.
 
@@ -46,7 +50,7 @@ Unknown archive, snapshot or event-semantics versions are rejected. Serde defaul
 
 ## Save and migrate guarantees
 
-`workspace.save` builds archive v6 in memory, checks its encoded size, writes a unique same-directory temporary file, flushes and `sync_all`s it, then atomically renames it. A failed write removes the temporary file and leaves the prior destination untouched where same-directory rename is atomic.
+`workspace.save` builds archive v7 in memory, checks its encoded size, writes a unique same-directory temporary file, flushes and `sync_all`s it, then atomically renames it. A failed write removes the temporary file and leaves the prior destination untouched where same-directory rename is atomic.
 
 `workspace.migrate_archive` fully verifies and replays the source before checking/writing the destination. The source is never edited. Existing or identical destinations require `overwrite: true`; a failure creates no partial destination. `MigrationReport` records the verified source version/hash, target v6, every migration step and the new hash when written.
 

@@ -1,5 +1,7 @@
 # ImplIR through Stage 2C
 
+Stage 3 does not add buffers or mutation to ImplIR. A memory plan anchors one immutable `impl_hash` and references reachable `ImplOperation`/`ImplValue` identities from a separate `MemoryProgram`. Equality members must first be explicitly materialized into CandidateForest before they can become MemoryIR roots.
+
 ImplIR is a separate functional typed graph describing one implementation of a frozen SpecIR contract. It reuses the implemented pure opcode/type semantics, but its operations (`iop*`), values (`iv*`), regions, outputs and source links are distinct Rust types. It is not a `Program` alias and no flag turns SpecIR into ImplIR.
 
 `candidate.create` accepts only a complete frozen SpecIR revision with a verified `spec_hash`. Identity lowering preserves parameter/output names, ordered operands, regions, inferred types, accepted constraints and `NumericContract`; it omits SpecIR proof obligations and assigns independent IDs. Source links retain compiler-owned SpecIR provenance.

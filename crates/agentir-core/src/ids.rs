@@ -53,6 +53,14 @@ identifier!(EqualitySpaceId);
 identifier!(EqualityRevisionId);
 identifier!(EqualityNodeId);
 identifier!(EqualityEdgeId);
+identifier!(MemoryPlanId);
+identifier!(MemoryRevisionId);
+identifier!(BufferId);
+identifier!(MemoryOperationId);
+identifier!(AliasDomainId);
+identifier!(MemoryObligationId);
+identifier!(MemoryEvidenceId);
+identifier!(MemoryGuardId);
 
 /// Monotonic identifier allocator owned by one workspace.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

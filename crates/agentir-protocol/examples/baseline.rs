@@ -1,7 +1,8 @@
-//! Dependency-light statistical Stage 2B performance baseline.
+//! Dependency-light statistical cross-stage performance baseline.
 
 use agentir_core::{
     Action, HoleId, RevisionId, Transaction, Workspace, WorkspaceId,
+    actions::{RegionArgumentSpec, RegionSpec},
     candidate::{
         CandidateAction, CandidateAllocator, CandidateTransaction, FOLD_SCALAR_CONSTANTS_RULE,
         ProposalInput, ProposalOperation, ProposalResult, ProposedImplFragment, RelationKind,
@@ -12,11 +13,13 @@ use agentir_core::{
     constraints::ConstraintFacts,
     continuation::InteractionMode,
     ids::{
-        CandidateId, CandidateRevisionId, EqualityNodeId, EqualityRevisionId, EqualitySpaceId,
-        ImplOperationId, ImplValueId, ProposalId,
+        BufferId, CandidateId, CandidateRevisionId, EqualityNodeId, EqualityRevisionId,
+        EqualitySpaceId, ImplOperationId, ImplValueId, MemoryGuardId, MemoryPlanId,
+        MemoryRevisionId, ProposalId,
     },
     impl_ir::{canonicalize_impl_with_limit, identity_lower},
     ir::ConstantValue,
+    memory::{MemoryAction, MemoryTransaction, canonical_memory_bytes_with_limit},
     resources::ResourceLimits,
     semantic::canonicalize_spec,
     shapes::{ShapeConstraint, same_shape},
@@ -24,8 +27,9 @@ use agentir_core::{
 };
 use agentir_store::{
     WorkspaceArchiveV1, WorkspaceArchiveV2, WorkspaceArchiveV3, WorkspaceArchiveV4,
-    WorkspaceArchiveV5, load_workspace_bytes, migrate_archive_v1_to_v2, migrate_archive_v2_to_v3,
-    migrate_archive_v3_to_v4, migrate_archive_v4_to_v5, migrate_archive_v5_to_v6,
+    WorkspaceArchiveV5, WorkspaceArchiveV6, load_workspace_bytes, migrate_archive_v1_to_v2,
+    migrate_archive_v2_to_v3, migrate_archive_v3_to_v4, migrate_archive_v4_to_v5,
+    migrate_archive_v5_to_v6, migrate_archive_v6_to_v7,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -291,6 +295,71 @@ fn resource_rejection() -> u128 {
 
 fn identity_candidate(operation_count: usize) -> Workspace {
     let mut workspace = frozen_chain(operation_count);
+    let revision = workspace.head().clone();
+    workspace
+        .candidate_create(&revision, RelationKind::EquivalentToSpec)
+        .unwrap();
+    workspace
+}
+
+fn tensor_memory_candidate(operation_count: usize) -> Workspace {
+    let id = WorkspaceId::new(format!("memory-chain-{operation_count}"));
+    let limits = ResourceLimits {
+        memory_alias_facts: 1_000_000,
+        ..ResourceLimits::default()
+    };
+    let mut workspace = Workspace::with_limits(id.clone(), limits).unwrap();
+    let mut actions = vec![
+        Action::DefineDimension {
+            bind: Some("$N".to_owned()),
+            name: "N".to_owned(),
+            constraints: vec!["N >= 0".to_owned()],
+        },
+        Action::CreateParameter {
+            bind: "$value0".to_owned(),
+            name: "x".to_owned(),
+            ty: "tensor<f32,[N]>".parse().unwrap(),
+        },
+    ];
+    for index in 0..operation_count {
+        actions.push(Action::CreateOp {
+            bind: format!("$value{}", index + 1),
+            opcode: "map".to_owned(),
+            operands: vec![format!("$value{index}")],
+            attributes: BTreeMap::new(),
+            region: Some(RegionSpec {
+                arguments: vec![RegionArgumentSpec {
+                    name: "element".to_owned(),
+                    ty: "f32".parse().unwrap(),
+                }],
+                captures: Vec::new(),
+                operations: Vec::new(),
+                yield_value: "element".to_owned(),
+            }),
+        });
+    }
+    actions.push(Action::SetOutput {
+        name: "out".to_owned(),
+        value: format!("$value{operation_count}"),
+    });
+    let built = workspace
+        .apply(&Transaction {
+            workspace: id.clone(),
+            base_revision: RevisionId::new("r0"),
+            actions,
+            client_transaction_id: None,
+            allow_branch: false,
+        })
+        .unwrap();
+    workspace
+        .apply(&Transaction {
+            workspace: id,
+            base_revision: built.revision,
+            actions: vec![Action::FreezeSpec],
+            client_transaction_id: None,
+            allow_branch: false,
+        })
+        .unwrap();
     let revision = workspace.head().clone();
     workspace
         .candidate_create(&revision, RelationKind::EquivalentToSpec)
@@ -2002,6 +2071,394 @@ fn main() {
             ),
         );
         canonical_sizes.insert(format!("archive_{name}"), bytes.len());
+    }
+
+    let memory_candidates = [10_usize, 100, 1_000]
+        .into_iter()
+        .map(|count| (count, tensor_memory_candidate(count)))
+        .collect::<BTreeMap<_, _>>();
+    for (count, candidate) in &memory_candidates {
+        timings.insert(
+            format!("memory_fresh_bufferization_{count}_operations"),
+            measure(
+                || {
+                    let mut workspace = candidate.clone();
+                    elapsed_ns(|| {
+                        black_box(
+                            workspace
+                                .memory_create(
+                                    &CandidateId::new("c1"),
+                                    &CandidateRevisionId::new("cr1"),
+                                )
+                                .unwrap(),
+                        )
+                    })
+                },
+                json!({"operations": count, "buffers": count + 1}),
+            ),
+        );
+    }
+    let analyzed_memory = [10_usize, 100, 1_000]
+        .into_iter()
+        .map(|buffer_count| {
+            let mut workspace = tensor_memory_candidate(buffer_count.saturating_sub(1));
+            workspace
+                .memory_create(&CandidateId::new("c1"), &CandidateRevisionId::new("cr1"))
+                .unwrap();
+            (buffer_count, workspace)
+        })
+        .collect::<BTreeMap<_, _>>();
+    for (buffer_count, workspace) in &analyzed_memory {
+        timings.insert(
+            format!("memory_buffer_lifetime_analysis_{buffer_count}_buffers"),
+            measure(
+                || {
+                    elapsed_ns(|| {
+                        black_box(
+                            workspace
+                                .memory_check(
+                                    &MemoryPlanId::new("mp1"),
+                                    &MemoryRevisionId::new("mr1"),
+                                )
+                                .unwrap(),
+                        )
+                    })
+                },
+                json!({"buffers": buffer_count}),
+            ),
+        );
+    }
+    let mut fresh_memory = memory_candidates[&100].clone();
+    let fresh_report = fresh_memory
+        .memory_create(&CandidateId::new("c1"), &CandidateRevisionId::new("cr1"))
+        .unwrap();
+    let fresh_revision = fresh_memory
+        .memory_store()
+        .revision(&MemoryPlanId::new("mp1"), &MemoryRevisionId::new("mr1"))
+        .unwrap();
+    let fresh_plan = fresh_memory
+        .memory_store()
+        .plan(&MemoryPlanId::new("mp1"))
+        .unwrap();
+    let fresh_canonical =
+        canonical_memory_bytes_with_limit(fresh_plan, fresh_revision, &ResourceLimits::default())
+            .unwrap();
+    canonical_sizes.insert("memory_fresh_exact_state".to_owned(), fresh_canonical.len());
+    canonical_sizes.insert("memory_exact_state".to_owned(), fresh_canonical.len());
+    canonical_sizes.insert(
+        "memory_fresh_ir".to_owned(),
+        serde_json::to_vec(&fresh_revision.program).unwrap().len(),
+    );
+    canonical_sizes.insert(
+        "memory_buffers".to_owned(),
+        serde_json::to_vec(&fresh_revision.program.buffers)
+            .unwrap()
+            .len(),
+    );
+    canonical_sizes.insert(
+        "memory_accesses".to_owned(),
+        serde_json::to_vec(
+            &fresh_revision
+                .program
+                .operations
+                .values()
+                .flat_map(|operation| operation.accesses.iter())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap()
+        .len(),
+    );
+    canonical_sizes.insert(
+        "memory_alias_facts".to_owned(),
+        serde_json::to_vec(&fresh_revision.program.alias_facts)
+            .unwrap()
+            .len(),
+    );
+    canonical_sizes.insert(
+        "memory_lifetimes".to_owned(),
+        serde_json::to_vec(
+            &fresh_revision
+                .program
+                .buffers
+                .values()
+                .map(|buffer| &buffer.lifetime)
+                .collect::<Vec<_>>(),
+        )
+        .unwrap()
+        .len(),
+    );
+    timings.insert(
+        "memory_verification_100_buffers".to_owned(),
+        measure(
+            || {
+                elapsed_ns(|| {
+                    black_box(
+                        fresh_memory
+                            .memory_check(&MemoryPlanId::new("mp1"), &MemoryRevisionId::new("mr1"))
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"buffers": 101}),
+        ),
+    );
+    timings.insert(
+        "memory_canonicalization_100_buffers".to_owned(),
+        measure(
+            || {
+                elapsed_ns(|| {
+                    black_box(
+                        canonical_memory_bytes_with_limit(
+                            fresh_plan,
+                            fresh_revision,
+                            &ResourceLimits::default(),
+                        )
+                        .unwrap(),
+                    )
+                })
+            },
+            json!({"buffers": 101}),
+        ),
+    );
+    timings.insert(
+        "memory_hash_query".to_owned(),
+        measure(
+            || {
+                elapsed_ns(|| {
+                    for _ in 0..1_000 {
+                        black_box(&fresh_report.query.memory_hash);
+                    }
+                })
+            },
+            json!({"queries": 1_000}),
+        ),
+    );
+    for domains in [1_usize, 10, 100] {
+        timings.insert(
+            format!("memory_alias_query_{domains}_domains"),
+            measure(
+                || {
+                    elapsed_ns(|| {
+                        for _ in 0..domains {
+                            black_box(
+                                fresh_memory
+                                    .memory_alias_query(
+                                        &MemoryPlanId::new("mp1"),
+                                        &MemoryRevisionId::new("mr1"),
+                                        &BufferId::new("buf1"),
+                                        &BufferId::new("buf2"),
+                                    )
+                                    .unwrap(),
+                            );
+                        }
+                    })
+                },
+                json!({"alias_domains": domains}),
+            ),
+        );
+    }
+    let reuse_transaction = MemoryTransaction {
+        memory_plan: fresh_report.query.memory_plan.clone(),
+        base_memory_revision: fresh_report.query.memory_revision.clone(),
+        expected_memory_hash: fresh_report.query.memory_hash.clone(),
+        expected_impl_hash: fresh_report.query.impl_hash.clone(),
+        actions: vec![MemoryAction::RequestInPlaceReuse {
+            input: ImplValueId::new("iv100"),
+            result: ImplValueId::new("iv101"),
+        }],
+    };
+    timings.insert(
+        "memory_safe_reuse_proof".to_owned(),
+        measure(
+            || {
+                let mut workspace = fresh_memory.clone();
+                elapsed_ns(|| black_box(workspace.memory_apply(&reuse_transaction).unwrap()))
+            },
+            json!({"buffers": 101}),
+        ),
+    );
+    let rejected_transaction = MemoryTransaction {
+        actions: vec![MemoryAction::RequestInPlaceReuse {
+            input: ImplValueId::new("iv1"),
+            result: ImplValueId::new("iv2"),
+        }],
+        ..reuse_transaction.clone()
+    };
+    timings.insert(
+        "memory_rejected_reuse_fast_path".to_owned(),
+        measure(
+            || {
+                let mut workspace = fresh_memory.clone();
+                elapsed_ns(|| black_box(workspace.memory_apply(&rejected_transaction).unwrap_err()))
+            },
+            json!({"reuse_attempts": 1}),
+        ),
+    );
+    let guarded_transaction = MemoryTransaction {
+        actions: vec![MemoryAction::RequestGuardedReuse {
+            input: ImplValueId::new("iv100"),
+            result: ImplValueId::new("iv101"),
+            guard_against: BufferId::new("buf1"),
+        }],
+        ..reuse_transaction.clone()
+    };
+    timings.insert(
+        "memory_guarded_reuse_construction".to_owned(),
+        measure(
+            || {
+                let mut workspace = fresh_memory.clone();
+                elapsed_ns(|| black_box(workspace.memory_apply(&guarded_transaction).unwrap()))
+            },
+            json!({"guard_dependencies": 4}),
+        ),
+    );
+    timings.insert(
+        "memory_fork".to_owned(),
+        measure(
+            || {
+                let mut workspace = fresh_memory.clone();
+                elapsed_ns(|| {
+                    black_box(
+                        workspace
+                            .memory_fork(
+                                &MemoryPlanId::new("mp1"),
+                                &MemoryRevisionId::new("mr1"),
+                                &fresh_report.query.memory_hash,
+                            )
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"buffers": 101}),
+        ),
+    );
+    timings.insert(
+        "memory_seal".to_owned(),
+        measure(
+            || {
+                let mut workspace = fresh_memory.clone();
+                elapsed_ns(|| {
+                    black_box(
+                        workspace
+                            .memory_seal(
+                                &MemoryPlanId::new("mp1"),
+                                &MemoryRevisionId::new("mr1"),
+                                &fresh_report.query.memory_hash,
+                            )
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"buffers": 101}),
+        ),
+    );
+    let legacy_v6_bytes = include_bytes!("../../agentir-store/tests/fixtures/minimal-v6.json");
+    let legacy_v6: WorkspaceArchiveV6 = serde_json::from_slice(legacy_v6_bytes).unwrap();
+    timings.insert(
+        "archive_v6_to_v7_migration".to_owned(),
+        measure(
+            || elapsed_ns(|| black_box(migrate_archive_v6_to_v7(legacy_v6.clone()).unwrap())),
+            json!({"archive_bytes": legacy_v6_bytes.len()}),
+        ),
+    );
+    let fresh_v7 = agentir_store::encode_workspace_archive(&fresh_memory).unwrap();
+    canonical_sizes.insert("archive_v7_fresh".to_owned(), fresh_v7.len());
+    timings.insert(
+        "archive_v7_replay_fresh".to_owned(),
+        measure(
+            || elapsed_ns(|| black_box(load_workspace_bytes(&fresh_v7).unwrap())),
+            json!({"archive_bytes": fresh_v7.len()}),
+        ),
+    );
+    let mut reused_memory = fresh_memory.clone();
+    reused_memory.memory_apply(&reuse_transaction).unwrap();
+    let reused_revision = reused_memory
+        .memory_store()
+        .revision(&MemoryPlanId::new("mp1"), &MemoryRevisionId::new("mr2"))
+        .unwrap();
+    canonical_sizes.insert(
+        "memory_reuse_certificate".to_owned(),
+        serde_json::to_vec(&reused_revision.certificates)
+            .unwrap()
+            .len(),
+    );
+    let reused_v7 = agentir_store::encode_workspace_archive(&reused_memory).unwrap();
+    canonical_sizes.insert("archive_v7_reused".to_owned(), reused_v7.len());
+    timings.insert(
+        "archive_v7_replay_reused".to_owned(),
+        measure(
+            || elapsed_ns(|| black_box(load_workspace_bytes(&reused_v7).unwrap())),
+            json!({"archive_bytes": reused_v7.len()}),
+        ),
+    );
+    let mut guarded_memory = fresh_memory.clone();
+    guarded_memory.memory_apply(&guarded_transaction).unwrap();
+    let guarded_revision = guarded_memory
+        .memory_store()
+        .revision(&MemoryPlanId::new("mp1"), &MemoryRevisionId::new("mr2"))
+        .unwrap();
+    canonical_sizes.insert(
+        "memory_guarded_fallback".to_owned(),
+        serde_json::to_vec(&guarded_revision.program.reuse_decisions)
+            .unwrap()
+            .len(),
+    );
+    let memory_inputs = BTreeMap::from([("x".to_owned(), json!([1.0, 2.0, 3.0, 4.0]))]);
+    for (name, outcome) in [("true", true), ("false", false)] {
+        timings.insert(
+            format!("memory_guarded_evaluation_{name}"),
+            measure(
+                || {
+                    elapsed_ns(|| {
+                        black_box(
+                            agentir_eval::evaluate_memory_with_limits(
+                                guarded_revision,
+                                guarded_memory
+                                    .memory_impl_program(&MemoryPlanId::new("mp1"))
+                                    .unwrap(),
+                                &memory_inputs,
+                                &BTreeMap::from([(MemoryGuardId::new("mg1"), outcome)]),
+                                &ResourceLimits::default(),
+                            )
+                            .unwrap(),
+                        )
+                    })
+                },
+                json!({"guard_outcome": outcome, "tensor_elements": 4}),
+            ),
+        );
+    }
+    let guarded_v7 = agentir_store::encode_workspace_archive(&guarded_memory).unwrap();
+    canonical_sizes.insert("archive_v7_guarded".to_owned(), guarded_v7.len());
+    timings.insert(
+        "archive_v7_replay_guarded".to_owned(),
+        measure(
+            || elapsed_ns(|| black_box(load_workspace_bytes(&guarded_v7).unwrap())),
+            json!({"archive_bytes": guarded_v7.len()}),
+        ),
+    );
+    for (name, bytes) in [
+        (
+            "equality_materialized",
+            include_bytes!(
+                "../../agentir-store/tests/fixtures/equality-materialized-memory-v7.json"
+            )
+            .as_slice(),
+        ),
+        (
+            "mixed_memory_semantics",
+            include_bytes!("../../agentir-store/tests/fixtures/mixed-memory-semantics-v7.json")
+                .as_slice(),
+        ),
+    ] {
+        canonical_sizes.insert(format!("archive_v7_{name}"), bytes.len());
+        timings.insert(
+            format!("archive_v7_replay_{name}"),
+            measure(
+                || elapsed_ns(|| black_box(load_workspace_bytes(bytes).unwrap())),
+                json!({"archive_bytes": bytes.len()}),
+            ),
+        );
     }
 
     let saxpy = load_workspace_bytes(v3_bytes).unwrap();

@@ -19,7 +19,8 @@
 - The v5 corpus is generated reproducibly with `cargo run -p agentir-store --example generate_v5_fixtures`. It covers a minimal workspace, exact v4 migration, open speculative debt, recognized promotion, guarded and sealed-guarded execution, refutation, mixed candidate semantics, and valid-envelope corruption at every new integrity boundary.
 - `future-v6.json` is the immutable Stage 2B future-version probe. Stage 2C retains its bytes as a malformed-v6 codec regression input.
 - The v6 corpus is generated reproducibly with `cargo run -p agentir-store --example generate_v6_fixtures`. It covers an empty equality store, root-only, partial, saturated and merged equality graphs, equality-backed discharge, materialization, mixed candidate semantics v1/v2/v3, and valid-envelope corruption at every Stage 2C integrity boundary.
-- `future-v7.json` is the current unsupported future-version probe.
+- `future-v7.json` is the immutable Stage 2C future-version probe and is retained as a malformed-v7 regression input. `future-v8.json` is the current unsupported future-version probe.
+- The v7 corpus is generated reproducibly with `cargo run -p agentir-store --example generate_v7_fixtures`. It covers an empty MemoryPlanStore, fresh/forked/reused/guarded/sealed histories, lazy-fallback state, an equality-materialized anchor, mixed Stage 2/3 semantics, rejected-reuse atomic state, and valid-envelope corruption at the MemoryIR type/layout/lifetime/alias/reuse/guard/fallback/hash/event/allocator boundaries.
 
 Pinned SHA-256 fixture bytes for the valid v4 corpus:
 
@@ -81,5 +82,23 @@ Pinned SHA-256 bytes for corrupted/future v6 corpus:
 - `corrupted-equality-evidence-v6.json`: `2bccc2767e4d3cae46f440df922e7dfcaae6c1e0e12aec6f8d97d83e62246b31`;
 - `corrupted-equality-event-order-v6.json`: `e6d85e42394777dace1189c46629b333e5602bc7907be7f719cb146082658928`;
 - `future-v7.json`: `279d049cc1519e432388037bc61aba41b37c9eaf6a79587321b581cc801274ed`.
+
+Pinned SHA-256 bytes for the valid v7 corpus:
+
+- `minimal-v7.json`: `67277adac68aad413ea7f440068924ef80b1f8a5e7bb87db5543516a404b4f8d`;
+- `fresh-memory-v7.json`: `e13b1fa9c668c61ad0244b8868eee2d8669548049b124df9e0f553ca8e099b84`;
+- `forked-memory-v7.json`: `982cac4fc4d0e4ab99454aa66d96656c8d225367dc5c711d812da6a6b9e40e8d`;
+- `proved-in-place-reuse-v7.json`: `14161ac80ea974d8b2ce4dacfe09390e032455f8848455252c196d3572733094`;
+- `guarded-memory-reuse-v7.json` and `false-guard-fallback-v7.json`: `59913b3f0fa51a083e46206e8e9d2586d0ac774c34ec14a4e883f8f141360f68`;
+- `sealed-memory-v7.json`: `ac966aa7e2e06013725bff06221017dff1fcf16a4cbd0929038daa1c4e7703d8`;
+- `equality-materialized-memory-v7.json` and `mixed-memory-semantics-v7.json`: `1d4ddcd72db44e5d0c01d1b79867dff0c49942d14a1bc01f1373b498bb200e0e`;
+- `rejected-unsafe-reuse-v7.json`: `e13b1fa9c668c61ad0244b8868eee2d8669548049b124df9e0f553ca8e099b84`.
+
+Pinned SHA-256 bytes for corrupted/future v7 corpus:
+
+- buffer/layout/lifetime/alias corruption: `19b0cae20627e005543b727b33836684173b1bad67efc6f57d117c3fdfadbff6`, `13865ddb60f13fa37c27b13dc93c6acde8a434aab6833eae59e004a91770f7f4`, `18273f26f5e6aabd2097b8ab4392fb4f7608ddce089115e0a8151ba03206f922`, `09c82c430fea65a63de33f1c9ce1b37919c21ff87539890935a54ef5315d7f7e`;
+- reuse/guard/fallback corruption: `ec466dac15e2d9ba697c8c70a6f8590338f3a8eb6d39aa828a26f26a06ab7d4b`, `5a1486b4e4ff079a94c37e27590ded673d0c5aa470430cb375cd5ef7561275b5`, `a53214df3d3a427928674c5d6ad773c6b67daeeed2941ae55a6a2c2feed9d1dc`;
+- hash/event/allocator corruption: `16ec70b2792097e36b3b6110cfa32f3b6be14c0c546affe2bba87c00eb773800`, `0f87d74d6641d97ae4aaf803a27717ab530fbada401158ad2629fabe8aeedf4c`, `5d9ae5451ad50d87e60b2540c8a8643de649829de5e84699518a9842b85bc55a`;
+- `future-v8.json`: `b0b7817b4ae2b10a61fb31bfac04b394829f4a790a7be14e1ce0115fdeba4752`.
 
 The compact one-line encoding is intentional: integrity hashes cover the exact deterministic body codec defined by each version's Rust structs. Historical future-version probes remain immutable regression inputs after their version becomes supported.

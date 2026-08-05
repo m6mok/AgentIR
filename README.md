@@ -2,7 +2,7 @@
 
 AgentIR — экспериментальная агентно-нативная компиляционная среда для численных вычислений. В ней программа хранится не как исходный текст, а как типизированный граф. Агент меняет граф небольшими атомарными ActionIR-транзакциями, а compiler core выводит типы, проверяет формы и сохраняет каждое принятое состояние как неизменяемую ревизию.
 
-Сейчас репозиторий содержит завершённый exact-only reference prototype Stage 2C. Поверх неизменяемого Stage 1.2 SpecIR, точного Stage 2A ImplIR и bounded speculative слоя Stage 2B он добавляет persistent whole-program equality space, trusted saturation, canonical proof explanations и явную материализацию выбранного эквивалентного состояния. GPU-код по-прежнему не генерируется.
+Сейчас репозиторий содержит завершённый exact reference prototype Stage 3. Поверх неизменяемого SpecIR и Stage 2 ImplIR/equality он добавляет отдельный typed MemoryIR, conservative bufferization, compiler-owned alias/lifetime proofs, exact in-place/guarded reuse и deterministic memory replay. GPU-код по-прежнему не генерируется.
 
 ## Что уже работает
 
@@ -18,7 +18,7 @@ AgentIR — экспериментальная агентно-нативная �
 - CPU reference interpreter;
 - компактный deterministic `ConstraintFacts`, который доказывает symbol/static equality и закрывает `ShapeCompatible` obligations;
 - event-level compiler semantics v1/v2 для точного replay исторических транзакций;
-- workspace archive v6, явная migration v1 → v2 → v3 → v4 → v5 → v6, mixed-semantics candidate/equality replay;
+- workspace archive v7, явная migration v1 → v2 → v3 → v4 → v5 → v6 → v7, mixed candidate/equality/memory replay;
 - централизованные resource budgets для core, evaluator, store, protocol и CLI;
 - fixed-seed soundness/mutation corpora и statistical benchmark schema v2;
 - stateful JSONL CLI с одним ответом на каждый запрос;
@@ -34,7 +34,11 @@ AgentIR — экспериментальная агентно-нативная �
 - whole-program equality nodes, hash-consed по `impl_hash`, и compiler-owned positive proof edges;
 - deterministic bounded expansion/saturation, canonical explanations и continuation;
 - equality proof discharge для ordered proof debt и explicit candidate materialization;
-- candidate semantics/hash v1/v2/v3 coexistence и archive/snapshot v6.
+- candidate semantics/hash v1/v2/v3 coexistence и immutable archive/snapshot v6 compatibility.
+- отдельный typed MemoryIR с immutable memory-plan revisions и `memory_hash`;
+- explicit buffers, layouts, strides, address spaces, access/ownership/alignment, alias domains и logical lifetimes;
+- deterministic fresh bufferization, proved last-use reuse и compiler-owned `NoOverlap` guard с lazy exact fallback;
+- reference MemoryIR evaluation/trace, memory continuations, protocol и archive/snapshot v7.
 
 ## Быстрый старт
 
@@ -52,6 +56,10 @@ cargo run -p agentir-cli --bin agentir < examples/guarded_candidate.jsonl
 cargo run -p agentir-cli --bin agentir < examples/equality_saturate.jsonl
 cargo run -p agentir-cli --bin agentir < examples/equality_discharge.jsonl
 cargo run -p agentir-cli --bin agentir < examples/equality_materialize.jsonl
+cargo run -p agentir-cli --bin agentir < examples/memory_fresh.jsonl
+cargo run -p agentir-cli --bin agentir < examples/memory_reuse.jsonl
+cargo run -p agentir-cli --bin agentir < examples/memory_guarded_reuse.jsonl
+cargo run -p agentir-cli --bin agentir < examples/equality_to_memory.jsonl
 ```
 
 Последний ответ SAXPY содержит:
@@ -78,17 +86,17 @@ cargo run -p agentir-cli --bin agentir < examples/equality_materialize.jsonl
 
 ## Crates
 
-- `agentir-core` — SpecIR/ImplIR, verifiers, transactions, revisions, CandidateForest, EqualityStore, proofs, EvidenceIR и continuations;
-- `agentir-eval` — детерминированный CPU interpreter;
+- `agentir-core` — SpecIR/ImplIR/MemoryIR, verifiers, immutable plans, CandidateForest, EqualityStore, proofs и continuations;
+- `agentir-eval` — детерминированные semantic и physical reference interpreters;
 - `agentir-store` — atomic file persistence, archive integrity и deterministic replay;
 - `agentir-protocol` — wire types и stateful command engine;
 - `agentir-cli` — тонкий JSONL stdin/stdout frontend.
 
-## Ограничения Stage 2C
+## Ограничения Stage 3
 
-Equality space хранит целые ImplIR-программы и только положительные доказанные edges из production rewrite registry; это не e-graph, congruence closure, extractor или search policy. Speculative proposals ограничены одним top-level single-result target и существующим pure ImplIR subset. В прототипе нет agent certificates, general guard DSL, arbitrary subgraph replacement, approximate refinement, SMT, candidate ranking/search, performance evidence, MemoryIR, ScheduleIR, TargetManifest, GPU backend или LLVM/MLIR. Shape solver намеренно sound, но incomplete. Известные компромиссы подробно перечислены в [DECISIONS.md](DECISIONS.md).
+MemoryIR хранит high-level typed regions, а не raw pointers или loop lowering. Единственный memory guard — compiler-owned `NoOverlap` с fully proved fresh fallback. В прототипе нет agent certificates, general guard DSL, ScheduleIR, TargetManifest, tiling/thread binding, target capacity claims, ranking/search, performance evidence, GPU backend или LLVM/MLIR. Shape solver намеренно sound, но incomplete. Известные компромиссы подробно перечислены в [DECISIONS.md](DECISIONS.md).
 
-## Семь разных hash
+## Восемь разных hash
 
 - `content_hash` точно идентифицирует history-sensitive состояние ревизии для replay;
 - `spec_hash` идентифицирует семантику complete frozen SpecIR независимо от compiler IDs и истории построения;
@@ -96,13 +104,14 @@ Equality space хранит целые ImplIR-программы и только
 - `proposal_hash` идентифицирует alpha-normalized proposal до persistent ID allocation;
 - `candidate_hash` v1/v2/v3 идентифицирует exact history-sensitive состояние CandidateRevision и его proof state;
 - `equality_hash` идентифицирует exact equality state независимо от batching/revision history;
+- `memory_hash` идентифицирует exact typed physical plan при неизменном `impl_hash`;
 - `archive_hash` проверяет конкретный versioned on-disk archive.
 
 Подробный контракт canonical form — в [docs/semantic-canonicalization.md](docs/semantic-canonicalization.md), migration pipeline — в [docs/persistence.md](docs/persistence.md).
 
 ## Roadmap
 
-Следующий технический шаг после завершения Stage 2 — MemoryIR, затем ScheduleIR и simulator → первый GPU backend → обучение и сравнение agent policies. См. [docs/roadmap.md](docs/roadmap.md).
+Следующий технический шаг после завершения Stage 3 — ScheduleIR и TargetManifest, затем simulator → первый GPU backend → обучение и сравнение agent policies. См. [docs/roadmap.md](docs/roadmap.md).
 
 ## Документация
 

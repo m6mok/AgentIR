@@ -11,10 +11,10 @@ AgentIR is an agent-native compiler prototype. Preserve these invariants in ever
 5. Type results are inferred by the core; no implicit casts or broadcasting.
 6. Serialization and traversal order must remain deterministic.
 7. Stage 1 stays transport-independent and contains no GPU/LLVM/MLIR integration.
-8. `content_hash`, `spec_hash`, `impl_hash`, `candidate_hash`, and `archive_hash` are distinct contracts and must never be substituted.
-9. Archive v1/v2/v3/v4/v5 are immutable legacy inputs; new saves use v6 and old archives cross explicit migration steps.
+8. `content_hash`, `spec_hash`, `impl_hash`, `proposal_hash`, `candidate_hash`, `equality_hash`, `memory_hash`, and `archive_hash` are distinct contracts and must never be substituted.
+9. Archive v1/v2/v3/v4/v5/v6 are immutable legacy inputs; new saves use v7 and old archives cross explicit migration steps.
 10. Event compiler semantics and archive format versions are independent compatibility contracts.
-11. Resource limits never participate in `content_hash`, `spec_hash`, `impl_hash`, `candidate_hash`, or `archive_hash`.
+11. Resource limits never participate in any semantic, candidate, equality, memory, or archive hash contract.
 12. ImplIR is a separate typed graph anchored to one frozen `spec_hash`.
 13. Testing is confidence evidence; only trusted structural certificates prove `EquivalentToSpec`.
 14. Agent proposals and testing never prove equivalence; only compiler-owned validators advance the ordered proof frontier.
@@ -22,6 +22,9 @@ AgentIR is an agent-native compiler prototype. Preserve these invariants in ever
 16. Stage 2B contains no MemoryIR, ScheduleIR, target lowering, approximate refinement, e-graph, ranking, or population search.
 17. Stage 2C equality is a bounded positive whole-program proof graph over the shared exact rewrite engine, never an e-graph, extractor, ranker or search policy.
 18. Equality nodes are hash-consed by `impl_hash`; proof edges, side conditions and explanations are compiler-owned and replay-verified.
+19. MemoryIR is a separate typed graph anchored to one fully proved unconditional candidate revision and immutable `spec_hash`/`impl_hash`.
+20. Bufferization, alias facts, logical lifetimes, reuse proofs and `NoOverlap` guards are compiler-owned; fresh allocation is the exact fallback.
+21. Stage 3 contains no raw pointers, ScheduleIR, TargetManifest, target lowering, ranking, cost model or search policy.
 
 ## Where to look before changing code
 
@@ -37,6 +40,7 @@ Use `docs/` instead of expanding this file with broad background:
 - Stage 2A/2B scope, ImplIR, candidates and evidence: `docs/stage-2a-scope.md`, `docs/stage-2b-scope.md`, `docs/implir.md`, `docs/candidate-forest.md`, `docs/equivalence-and-evidence.md`;
 - speculative trust boundary: `docs/speculative-rewrites.md`, `docs/proof-debt.md`, `docs/translation-validation.md`, `docs/guarded-fallback.md`;
 - exact equality space and proof boundary: `docs/stage-2c-scope.md`, `docs/equality-space.md`, `docs/equality-proofs.md`;
+- Stage 3 physical boundary: `docs/stage-3-scope.md`, `docs/memory-ir.md`, `docs/bufferization.md`, `docs/alias-and-lifetimes.md`, `docs/guarded-memory-reuse.md`;
 - architectural trade-offs: `DECISIONS.md`.
 
 When documentation and behavior disagree, consult `docs/reference/stage-1-brief.md` first for Stage 1, then `docs/reference/agentir-spec-0.1.md`. Record intentional deviations in `DECISIONS.md`.
@@ -51,10 +55,12 @@ When documentation and behavior disagree, consult `docs/reference/stage-1-brief.
 - New diagnostics need a stable `ErrorCode` and structured expected/actual/details where useful.
 - Rejected transactions must not consume IDs, move `head`, or mutate an older revision.
 - Rejected candidate transactions must not consume proposal/candidate/ImplIR/obligation/evidence IDs or move a candidate head.
+- Rejected memory transactions must not consume memory-local IDs or move a memory head.
 - Archive loads must verify envelope checksum, every revision hash/status, and event replay before publishing a workspace.
 - Semantic canonicalization must remain independent of persistent IDs, provenance, and unreachable internal graph state while preserving interface names and ordered operands.
 - Any new opcode needs verifier, canonical model, interpreter behavior, protocol coverage, and tests.
 - Any new known rewrite needs exact side conditions, a trusted certificate, differential/property coverage, and deterministic continuation behavior.
+- Never accept agent-supplied alias/lifetime proofs, memory guards or memory certificates; unsafe reuse remains rejected.
 - Never accept agent-supplied guards or correctness certificates. Unsupported validation stays unresolved; positive testing stays confidence-only.
 - Do not silently widen Stage 1. Put future-facing work in `docs/roadmap.md` or behind a small explicit interface.
 
@@ -76,6 +82,10 @@ cargo run -p agentir-cli --bin agentir < examples/guarded_candidate.jsonl
 cargo run -p agentir-cli --bin agentir < examples/equality_saturate.jsonl
 cargo run -p agentir-cli --bin agentir < examples/equality_discharge.jsonl
 cargo run -p agentir-cli --bin agentir < examples/equality_materialize.jsonl
+cargo run -p agentir-cli --bin agentir < examples/memory_fresh.jsonl
+cargo run -p agentir-cli --bin agentir < examples/memory_reuse.jsonl
+cargo run -p agentir-cli --bin agentir < examples/memory_guarded_reuse.jsonl
+cargo run -p agentir-cli --bin agentir < examples/equality_to_memory.jsonl
 cargo run --release -p agentir-protocol --example baseline
 ```
 

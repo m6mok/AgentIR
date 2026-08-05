@@ -6,9 +6,14 @@
 use agentir_core::{
     candidate::{CandidateForest, DifferentialValidation, GuardPredicate},
     diagnostics::{AgentError, AgentResult, ErrorCode},
-    ids::{CandidateId, CandidateRevisionId, ImplValueId, ValueId},
+    ids::{BufferId, CandidateId, CandidateRevisionId, ImplValueId, MemoryGuardId, ValueId},
     impl_ir::{ImplProgram, impl_as_program},
     ir::{ConstantValue, Opcode, Operation, Program, Region, RegionValue, ValueOrigin},
+    memory::{MemoryRevision, MemoryStatus},
+    memory_ir::{
+        AccessMode, AliasRelation, BufferAccessKind, MEMORY_TRACE_CODEC_VERSION, MemoryBuffer,
+        Ownership, ReuseDecision, verify_memory_program,
+    },
     resources::{BudgetCheck, ResourceKind, ResourceLimits},
     types::{DimExpr, ScalarType, Type},
 };
@@ -54,6 +59,33 @@ pub struct EvaluationResult {
     pub outputs: BTreeMap<String, JsonValue>,
     /// Concrete symbolic dimensions inferred from tensor inputs.
     pub dimensions: BTreeMap<String, usize>,
+}
+
+/// One deterministic high-level MemoryIR execution-trace event.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoryTraceEvent {
+    /// Zero-based stable trace sequence.
+    pub sequence: u64,
+    /// Stable event kind.
+    pub kind: String,
+    /// Related abstract buffer, when applicable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub buffer: Option<BufferId>,
+    /// Deterministic human-readable detail without addresses or timing.
+    pub detail: String,
+}
+
+/// Exact MemoryIR evaluation result with branch outcomes and deterministic trace.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MemoryEvaluationResult {
+    /// Named semantic outputs, identical to the anchored ImplIR oracle.
+    pub evaluation: EvaluationResult,
+    /// Actual compiler-owned guard decisions taken by this evaluation.
+    pub guard_outcomes: BTreeMap<MemoryGuardId, bool>,
+    /// Memory trace codec version, independent of MemoryIR semantics.
+    pub trace_codec_version: u32,
+    /// Deterministic high-level allocation/access/reuse trace.
+    pub trace: Vec<MemoryTraceEvent>,
 }
 
 fn mismatch(message: impl Into<String>) -> AgentError {
@@ -982,6 +1014,427 @@ pub fn evaluate_impl_with_limits(
     evaluate_with_limits(&impl_as_program(program), inputs, limits)
 }
 
+fn memory_trace_push(
+    trace: &mut Vec<MemoryTraceEvent>,
+    kind: &str,
+    buffer: Option<BufferId>,
+    detail: impl Into<String>,
+    limits: &ResourceLimits,
+) -> AgentResult<()> {
+    let attempted = u64::try_from(trace.len())
+        .unwrap_or(u64::MAX)
+        .saturating_add(1);
+    BudgetCheck::against(
+        limits,
+        ResourceKind::MemoryTraceEvents,
+        attempted,
+        "MemoryIR evaluation trace",
+    )?;
+    trace.push(MemoryTraceEvent {
+        sequence: attempted - 1,
+        kind: kind.to_owned(),
+        buffer,
+        detail: detail.into(),
+    });
+    let bytes = serde_json::to_vec(trace).map_err(|error| {
+        AgentError::new(
+            ErrorCode::PersistenceFormat,
+            format!("MemoryIR trace encoding failed: {error}"),
+        )
+    })?;
+    BudgetCheck::against(
+        limits,
+        ResourceKind::MemoryTraceBytes,
+        u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+        "MemoryIR evaluation trace",
+    )
+}
+
+#[derive(Clone, Copy, Debug)]
+struct AbstractBufferState {
+    initialized: bool,
+    released: bool,
+}
+
+fn memory_element_bytes(element: ScalarType) -> u64 {
+    match element {
+        ScalarType::Bool => 1,
+        ScalarType::I32 | ScalarType::F32 => 4,
+        ScalarType::Index => 8,
+    }
+}
+
+fn allocate_abstract_buffer(
+    buffer: &MemoryBuffer,
+    dimensions: &BTreeMap<String, usize>,
+    states: &mut BTreeMap<BufferId, AbstractBufferState>,
+    total_bytes: &mut u64,
+    limits: &ResourceLimits,
+) -> AgentResult<()> {
+    if buffer.alignment == 0
+        || !buffer.alignment.is_power_of_two()
+        || buffer.alignment < memory_element_bytes(buffer.element_type)
+    {
+        return Err(AgentError::new(
+            ErrorCode::AlignmentUnsatisfied,
+            "abstract memory allocation has an invalid alignment",
+        )
+        .with_detail("buffer", buffer.id.to_string())
+        .with_detail("alignment", buffer.alignment));
+    }
+    let elements = buffer.shape.0.iter().try_fold(1_u64, |total, dimension| {
+        let extent = concrete_dimension(dimension, dimensions)?;
+        if extent == 0 {
+            return Err(AgentError::new(
+                ErrorCode::InvalidMemoryLayout,
+                "zero-sized runtime buffer allocation is unsupported",
+            )
+            .with_detail("buffer", buffer.id.to_string()));
+        }
+        total.checked_mul(extent).ok_or_else(|| {
+            AgentError::new(
+                ErrorCode::MemoryResourceLimit,
+                "runtime buffer element count overflowed u64",
+            )
+            .with_detail("buffer", buffer.id.to_string())
+        })
+    })?;
+    let bytes = elements
+        .checked_mul(memory_element_bytes(buffer.element_type))
+        .ok_or_else(|| {
+            AgentError::new(
+                ErrorCode::MemoryResourceLimit,
+                "runtime buffer allocation byte count overflowed u64",
+            )
+            .with_detail("buffer", buffer.id.to_string())
+        })?;
+    BudgetCheck::against(
+        limits,
+        ResourceKind::MemoryAllocationBytesPerBuffer,
+        bytes,
+        format!("MemoryIR runtime buffer `{}`", buffer.id),
+    )?;
+    *total_bytes = total_bytes.checked_add(bytes).ok_or_else(|| {
+        AgentError::new(
+            ErrorCode::MemoryResourceLimit,
+            "total runtime abstract allocation bytes overflowed u64",
+        )
+    })?;
+    BudgetCheck::against(
+        limits,
+        ResourceKind::MemoryTotalAllocationBytes,
+        *total_bytes,
+        "MemoryIR runtime abstract allocation",
+    )?;
+    states.insert(
+        buffer.id.clone(),
+        AbstractBufferState {
+            initialized: matches!(
+                buffer.ownership,
+                Ownership::ExternalBorrowed | Ownership::ConstantOwned
+            ),
+            released: false,
+        },
+    );
+    Ok(())
+}
+
+fn execute_abstract_access(
+    buffer: &MemoryBuffer,
+    kind: BufferAccessKind,
+    states: &mut BTreeMap<BufferId, AbstractBufferState>,
+) -> AgentResult<()> {
+    let state = states.get_mut(&buffer.id).ok_or_else(|| {
+        AgentError::new(
+            ErrorCode::InvalidMemoryAccess,
+            "memory access references an unallocated abstract buffer",
+        )
+        .with_detail("buffer", buffer.id.to_string())
+    })?;
+    if state.released {
+        return Err(AgentError::new(
+            ErrorCode::LifetimeViolation,
+            "memory access occurs after abstract buffer release",
+        )
+        .with_detail("buffer", buffer.id.to_string()));
+    }
+    let reads = matches!(kind, BufferAccessKind::Read | BufferAccessKind::ReadWrite);
+    let writes = matches!(kind, BufferAccessKind::Write | BufferAccessKind::ReadWrite);
+    if reads && !matches!(buffer.access, AccessMode::ReadOnly | AccessMode::ReadWrite) {
+        return Err(AgentError::new(
+            ErrorCode::InvalidMemoryAccess,
+            "read is forbidden by the abstract buffer access mode",
+        )
+        .with_detail("buffer", buffer.id.to_string()));
+    }
+    if writes && !matches!(buffer.access, AccessMode::WriteOnly | AccessMode::ReadWrite) {
+        return Err(AgentError::new(
+            ErrorCode::InvalidMemoryAccess,
+            "write is forbidden by the abstract buffer access mode",
+        )
+        .with_detail("buffer", buffer.id.to_string()));
+    }
+    if reads && !state.initialized {
+        return Err(AgentError::new(
+            ErrorCode::InvalidMemoryAccess,
+            "read observes an uninitialized abstract buffer",
+        )
+        .with_detail("buffer", buffer.id.to_string()));
+    }
+    if writes {
+        state.initialized = true;
+    }
+    Ok(())
+}
+
+/// Evaluates one verified exact MemoryIR revision and emits a deterministic high-level trace.
+///
+/// Guard outcomes may be supplied by the caller's runtime binding contract. Missing outcomes are
+/// true only for a statically proved `NoAlias` relation and false otherwise, selecting the lazy
+/// exact fresh fallback without speculatively executing the reuse branch.
+pub fn evaluate_memory_with_limits(
+    revision: &MemoryRevision,
+    implementation: &ImplProgram,
+    inputs: &BTreeMap<String, JsonValue>,
+    requested_guard_outcomes: &BTreeMap<MemoryGuardId, bool>,
+    limits: &ResourceLimits,
+) -> AgentResult<MemoryEvaluationResult> {
+    if matches!(
+        revision.status,
+        MemoryStatus::Draft | MemoryStatus::WellTyped | MemoryStatus::Rejected
+    ) {
+        return Err(AgentError::new(
+            ErrorCode::MemoryEquivalenceUnproved,
+            "MemoryIR evaluation requires a proved, guarded, or sealed revision",
+        ));
+    }
+    verify_memory_program(&revision.program, implementation, limits)?;
+    let evaluation = evaluate_impl_with_limits(implementation, inputs, limits)?;
+    let output_elements = evaluation.outputs.values().fold(0_u64, |total, value| {
+        fn leaves(value: &JsonValue) -> u64 {
+            value.as_array().map_or(1, |values| {
+                values
+                    .iter()
+                    .fold(0_u64, |sum, value| sum.saturating_add(leaves(value)))
+            })
+        }
+        total.saturating_add(leaves(value))
+    });
+    BudgetCheck::against(
+        limits,
+        ResourceKind::MemoryEvaluationElements,
+        output_elements,
+        "MemoryIR reference evaluation",
+    )?;
+
+    let mut trace = Vec::new();
+    let mut abstract_buffers = BTreeMap::new();
+    let mut total_allocation_bytes = 0_u64;
+    let fallback_buffers: BTreeSet<_> = revision
+        .program
+        .reuse_decisions
+        .values()
+        .filter_map(|decision| match decision {
+            ReuseDecision::Guarded { fallback, .. } => Some(fallback.fresh_buffer.id.clone()),
+            ReuseDecision::Fresh { .. } | ReuseDecision::InPlace { .. } => None,
+        })
+        .collect();
+    for buffer in revision.program.buffers.values() {
+        if fallback_buffers.contains(&buffer.id) {
+            continue;
+        }
+        allocate_abstract_buffer(
+            buffer,
+            &evaluation.dimensions,
+            &mut abstract_buffers,
+            &mut total_allocation_bytes,
+            limits,
+        )?;
+        let kind = match buffer.ownership {
+            Ownership::ExternalBorrowed => "bind_external",
+            Ownership::ConstantOwned => "bind_constant",
+            Ownership::PlanOwned | Ownership::View => "allocate",
+        };
+        memory_trace_push(
+            &mut trace,
+            kind,
+            Some(buffer.id.clone()),
+            format!("{} {}", buffer.element_type, buffer.shape),
+            limits,
+        )?;
+    }
+
+    let mut guard_outcomes = BTreeMap::new();
+    let mut fallback_results = BTreeMap::new();
+    for (result, decision) in &revision.program.reuse_decisions {
+        match decision {
+            ReuseDecision::Fresh { buffer } => memory_trace_push(
+                &mut trace,
+                "fresh",
+                Some(buffer.clone()),
+                format!("result {result}"),
+                limits,
+            )?,
+            ReuseDecision::InPlace { input, buffer, .. } => memory_trace_push(
+                &mut trace,
+                "reuse",
+                Some(buffer.clone()),
+                format!("input {input} -> result {result}"),
+                limits,
+            )?,
+            ReuseDecision::Guarded {
+                input,
+                buffer,
+                guard,
+                fallback,
+                ..
+            } => {
+                let statically_no_alias = revision.program.alias_facts.iter().any(|fact| {
+                    ((fact.first == guard.primary_buffer && fact.second == guard.other_buffer)
+                        || (fact.second == guard.primary_buffer
+                            && fact.first == guard.other_buffer))
+                        && fact.relation == AliasRelation::NoAlias
+                });
+                let outcome = requested_guard_outcomes
+                    .get(&guard.id)
+                    .copied()
+                    .unwrap_or(statically_no_alias);
+                guard_outcomes.insert(guard.id.clone(), outcome);
+                memory_trace_push(
+                    &mut trace,
+                    "guard",
+                    Some(buffer.clone()),
+                    format!("{}={outcome}", guard.id),
+                    limits,
+                )?;
+                if outcome {
+                    memory_trace_push(
+                        &mut trace,
+                        "guarded_reuse",
+                        Some(buffer.clone()),
+                        format!("input {input} -> result {result}"),
+                        limits,
+                    )?;
+                } else {
+                    fallback_results.insert(result.clone(), fallback.fresh_buffer.id.clone());
+                    allocate_abstract_buffer(
+                        &fallback.fresh_buffer,
+                        &evaluation.dimensions,
+                        &mut abstract_buffers,
+                        &mut total_allocation_bytes,
+                        limits,
+                    )?;
+                    memory_trace_push(
+                        &mut trace,
+                        "fallback_allocate",
+                        Some(fallback.fresh_buffer.id.clone()),
+                        format!("lazy exact fallback for result {result}"),
+                        limits,
+                    )?;
+                }
+            }
+        }
+    }
+    for operation_id in &revision.program.operation_order {
+        let operation = &revision.program.operations[operation_id];
+        for access in &operation.accesses {
+            let fallback_read = operation.results.iter().any(|binding| {
+                fallback_results.contains_key(binding.value())
+                    && binding.buffer() == Some(&access.buffer)
+            });
+            let effective_kind = if fallback_read {
+                BufferAccessKind::Read
+            } else {
+                access.kind
+            };
+            let buffer = &revision.program.buffers[&access.buffer];
+            execute_abstract_access(buffer, effective_kind, &mut abstract_buffers)?;
+            memory_trace_push(
+                &mut trace,
+                "access",
+                Some(access.buffer.clone()),
+                format!(
+                    "{} {} {}",
+                    operation.id,
+                    match effective_kind {
+                        BufferAccessKind::Read => "Read",
+                        BufferAccessKind::Write => "Write",
+                        BufferAccessKind::ReadWrite => "ReadWrite",
+                    },
+                    access.value
+                ),
+                limits,
+            )?;
+        }
+        for binding in &operation.results {
+            if let Some(buffer) = fallback_results.get(binding.value()) {
+                let fallback = &revision.program.buffers[buffer];
+                execute_abstract_access(fallback, BufferAccessKind::Write, &mut abstract_buffers)?;
+                memory_trace_push(
+                    &mut trace,
+                    "access",
+                    Some(buffer.clone()),
+                    format!("{} Write {}", operation.id, binding.value()),
+                    limits,
+                )?;
+            }
+        }
+        let logical_point = implementation
+            .operation_order
+            .iter()
+            .position(|source| source == &operation.impl_operation)
+            .and_then(|index| u64::try_from(index).ok())
+            .unwrap_or(u64::MAX)
+            .saturating_add(1);
+        for buffer in revision.program.buffers.values() {
+            if buffer.lifetime.deallocation_eligible
+                && buffer.lifetime.last_use <= logical_point
+                && !fallback_buffers.contains(&buffer.id)
+                && abstract_buffers
+                    .get(&buffer.id)
+                    .is_some_and(|state| !state.released)
+            {
+                abstract_buffers
+                    .get_mut(&buffer.id)
+                    .expect("abstract allocation was checked")
+                    .released = true;
+                memory_trace_push(
+                    &mut trace,
+                    "release",
+                    Some(buffer.id.clone()),
+                    format!("after logical point {}", buffer.lifetime.last_use),
+                    limits,
+                )?;
+            }
+        }
+    }
+    for binding in revision.program.outputs.values() {
+        if let Some(buffer) = binding.buffer() {
+            let selected = fallback_results.get(binding.value()).unwrap_or(buffer);
+            let state = abstract_buffers.get(selected).ok_or_else(|| {
+                AgentError::new(
+                    ErrorCode::InvalidMemoryAccess,
+                    "MemoryIR output references an unallocated abstract buffer",
+                )
+                .with_detail("buffer", selected.to_string())
+            })?;
+            if state.released || !state.initialized {
+                return Err(AgentError::new(
+                    ErrorCode::LifetimeViolation,
+                    "MemoryIR output buffer is uninitialized or already released",
+                )
+                .with_detail("buffer", selected.to_string()));
+            }
+        }
+    }
+    Ok(MemoryEvaluationResult {
+        evaluation,
+        guard_outcomes,
+        trace_codec_version: MEMORY_TRACE_CODEC_VERSION,
+        trace,
+    })
+}
+
 /// Evaluates only the dependency cone of one ImplIR value.
 ///
 /// Candidate-level guards use this entry point so the primary outputs and
@@ -1446,4 +1899,90 @@ pub fn differential_validate_candidate(
         passed: true,
         counterexample: None,
     })
+}
+
+#[cfg(test)]
+mod memory_tests {
+    use super::*;
+    use agentir_core::{
+        ids::{AliasDomainId, ImplValueId},
+        memory_ir::{Lifetime, MemoryLayout, MemoryStride, MemoryStrides},
+        types::Shape,
+    };
+
+    fn buffer(access: AccessMode) -> MemoryBuffer {
+        MemoryBuffer {
+            id: BufferId::new("buf1"),
+            element_type: ScalarType::F32,
+            shape: Shape(vec![DimExpr::Static(4)]),
+            layout: MemoryLayout::ContiguousRowMajor,
+            strides: MemoryStrides {
+                entries: vec![MemoryStride::Static { value: 1 }],
+            },
+            address_space: agentir_core::memory_ir::AddressSpace::Global,
+            access,
+            alignment: 4,
+            alias_domain: AliasDomainId::new("ad1"),
+            lifetime: Lifetime {
+                first_point: 1,
+                uses: vec![2],
+                last_use: 2,
+                output_escape: false,
+                external: false,
+                deallocation_eligible: true,
+            },
+            ownership: Ownership::PlanOwned,
+            external_binding: None,
+            source_value: ImplValueId::new("iv1"),
+            offset_elements: 0,
+            provenance: "test".to_owned(),
+        }
+    }
+
+    #[test]
+    fn abstract_memory_machine_rejects_uninitialized_illegal_and_released_accesses() {
+        let read_write = buffer(AccessMode::ReadWrite);
+        let mut states = BTreeMap::from([(
+            read_write.id.clone(),
+            AbstractBufferState {
+                initialized: false,
+                released: false,
+            },
+        )]);
+        assert_eq!(
+            execute_abstract_access(&read_write, BufferAccessKind::Read, &mut states)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidMemoryAccess
+        );
+
+        let read_only = buffer(AccessMode::ReadOnly);
+        states.insert(
+            read_only.id.clone(),
+            AbstractBufferState {
+                initialized: true,
+                released: false,
+            },
+        );
+        assert_eq!(
+            execute_abstract_access(&read_only, BufferAccessKind::Write, &mut states)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidMemoryAccess
+        );
+
+        states.insert(
+            read_write.id.clone(),
+            AbstractBufferState {
+                initialized: true,
+                released: true,
+            },
+        );
+        assert_eq!(
+            execute_abstract_access(&read_write, BufferAccessKind::Read, &mut states)
+                .unwrap_err()
+                .code,
+            ErrorCode::LifetimeViolation
+        );
+    }
 }

@@ -7,9 +7,10 @@ use agentir_core::{
     equality::EqualityStatus,
     ids::{CandidateId, CandidateRevisionId, EqualityRevisionId, ImplOperationId, ProposalId},
     ir::ConstantValue,
+    persistence::LegacyWorkspaceSnapshotV6,
 };
 use agentir_store::{
-    ARCHIVE_FORMAT_VERSION, ARCHIVE_KIND, WorkspaceArchiveV6, load_workspace_bytes,
+    ARCHIVE_KIND, LEGACY_ARCHIVE_FORMAT_V6, WorkspaceArchiveV6, load_workspace_bytes,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -247,7 +248,7 @@ struct Body<'a> {
     format: &'a str,
     format_version: u32,
     compiler_version: &'a str,
-    snapshot: &'a agentir_core::persistence::WorkspaceSnapshot,
+    snapshot: &'a LegacyWorkspaceSnapshotV6,
 }
 
 fn rehash(archive: &mut WorkspaceArchiveV6) -> Vec<u8> {
@@ -274,9 +275,19 @@ fn deterministic_archive(workspace: &Workspace) -> Vec<u8> {
     for (index, revision) in snapshot.revisions.values_mut().enumerate() {
         revision.created_at_unix_ms = index as u128;
     }
+    let snapshot = LegacyWorkspaceSnapshotV6 {
+        schema_version: LEGACY_ARCHIVE_FORMAT_V6,
+        workspace: snapshot.workspace,
+        head: snapshot.head,
+        revisions: snapshot.revisions,
+        allocator: snapshot.allocator,
+        events: snapshot.events,
+        candidate_forest: snapshot.candidate_forest,
+        equality_store: snapshot.equality_store,
+    };
     let mut archive = WorkspaceArchiveV6 {
         format: ARCHIVE_KIND.to_owned(),
-        format_version: ARCHIVE_FORMAT_VERSION,
+        format_version: LEGACY_ARCHIVE_FORMAT_V6,
         compiler_version: env!("CARGO_PKG_VERSION").to_owned(),
         snapshot,
         archive_hash: String::new(),

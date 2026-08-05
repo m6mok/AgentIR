@@ -51,7 +51,8 @@ impl FromStr for ScalarType {
 }
 
 /// A single static, symbolic, or affine tensor dimension.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DimExpr {
     /// A known non-negative extent.
     Static(u64),

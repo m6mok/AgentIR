@@ -20,14 +20,19 @@ use crate::{
     },
     holes::{ExpectedEffects, Hole, HoleStatus},
     ids::{
-        ActionId, CandidateId, CandidateRevisionId, EqualityNodeId, EqualityRevisionId,
-        EqualitySpaceId, HoleId, IdAllocator, ObligationId, ProposalId, RevisionId, ValueId,
-        WorkspaceId,
+        ActionId, BufferId, CandidateId, CandidateRevisionId, EqualityNodeId, EqualityRevisionId,
+        EqualitySpaceId, HoleId, IdAllocator, MemoryPlanId, MemoryRevisionId, ObligationId,
+        ProposalId, RevisionId, ValueId, WorkspaceId,
     },
     ir::{
         BlockArgument, ConstantValue, Dimension, Opcode, Operation, Program, Region,
         RegionOperation, RegionValue, ValueDef, ValueOrigin,
     },
+    memory::{
+        MEMORY_EVENT_SEMANTICS_VERSION, MemoryCheckReport, MemoryContinuation, MemoryEvent,
+        MemoryHash, MemoryPlanStore, MemoryQuery, MemoryTransaction, VersionedMemoryEvent,
+    },
+    memory_ir::{AliasFact, MemoryBuffer, MemoryProgram},
     obligations::{
         ObligationKind, ObligationOrigin, ObligationStatus, ProofObligation,
         ShapeCompatibilityProposition, ShapeObligationContext, ShapeRelationKind,
@@ -772,6 +777,7 @@ pub struct Workspace {
     events: Vec<VersionedWorkspaceEvent>,
     candidates: CandidateForest,
     equality: EqualityStore,
+    memory: MemoryPlanStore,
     limits: ResourceLimits,
 }
 
@@ -805,6 +811,7 @@ impl Workspace {
             events: Vec::new(),
             candidates: CandidateForest::default(),
             equality: EqualityStore::default(),
+            memory: MemoryPlanStore::default(),
             limits,
         })
     }
@@ -836,6 +843,12 @@ impl Workspace {
     #[must_use]
     pub const fn equality_store(&self) -> &EqualityStore {
         &self.equality
+    }
+
+    /// Returns the independent persistent MemoryIR plan store.
+    #[must_use]
+    pub const fn memory_store(&self) -> &MemoryPlanStore {
+        &self.memory
     }
 
     /// Returns the current head revision ID.
@@ -1846,6 +1859,299 @@ impl Workspace {
         )
     }
 
+    fn memory_source(&self, plan: &MemoryPlanId) -> AgentResult<(Program, SpecHash)> {
+        let spec_revision = self.memory.plan(plan)?.anchor.spec_revision.clone();
+        self.frozen_candidate_source(&spec_revision)
+    }
+
+    /// Creates a conservative exact MemoryIR plan for one proved candidate revision.
+    pub fn memory_create(
+        &mut self,
+        candidate: &CandidateId,
+        candidate_revision: &CandidateRevisionId,
+    ) -> AgentResult<MemoryCheckReport> {
+        let candidate_data = self.candidates.candidate(candidate)?;
+        let spec_revision = candidate_data.spec_revision.clone();
+        let (source, spec_hash) = self.frozen_candidate_source(&spec_revision)?;
+        self.memory.create(
+            &self.candidates,
+            candidate,
+            candidate_revision,
+            &source,
+            &spec_revision,
+            &spec_hash,
+            &self.limits,
+            u64::try_from(self.candidates.events.len()).unwrap_or(u64::MAX),
+            u64::try_from(self.equality.events.len()).unwrap_or(u64::MAX),
+        )
+    }
+
+    /// Reads one immutable MemoryIR revision summary.
+    pub fn memory_query(
+        &self,
+        plan: &MemoryPlanId,
+        revision: &MemoryRevisionId,
+    ) -> AgentResult<MemoryQuery> {
+        self.memory.query(plan, revision)
+    }
+
+    /// Fully verifies one MemoryIR revision against its immutable ImplIR anchor.
+    pub fn memory_check(
+        &self,
+        plan: &MemoryPlanId,
+        revision: &MemoryRevisionId,
+    ) -> AgentResult<MemoryCheckReport> {
+        let (source, _) = self.memory_source(plan)?;
+        self.memory
+            .check(plan, revision, &self.candidates, &source, &self.limits)
+    }
+
+    /// Atomically applies compiler-verified physical-storage decisions.
+    pub fn memory_apply(
+        &mut self,
+        transaction: &MemoryTransaction,
+    ) -> AgentResult<MemoryCheckReport> {
+        let (source, _) = self.memory_source(&transaction.memory_plan)?;
+        self.memory.apply(
+            transaction,
+            &self.candidates,
+            &source,
+            &self.limits,
+            u64::try_from(self.candidates.events.len()).unwrap_or(u64::MAX),
+            u64::try_from(self.equality.events.len()).unwrap_or(u64::MAX),
+        )
+    }
+
+    /// Forks one immutable MemoryIR revision into an independent plan identity.
+    pub fn memory_fork(
+        &mut self,
+        plan: &MemoryPlanId,
+        revision: &MemoryRevisionId,
+        expected_hash: &MemoryHash,
+    ) -> AgentResult<MemoryCheckReport> {
+        let (source, _) = self.memory_source(plan)?;
+        self.memory.fork(
+            plan,
+            revision,
+            expected_hash,
+            &self.candidates,
+            &source,
+            &self.limits,
+            u64::try_from(self.candidates.events.len()).unwrap_or(u64::MAX),
+            u64::try_from(self.equality.events.len()).unwrap_or(u64::MAX),
+        )
+    }
+
+    /// Seals one structurally proved exact or guarded MemoryIR plan.
+    pub fn memory_seal(
+        &mut self,
+        plan: &MemoryPlanId,
+        revision: &MemoryRevisionId,
+        expected_hash: &MemoryHash,
+    ) -> AgentResult<MemoryCheckReport> {
+        let (source, _) = self.memory_source(plan)?;
+        self.memory.seal(
+            plan,
+            revision,
+            expected_hash,
+            &self.candidates,
+            &source,
+            &self.limits,
+            u64::try_from(self.candidates.events.len()).unwrap_or(u64::MAX),
+            u64::try_from(self.equality.events.len()).unwrap_or(u64::MAX),
+        )
+    }
+
+    /// Returns one compiler-owned alias fact without mutating MemoryIR.
+    pub fn memory_alias_query(
+        &self,
+        plan: &MemoryPlanId,
+        revision: &MemoryRevisionId,
+        first: &BufferId,
+        second: &BufferId,
+    ) -> AgentResult<AliasFact> {
+        self.memory.alias_query(plan, revision, first, second)
+    }
+
+    /// Returns one immutable typed buffer region.
+    pub fn memory_buffer_query(
+        &self,
+        plan: &MemoryPlanId,
+        revision: &MemoryRevisionId,
+        buffer: &BufferId,
+    ) -> AgentResult<&MemoryBuffer> {
+        self.memory.buffer_query(plan, revision, buffer)
+    }
+
+    /// Returns bounded deterministic legal storage choices.
+    pub fn memory_continuation(
+        &self,
+        plan: &MemoryPlanId,
+        revision: &MemoryRevisionId,
+    ) -> AgentResult<MemoryContinuation> {
+        let anchor = &self.memory.plan(plan)?.anchor;
+        let implementation = &self
+            .candidates
+            .revision(&anchor.candidate, &anchor.candidate_revision)?
+            .impl_program;
+        self.memory
+            .continuation(plan, revision, implementation, &self.limits)
+    }
+
+    /// Returns one immutable MemoryIR program for reference evaluation.
+    pub fn memory_program(
+        &self,
+        plan: &MemoryPlanId,
+        revision: &MemoryRevisionId,
+    ) -> AgentResult<&MemoryProgram> {
+        Ok(&self.memory.revision(plan, revision)?.program)
+    }
+
+    /// Returns the immutable ImplIR program anchored by a MemoryIR plan.
+    pub fn memory_impl_program(
+        &self,
+        plan: &MemoryPlanId,
+    ) -> AgentResult<&crate::impl_ir::ImplProgram> {
+        let anchor = &self.memory.plan(plan)?.anchor;
+        Ok(&self
+            .candidates
+            .revision(&anchor.candidate, &anchor.candidate_revision)?
+            .impl_program)
+    }
+
+    fn replay_memory_event(&mut self, versioned: &VersionedMemoryEvent) -> AgentResult<()> {
+        if versioned.semantics_version != MEMORY_EVENT_SEMANTICS_VERSION {
+            return Err(AgentError::new(
+                ErrorCode::MemoryEventOrderInvalid,
+                "unsupported memory event semantics version",
+            ));
+        }
+        match &versioned.event {
+            MemoryEvent::Created {
+                candidate,
+                candidate_revision,
+                memory_plan,
+                memory_revision,
+                memory_hash,
+            } => {
+                let candidate_data = self.candidates.candidate(candidate)?;
+                let spec_revision = candidate_data.spec_revision.clone();
+                let (source, spec_hash) = self.frozen_candidate_source(&spec_revision)?;
+                let result = self.memory.create(
+                    &self.candidates,
+                    candidate,
+                    candidate_revision,
+                    &source,
+                    &spec_revision,
+                    &spec_hash,
+                    &self.limits,
+                    versioned.candidate_event_cursor,
+                    versioned.equality_event_cursor,
+                )?;
+                if result.query.memory_plan != *memory_plan
+                    || result.query.memory_revision != *memory_revision
+                    || result.query.memory_hash != *memory_hash
+                {
+                    return Err(AgentError::new(
+                        ErrorCode::ReplayMismatch,
+                        "memory creation replay diverged",
+                    ));
+                }
+            }
+            MemoryEvent::Applied {
+                transaction,
+                memory_revision,
+                memory_hash,
+            } => {
+                let (source, _) = self.memory_source(&transaction.memory_plan)?;
+                let result = self.memory.apply(
+                    transaction,
+                    &self.candidates,
+                    &source,
+                    &self.limits,
+                    versioned.candidate_event_cursor,
+                    versioned.equality_event_cursor,
+                )?;
+                if result.query.memory_revision != *memory_revision
+                    || result.query.memory_hash != *memory_hash
+                {
+                    return Err(AgentError::new(
+                        ErrorCode::ReplayMismatch,
+                        "memory transaction replay diverged",
+                    ));
+                }
+            }
+            MemoryEvent::Forked {
+                parent_plan,
+                parent_revision,
+                memory_plan,
+                memory_revision,
+                memory_hash,
+            } => {
+                let expected = self
+                    .memory
+                    .revision(parent_plan, parent_revision)?
+                    .memory_hash
+                    .clone();
+                let (source, _) = self.memory_source(parent_plan)?;
+                let result = self.memory.fork(
+                    parent_plan,
+                    parent_revision,
+                    &expected,
+                    &self.candidates,
+                    &source,
+                    &self.limits,
+                    versioned.candidate_event_cursor,
+                    versioned.equality_event_cursor,
+                )?;
+                if result.query.memory_plan != *memory_plan
+                    || result.query.memory_revision != *memory_revision
+                    || result.query.memory_hash != *memory_hash
+                {
+                    return Err(AgentError::new(
+                        ErrorCode::ReplayMismatch,
+                        "memory fork replay diverged",
+                    ));
+                }
+            }
+            MemoryEvent::Sealed {
+                memory_plan,
+                base_revision,
+                expected_memory_hash,
+                memory_revision,
+                memory_hash,
+            } => {
+                let (source, _) = self.memory_source(memory_plan)?;
+                let result = self.memory.seal(
+                    memory_plan,
+                    base_revision,
+                    expected_memory_hash,
+                    &self.candidates,
+                    &source,
+                    &self.limits,
+                    versioned.candidate_event_cursor,
+                    versioned.equality_event_cursor,
+                )?;
+                if result.query.memory_revision != *memory_revision
+                    || result.query.memory_hash != *memory_hash
+                {
+                    return Err(AgentError::new(
+                        ErrorCode::ReplayMismatch,
+                        "memory sealing replay diverged",
+                    ));
+                }
+            }
+        }
+        if self.memory.events.last() != Some(versioned) {
+            return Err(
+                AgentError::new(ErrorCode::ReplayMismatch, "memory event replay diverged")
+                    .with_detail("expected_event", json!(versioned))
+                    .with_detail("actual_event", json!(self.memory.events.last())),
+            );
+        }
+        Ok(())
+    }
+
     fn replay_candidate_event(&mut self, versioned: &VersionedCandidateEvent) -> AgentResult<()> {
         if !matches!(
             versioned.semantics_version,
@@ -2068,6 +2374,7 @@ impl Workspace {
         &mut self,
         expected_candidates: &CandidateForest,
         expected_equality: &EqualityStore,
+        expected_memory: &MemoryPlanStore,
     ) -> AgentResult<()> {
         let mut candidate_cursor = 0_usize;
         for equality_event in &expected_equality.events {
@@ -2149,6 +2456,53 @@ impl Workspace {
                 Ok((source.program.clone(), spec_hash))
             },
             &self.limits,
+        )?;
+        let mut candidate_cursor = 0_u64;
+        let mut equality_cursor = 0_u64;
+        let candidate_count = u64::try_from(expected_candidates.events.len()).unwrap_or(u64::MAX);
+        let equality_count = u64::try_from(expected_equality.events.len()).unwrap_or(u64::MAX);
+        for event in &expected_memory.events {
+            if event.candidate_event_cursor < candidate_cursor
+                || event.candidate_event_cursor > candidate_count
+                || event.equality_event_cursor < equality_cursor
+                || event.equality_event_cursor > equality_count
+            {
+                return Err(AgentError::new(
+                    ErrorCode::MemoryEventOrderInvalid,
+                    "memory event dependency cursor is invalid",
+                )
+                .with_detail("candidate_cursor", event.candidate_event_cursor)
+                .with_detail("equality_cursor", event.equality_event_cursor));
+            }
+            candidate_cursor = event.candidate_event_cursor;
+            equality_cursor = event.equality_event_cursor;
+            self.replay_memory_event(event)?;
+        }
+        if &self.memory != expected_memory {
+            return Err(AgentError::new(
+                ErrorCode::ReplayMismatch,
+                "replayed MemoryPlanStore differs from snapshot",
+            ));
+        }
+        let revisions = &self.revisions;
+        self.memory.verify_all(
+            &self.candidates,
+            |revision| {
+                let source = revisions.get(revision).ok_or_else(|| {
+                    AgentError::new(
+                        ErrorCode::RevisionNotFound,
+                        format!("memory anchor revision `{revision}` does not exist"),
+                    )
+                })?;
+                let spec_hash = source.spec_hash.clone().ok_or_else(|| {
+                    AgentError::new(
+                        ErrorCode::SpecHashMismatch,
+                        format!("memory anchor revision `{revision}` has no spec_hash"),
+                    )
+                })?;
+                Ok((source.program.clone(), spec_hash))
+            },
+            &self.limits,
         )
     }
 
@@ -2164,6 +2518,7 @@ impl Workspace {
             events: self.events.clone(),
             candidate_forest: self.candidates.clone(),
             equality_store: self.equality.clone(),
+            memory_store: self.memory.clone(),
         }
     }
 
@@ -2215,6 +2570,12 @@ impl Workspace {
             ResourceKind::EqualityEvents,
             as_u64(snapshot.equality_store.events.len()),
             "equality snapshot replay preflight",
+        )?;
+        BudgetCheck::against(
+            &ResourceLimits::hard_safety_caps(),
+            ResourceKind::MemoryEvents,
+            as_u64(snapshot.memory_store.events.len()),
+            "memory snapshot replay preflight",
         )?;
         let replay_actions = snapshot.events.iter().fold(0_u64, |total, versioned| {
             total.saturating_add(match &versioned.event {
@@ -2425,7 +2786,11 @@ impl Workspace {
             revision.semantic_canonical_version = version;
         }
 
-        replayed.replay_optimization_state(&snapshot.candidate_forest, &snapshot.equality_store)?;
+        replayed.replay_optimization_state(
+            &snapshot.candidate_forest,
+            &snapshot.equality_store,
+            &snapshot.memory_store,
+        )?;
 
         let report = ReplayReport {
             workspace: snapshot.workspace.clone(),
@@ -2439,6 +2804,8 @@ impl Workspace {
             evidence_records_verified: snapshot.candidate_forest.evidence.len(),
             equality_spaces_verified: snapshot.equality_store.spaces.len(),
             equality_events_replayed: snapshot.equality_store.events.len(),
+            memory_plans_verified: snapshot.memory_store.plans.len(),
+            memory_events_replayed: snapshot.memory_store.events.len(),
         };
         replayed.revisions = snapshot.revisions;
         replayed.head = snapshot.head;
@@ -2446,6 +2813,7 @@ impl Workspace {
         replayed.events = snapshot.events;
         replayed.candidates = snapshot.candidate_forest;
         replayed.equality = snapshot.equality_store;
+        replayed.memory = snapshot.memory_store;
         replayed.limits = ResourceLimits::default();
         Ok((replayed, report))
     }

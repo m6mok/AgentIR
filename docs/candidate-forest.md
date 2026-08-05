@@ -1,5 +1,7 @@
 # CandidateForest through Stage 2C
 
+Memory roots accept only fully proved unconditional exact candidate revisions. Open, unsupported, refuted, rejected, or candidate-level guarded primary revisions are rejected. Memory creation and later physical edits do not consume candidate IDs, move candidate heads, or create candidate evidence.
+
 `CandidateForest` is independent of the SpecIR revision DAG. Every `Candidate` stores one frozen SpecIR revision and immutable `spec_hash`, a root/current `cr*` revision, an immutable candidate revision map and optional fork provenance. Candidate-only allocators issue `c*`, `cr*`, `iop*`, `iv*`, `co*`, `ev*` and `p*` IDs without changing the legacy SpecIR allocator codec.
 
 Candidate edits always name an explicit base candidate revision. The core clones/stages the forest, validates all actions, re-verifies ImplIR, extends the proof chain, recomputes hashes/evidence and publishes atomically. A stale base, stale expected `impl_hash`, invalid target, unknown rule, unknown side condition or budget failure changes no graph/head/allocator.
