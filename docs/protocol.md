@@ -66,6 +66,9 @@ An optional `allow_branch: true` explicitly permits a transaction based on a non
 ## Commands
 
 - `workspace.open`: optional `workspace`; returns root `r0`.
+- `workspace.save`: workspace and destination `path`; writes an atomic versioned archive.
+- `workspace.load`: archive `path` and optional `replace`; verifies and replays before inserting.
+- `workspace.verify_archive`: verifies checksum and replay without retaining the workspace.
 - `spec.apply` and `transaction.apply`: workspace, base revision, actions and optional client transaction ID.
 - `spec.check`: optional revision, default head.
 - `spec.freeze`: base revision; commits `freeze_spec` as a new revision.
@@ -76,3 +79,19 @@ An optional `allow_branch: true` explicitly permits a transaction based on a non
 - `continuation.get`: revision, hole and `mode: free | menu | hybrid`.
 
 The complete SAXPY command sequence is [examples/saxpy.jsonl](../examples/saxpy.jsonl).
+
+## Save and resume
+
+Save the current workspace:
+
+```json
+{"command":"workspace.save","request_id":"save","workspace":"w1","path":"/tmp/saxpy.agentir.json"}
+```
+
+In a fresh CLI process, restore it:
+
+```json
+{"command":"workspace.load","request_id":"load","path":"/tmp/saxpy.agentir.json"}
+```
+
+The result contains archive metadata and a replay report. `replace` defaults to `false`, so an archive cannot silently overwrite an already open workspace with the same ID.

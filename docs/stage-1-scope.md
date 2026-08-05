@@ -27,11 +27,10 @@ Operations: `parameter`, `constant`, `add`, `sub`, `mul`, `div`, `fma`, `compare
 
 State: workspace, SpecIR, revision DAG, ActionIR, typed holes, four Stage 1 proof-obligation kinds, continuation frames, canonical JSON and CPU evaluator.
 
-Protocol: `workspace.open`, `spec.apply`, `spec.check`, `spec.freeze`, `transaction.apply`, `program.query`, `program.evaluate`, `revision.fork`, `revision.diff`, `continuation.get`.
+Protocol: `workspace.open`, `spec.apply`, `spec.check`, `spec.freeze`, `transaction.apply`, `program.query`, `program.evaluate`, `revision.fork`, `revision.diff`, `continuation.get`. The post-baseline persistence extension additionally provides `workspace.save`, `workspace.load`, and `workspace.verify_archive` without adding filesystem effects to SpecIR.
 
 ## Explicit non-goals
 
-GPU code generation, LLVM/MLIR, real ImplIR/MemoryIR/ScheduleIR, autotuning, distributed runtime, MCP server, UI, arbitrary textual syntax, SMT solving and production persistence/security are outside this stage.
+GPU code generation, LLVM/MLIR, real ImplIR/MemoryIR/ScheduleIR, autotuning, distributed runtime, MCP server, UI, arbitrary textual syntax, SMT solving and production database/security are outside this stage. Local versioned archives are implemented only for workspace state; AgentIR programs themselves still have no file-I/O semantics.
 
 For the exact source requirements, see [reference/stage-1-brief.md](reference/stage-1-brief.md), which takes precedence over the broader [AgentIR 0.1 draft](reference/agentir-spec-0.1.md) for this prototype.
-

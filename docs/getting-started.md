@@ -41,3 +41,13 @@ cargo run -p agentir-cli --bin agentir < examples/revision_branch.jsonl
 
 The invalid transaction leaves `r0` unchanged. The hole example returns a parameteric continuation frame and then demonstrates that freeze is blocked. The branch example creates two independent children of one revision.
 
+## Save and reopen a workspace
+
+The first process writes `/tmp/agentir-example.agentir.json`; the second verifies its checksum and event replay before serving `r1`:
+
+```bash
+cargo run -p agentir-cli --bin agentir < examples/persistence_save.jsonl
+cargo run -p agentir-cli --bin agentir < examples/persistence_load.jsonl
+```
+
+Use a project-controlled path for real work. Archive files can contain constants, names and provenance from the graph.

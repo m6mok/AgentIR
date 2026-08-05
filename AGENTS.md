@@ -30,11 +30,13 @@ When documentation and behavior disagree, consult `docs/reference/stage-1-brief.
 ## Change rules
 
 - Keep transport concerns out of `agentir-core`.
+- Keep filesystem persistence in `agentir-store`; core snapshots and replay must remain I/O-free.
 - Prefer `BTreeMap`/`BTreeSet` where ordering affects canonical state or output.
 - Never use `unsafe` in Stage 1.
 - New public types and fields need rustdoc.
 - New diagnostics need a stable `ErrorCode` and structured expected/actual/details where useful.
 - Rejected transactions must not consume IDs, move `head`, or mutate an older revision.
+- Archive loads must verify envelope checksum, every revision hash/status, and event replay before publishing a workspace.
 - Any new opcode needs verifier, canonical model, interpreter behavior, protocol coverage, and tests.
 - Do not silently widen Stage 1. Put future-facing work in `docs/roadmap.md` or behind a small explicit interface.
 
@@ -50,4 +52,3 @@ cargo run -p agentir-cli --bin agentir < examples/saxpy.jsonl
 ```
 
 The final SAXPY response must contain `[12.0,24.0,36.0,48.0]`.
-

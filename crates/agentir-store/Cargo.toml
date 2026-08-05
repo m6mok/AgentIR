@@ -1,6 +1,6 @@
 [package]
-name = "agentir-protocol"
-description = "JSON protocol and stateful request engine for AgentIR"
+name = "agentir-store"
+description = "Versioned atomic workspace persistence and replay for AgentIR"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,10 +8,9 @@ rust-version.workspace = true
 
 [dependencies]
 agentir-core = { path = "../agentir-core" }
-agentir-eval = { path = "../agentir-eval" }
-agentir-store = { path = "../agentir-store" }
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 
 [lints]
 workspace = true

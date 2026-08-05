@@ -10,9 +10,13 @@ agentir-protocol ── stateful workspace registry and response envelope
 agentir-core ────── resolve → infer → verify → atomic commit → Revision
   ↓ frozen Program
 agentir-eval ────── deterministic CPU semantic oracle
+
+agentir-core snapshot/event log
+  ↓
+agentir-store ───── checksum → temp write + sync → atomic rename
 ```
 
-The dependency direction is one-way: `core` knows nothing about JSONL sessions or evaluation input encoding; `eval` depends on `core`; `protocol` composes both; `cli` only streams lines.
+The dependency direction is one-way: `core` knows nothing about JSONL sessions, evaluation input encoding or filesystems; `eval` and `store` depend on `core`; `protocol` composes them; `cli` only streams lines.
 
 ## Canonical program
 
@@ -40,3 +44,6 @@ The core derives frames from the same verified program used by free transactions
 
 `Program` is serialized to compact deterministic JSON and hashed with SHA-256. Revision timestamp is metadata outside the hash. The current prototype includes compiler IDs and provenance in the hash; see ADR-003 in [DECISIONS.md](../DECISIONS.md).
 
+## Persistence boundary
+
+The core snapshot contains the complete revision DAG, allocator state and ordered transaction/fork events. Loading never trusts a serialized graph directly: `agentir-store` checks the archive envelope, then core replay rebuilds the history through normal verification and compares every revision. Only a fully verified workspace is inserted into the protocol engine. See [persistence.md](persistence.md).

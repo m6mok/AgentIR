@@ -15,6 +15,7 @@ AgentIR — экспериментальная агентно-нативная �
 - typed holes, proof obligations и continuation frames;
 - deterministic canonical JSON и SHA-256 content hash;
 - CPU reference interpreter;
+- versioned checksummed workspace archives with deterministic event replay;
 - stateful JSONL CLI с одним ответом на каждый запрос.
 
 ## Быстрый старт
@@ -53,20 +54,20 @@ cargo run -p agentir-cli --bin agentir < examples/saxpy.jsonl
 
 - `agentir-core` — canonical IR, verifier, transactions, revisions, holes и continuations;
 - `agentir-eval` — детерминированный CPU interpreter;
+- `agentir-store` — atomic file persistence, archive integrity и deterministic replay;
 - `agentir-protocol` — wire types и stateful command engine;
 - `agentir-cli` — тонкий JSONL stdin/stdout frontend.
 
 ## Ограничения Stage 1
 
-В прототипе нет GPU backend, LLVM/MLIR, MemoryIR, ScheduleIR, autotuning, SMT solver, сетевого MCP server и persistent database. Shape solver намеренно мал; unknown shape equality создаёт открытый obligation. Workspace живёт только в памяти процесса CLI. Известные компромиссы подробно перечислены в [DECISIONS.md](DECISIONS.md).
+В прототипе нет GPU backend, LLVM/MLIR, MemoryIR, ScheduleIR, autotuning, SMT solver, сетевого MCP server и concurrent workspace database. Shape solver намеренно мал; unknown shape equality создаёт открытый obligation. Workspace можно сохранить в локальный archive и восстановить в новом процессе, но блокировки и многопроцессная координация пока отсутствуют. Известные компромиссы подробно перечислены в [DECISIONS.md](DECISIONS.md).
 
 ## Roadmap
 
-Следующий технический шаг — сделать persistence и replay для canonical revisions, затем ввести ImplIR и проверяемое отношение refinement к замороженному SpecIR. Дальнейший путь: MemoryIR → ScheduleIR и simulator → первый GPU backend → обучение и сравнение agent policies. См. [docs/roadmap.md](docs/roadmap.md).
+Следующий технический шаг — canonical renumbering и schema migrations для archives, затем ImplIR и проверяемое отношение refinement к замороженному SpecIR. Дальнейший путь: MemoryIR → ScheduleIR и simulator → первый GPU backend → обучение и сравнение agent policies. См. [docs/roadmap.md](docs/roadmap.md).
 
 ## Документация
 
 Навигация по архитектуре, протоколу, разработке и нормативным исходникам находится в [docs/README.md](docs/README.md).
 
 Проект распространяется по лицензии [MIT](LICENSE).
-

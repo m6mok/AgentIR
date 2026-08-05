@@ -24,4 +24,7 @@ jobs:
         run: cargo test --workspace
       - name: Run SAXPY
         run: cargo run --quiet -p agentir-cli --bin agentir < examples/saxpy.jsonl
-
+      - name: Save and reopen workspace
+        run: |
+          cargo run --quiet -p agentir-cli --bin agentir < examples/persistence_save.jsonl
+          cargo run --quiet -p agentir-cli --bin agentir < examples/persistence_load.jsonl

@@ -1,4 +1,5 @@
 /target/
 *.profraw
 *.profdata
+*.agentir.json
 .DS_Store

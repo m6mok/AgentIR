@@ -323,3 +323,74 @@ fn region_argument_mismatch_is_rejected_atomically() {
     assert_eq!(error.code, ErrorCode::InvalidRegion);
     assert_eq!(workspace.head(), &RevisionId::new("r0"));
 }
+
+#[test]
+fn snapshot_replay_restores_dag_hashes_and_allocator_state() {
+    let mut workspace = Workspace::new(WorkspaceId::new("w1")).expect("workspace opens");
+    let partial = workspace
+        .apply(&transaction(
+            "r0",
+            vec![
+                Action::CreateParameter {
+                    bind: "$x".to_owned(),
+                    name: "x".to_owned(),
+                    ty: "f32".parse().expect("type"),
+                },
+                Action::CreateHole {
+                    bind: "$hole".to_owned(),
+                    expected_type: "f32".parse().expect("type"),
+                    shape_constraints: Vec::new(),
+                },
+                Action::SetOutput {
+                    name: "out".to_owned(),
+                    value: "$hole".to_owned(),
+                },
+            ],
+        ))
+        .expect("partial graph commits");
+    let first_frame = workspace
+        .continuation(
+            &partial.revision,
+            &HoleId::new("h1"),
+            InteractionMode::Hybrid,
+        )
+        .expect("continuation");
+    assert_eq!(first_frame.frame.to_string(), "cf1");
+    let fork = workspace.fork(&partial.revision).expect("fork");
+    assert_eq!(fork, RevisionId::new("r2"));
+
+    let snapshot = workspace.snapshot();
+    let (mut restored, report) = Workspace::from_snapshot(snapshot.clone()).expect("replays");
+    assert_eq!(report.revisions_verified, 3);
+    assert_eq!(report.events_replayed, 2);
+    assert_eq!(report.content_hashes_verified, 3);
+    assert_eq!(restored.snapshot(), snapshot);
+
+    let next_frame = restored
+        .continuation(&partial.revision, &HoleId::new("h1"), InteractionMode::Menu)
+        .expect("restored allocator resumes");
+    assert_eq!(next_frame.frame.to_string(), "cf2");
+}
+
+#[test]
+fn snapshot_with_tampered_revision_hash_is_rejected() {
+    let mut workspace = Workspace::new(WorkspaceId::new("w1")).expect("workspace opens");
+    workspace
+        .apply(&transaction(
+            "r0",
+            vec![Action::CreateParameter {
+                bind: "$x".to_owned(),
+                name: "x".to_owned(),
+                ty: "f32".parse().expect("type"),
+            }],
+        ))
+        .expect("transaction commits");
+    let mut snapshot = workspace.snapshot();
+    snapshot
+        .revisions
+        .get_mut(&RevisionId::new("r1"))
+        .expect("revision")
+        .content_hash = "tampered".to_owned();
+    let error = Workspace::from_snapshot(snapshot).expect_err("tampering is rejected");
+    assert_eq!(error.code, ErrorCode::PersistenceIntegrity);
+}

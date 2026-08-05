@@ -110,6 +110,33 @@ impl Engine {
                 self.workspaces.insert(id.clone(), workspace);
                 Ok(json!({"workspace": id, "revision": head, "content_hash": hash}))
             }
+            Request::WorkspaceSave {
+                workspace, path, ..
+            } => serde_json::to_value(agentir_store::save_workspace(
+                &path,
+                self.workspace(&workspace)?,
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::PersistenceFormat, error.to_string())),
+            Request::WorkspaceLoad { path, replace, .. } => {
+                let loaded = agentir_store::load_workspace(&path)?;
+                let workspace_id = loaded.workspace.id().clone();
+                if self.workspaces.contains_key(&workspace_id) && !replace {
+                    return Err(AgentError::new(
+                        ErrorCode::DuplicateBinding,
+                        format!("workspace `{workspace_id}` is already open"),
+                    ));
+                }
+                let result = json!({
+                    "metadata": loaded.metadata,
+                    "replay": loaded.replay,
+                });
+                self.workspaces.insert(workspace_id, loaded.workspace);
+                Ok(result)
+            }
+            Request::WorkspaceVerifyArchive { path, .. } => {
+                let (metadata, replay) = agentir_store::verify_archive(&path)?;
+                Ok(json!({"metadata": metadata, "replay": replay}))
+            }
             Request::SpecApply {
                 workspace,
                 base_revision,

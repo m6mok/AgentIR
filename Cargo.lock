@@ -34,8 +34,19 @@ version = "0.1.0"
 dependencies = [
  "agentir-core",
  "agentir-eval",
+ "agentir-store",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "agentir-store"
+version = "0.1.0"
+dependencies = [
+ "agentir-core",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

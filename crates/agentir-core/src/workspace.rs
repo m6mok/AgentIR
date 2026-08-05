@@ -12,6 +12,7 @@ use crate::{
         RegionOperation, RegionValue, ValueDef, ValueOrigin,
     },
     obligations::{ObligationKind, ObligationOrigin, ObligationStatus, ProofObligation},
+    persistence::{ReplayReport, WORKSPACE_SNAPSHOT_VERSION, WorkspaceEvent, WorkspaceSnapshot},
     revision::{Revision, RevisionDiff, StatusSummary, diff},
     shapes::{SolverStatus, same_shape},
     spec::{infer_higher, infer_primitive},
@@ -477,6 +478,7 @@ pub struct Workspace {
     revisions: BTreeMap<RevisionId, Revision>,
     head: RevisionId,
     allocator: IdAllocator,
+    events: Vec<WorkspaceEvent>,
 }
 
 impl Workspace {
@@ -499,6 +501,7 @@ impl Workspace {
             revisions: BTreeMap::from([(root.clone(), revision)]),
             head: root,
             allocator: IdAllocator::default(),
+            events: Vec::new(),
         })
     }
 
@@ -949,6 +952,12 @@ impl Workspace {
         self.allocator = allocator;
         self.revisions.insert(revision_id.clone(), revision);
         self.head = revision_id.clone();
+        self.events.push(WorkspaceEvent::TransactionApplied {
+            transaction_id: transaction_id.clone(),
+            revision: revision_id.clone(),
+            content_hash: hash.clone(),
+            transaction: transaction.clone(),
+        });
         let bindings = bindings
             .into_iter()
             .map(|(binding, value)| (binding, value.persistent_id()))
@@ -968,10 +977,11 @@ impl Workspace {
     pub fn fork(&mut self, base_revision: &RevisionId) -> AgentResult<RevisionId> {
         let base = self.revision(base_revision)?.clone();
         let revision_id = self.allocator.revision();
+        let hash = base.content_hash;
         let revision = Revision {
             id: revision_id.clone(),
             parents: vec![base_revision.clone()],
-            content_hash: base.content_hash,
+            content_hash: hash.clone(),
             status: base.status,
             program: base.program,
             applied_transaction: None,
@@ -979,7 +989,169 @@ impl Workspace {
         };
         self.revisions.insert(revision_id.clone(), revision);
         self.head = revision_id.clone();
+        self.events.push(WorkspaceEvent::RevisionForked {
+            base_revision: base_revision.clone(),
+            revision: revision_id.clone(),
+            content_hash: hash,
+        });
         Ok(revision_id)
+    }
+
+    /// Captures all state required to resume and replay this workspace.
+    #[must_use]
+    pub fn snapshot(&self) -> WorkspaceSnapshot {
+        WorkspaceSnapshot {
+            schema_version: WORKSPACE_SNAPSHOT_VERSION,
+            workspace: self.id.clone(),
+            head: self.head.clone(),
+            revisions: self.revisions.clone(),
+            allocator: self.allocator.clone(),
+            events: self.events.clone(),
+        }
+    }
+
+    /// Reconstructs and verifies a workspace from its event-backed snapshot.
+    pub fn from_snapshot(snapshot: WorkspaceSnapshot) -> AgentResult<(Self, ReplayReport)> {
+        if snapshot.schema_version != WORKSPACE_SNAPSHOT_VERSION {
+            return Err(AgentError::new(
+                ErrorCode::PersistenceFormat,
+                format!(
+                    "workspace snapshot version {} is unsupported; expected {}",
+                    snapshot.schema_version, WORKSPACE_SNAPSHOT_VERSION
+                ),
+            ));
+        }
+        let mut replayed = Self::new(snapshot.workspace.clone())?;
+        for event in &snapshot.events {
+            match event {
+                WorkspaceEvent::TransactionApplied {
+                    transaction_id,
+                    revision,
+                    content_hash: expected_hash,
+                    transaction,
+                } => {
+                    let commit = replayed.apply(transaction)?;
+                    if commit.transaction != *transaction_id
+                        || commit.revision != *revision
+                        || commit.content_hash != *expected_hash
+                    {
+                        return Err(AgentError::new(
+                            ErrorCode::ReplayMismatch,
+                            format!("transaction replay diverged at revision `{revision}`"),
+                        )
+                        .with_detail("expected_revision", revision.to_string())
+                        .with_detail("actual_revision", commit.revision.to_string())
+                        .with_detail("expected_hash", expected_hash.clone())
+                        .with_detail("actual_hash", commit.content_hash));
+                    }
+                }
+                WorkspaceEvent::RevisionForked {
+                    base_revision,
+                    revision,
+                    content_hash: expected_hash,
+                } => {
+                    let actual_revision = replayed.fork(base_revision)?;
+                    let actual_hash = replayed.revision(&actual_revision)?.content_hash.clone();
+                    if actual_revision != *revision || actual_hash != *expected_hash {
+                        return Err(AgentError::new(
+                            ErrorCode::ReplayMismatch,
+                            format!("fork replay diverged at revision `{revision}`"),
+                        )
+                        .with_detail("expected_revision", revision.to_string())
+                        .with_detail("actual_revision", actual_revision.to_string())
+                        .with_detail("expected_hash", expected_hash.clone())
+                        .with_detail("actual_hash", actual_hash));
+                    }
+                }
+            }
+        }
+        if replayed.head != snapshot.head {
+            return Err(AgentError::new(
+                ErrorCode::ReplayMismatch,
+                "replayed head does not match snapshot head",
+            )
+            .with_detail("expected_head", snapshot.head.to_string())
+            .with_detail("actual_head", replayed.head.to_string()));
+        }
+        if replayed.revisions.len() != snapshot.revisions.len() {
+            return Err(AgentError::new(
+                ErrorCode::ReplayMismatch,
+                "replayed revision count does not match snapshot",
+            )
+            .with_detail("expected_revisions", snapshot.revisions.len() as u64)
+            .with_detail("actual_revisions", replayed.revisions.len() as u64));
+        }
+        if replayed.events != snapshot.events {
+            return Err(AgentError::new(
+                ErrorCode::ReplayMismatch,
+                "replayed event log differs from snapshot",
+            ));
+        }
+        if !replayed
+            .allocator
+            .same_persistent_state(&snapshot.allocator)
+        {
+            return Err(AgentError::new(
+                ErrorCode::ReplayMismatch,
+                "persistent ID allocator state differs after replay",
+            ));
+        }
+
+        let mut content_hashes_verified = 0;
+        for (id, expected) in &snapshot.revisions {
+            if expected.id != *id {
+                return Err(AgentError::new(
+                    ErrorCode::PersistenceIntegrity,
+                    format!("revision map key `{id}` does not match embedded ID"),
+                ));
+            }
+            let recomputed = content_hash(&expected.program)?;
+            if recomputed != expected.content_hash {
+                return Err(AgentError::new(
+                    ErrorCode::PersistenceIntegrity,
+                    format!("revision `{id}` content hash is invalid"),
+                )
+                .with_detail("expected_hash", expected.content_hash.clone())
+                .with_detail("actual_hash", recomputed));
+            }
+            content_hashes_verified += 1;
+            if expected.status != StatusSummary::from_program(&expected.program) {
+                return Err(AgentError::new(
+                    ErrorCode::PersistenceIntegrity,
+                    format!("revision `{id}` status summary is invalid"),
+                ));
+            }
+            let actual = replayed.revisions.get(id).ok_or_else(|| {
+                AgentError::new(
+                    ErrorCode::ReplayMismatch,
+                    format!("replay did not create revision `{id}`"),
+                )
+            })?;
+            if actual.parents != expected.parents
+                || actual.content_hash != expected.content_hash
+                || actual.program != expected.program
+                || actual.applied_transaction != expected.applied_transaction
+                || actual.status != expected.status
+            {
+                return Err(AgentError::new(
+                    ErrorCode::ReplayMismatch,
+                    format!("replayed revision `{id}` differs from snapshot"),
+                ));
+            }
+        }
+
+        let report = ReplayReport {
+            workspace: snapshot.workspace.clone(),
+            head: snapshot.head.clone(),
+            revisions_verified: snapshot.revisions.len(),
+            events_replayed: snapshot.events.len(),
+            content_hashes_verified,
+        };
+        replayed.revisions = snapshot.revisions;
+        replayed.head = snapshot.head;
+        replayed.allocator = snapshot.allocator;
+        replayed.events = snapshot.events;
+        Ok((replayed, report))
     }
 
     /// Computes a deterministic structural diff between two revisions.

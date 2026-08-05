@@ -1,0 +1,2 @@
+{"command":"workspace.load","request_id":"load","path":"/tmp/agentir-example.agentir.json"}
+{"command":"program.query","request_id":"query","workspace":"persisted","revision":"r1","view":"summary"}

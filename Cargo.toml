@@ -2,6 +2,7 @@
 members = [
     "crates/agentir-core",
     "crates/agentir-eval",
+    "crates/agentir-store",
     "crates/agentir-protocol",
     "crates/agentir-cli",
 ]

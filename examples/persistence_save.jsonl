@@ -1,0 +1,3 @@
+{"command":"workspace.open","request_id":"open","workspace":"persisted"}
+{"command":"spec.apply","request_id":"build","workspace":"persisted","base_revision":"r0","actions":[{"kind":"create_parameter","bind":"$x","name":"x","type":"f32"},{"kind":"set_output","name":"out","value":"$x"}]}
+{"command":"workspace.save","request_id":"save","workspace":"persisted","path":"/tmp/agentir-example.agentir.json"}

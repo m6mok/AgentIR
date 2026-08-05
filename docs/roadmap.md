@@ -2,11 +2,11 @@
 
 ## Immediate hardening
 
-1. Persist canonical revisions and replay transaction logs.
-2. Add schema/version negotiation and golden protocol fixtures.
+1. Add schema migrations and golden archive/protocol fixtures around the versioned persistence layer.
+2. Add canonical renumbering so equivalent construction histories converge on one semantic hash.
 3. Make constraint addition discharge compact shape obligations incrementally.
-4. Add canonical renumbering so equivalent construction histories converge on one semantic hash.
-5. Add resource budgets and fuzz/property tests for parser, transactions and interpreter.
+4. Add process locking or a transactional database when concurrent workspace access is required.
+5. Add resource budgets and fuzz/property tests for parser, transactions, archives and interpreter.
 
 ## Stage 2: ImplIR and refinement
 
@@ -27,4 +27,3 @@ Select one target family, lower a deliberately small kernel subset, emit reprodu
 ## Stage 6: agent evaluation
 
 Compare free, menu and hybrid policies using accepted actions per token, rejection rate, repair cycles, context size, semantic correctness and measured kernel performance.
-

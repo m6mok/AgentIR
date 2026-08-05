@@ -16,6 +16,7 @@ pub mod holes;
 pub mod ids;
 pub mod ir;
 pub mod obligations;
+pub mod persistence;
 pub mod revision;
 pub mod shapes;
 pub mod spec;

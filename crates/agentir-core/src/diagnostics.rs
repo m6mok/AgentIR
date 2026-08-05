@@ -44,6 +44,14 @@ pub enum ErrorCode {
     DivisionByZero,
     /// JSON or request data is malformed.
     InvalidRequest,
+    /// Workspace archive I/O failed.
+    PersistenceIo,
+    /// Workspace archive format or version is unsupported.
+    PersistenceFormat,
+    /// Workspace archive failed an integrity check.
+    PersistenceIntegrity,
+    /// Replayed events did not reproduce the archived revision graph.
+    ReplayMismatch,
 }
 
 /// Structured compiler error suitable for agent repair loops.

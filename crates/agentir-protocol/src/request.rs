@@ -33,6 +33,35 @@ pub enum Request {
         #[serde(default)]
         workspace: Option<WorkspaceId>,
     },
+    /// Atomically writes one workspace to a versioned local archive.
+    #[serde(rename = "workspace.save")]
+    WorkspaceSave {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Workspace to persist.
+        workspace: WorkspaceId,
+        /// Destination archive path.
+        path: String,
+    },
+    /// Loads and replays a versioned local workspace archive.
+    #[serde(rename = "workspace.load")]
+    WorkspaceLoad {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Source archive path.
+        path: String,
+        /// Explicitly permits replacing an in-memory workspace with the same ID.
+        #[serde(default)]
+        replace: bool,
+    },
+    /// Verifies archive checksum, revisions, and deterministic event replay.
+    #[serde(rename = "workspace.verify_archive")]
+    WorkspaceVerifyArchive {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Archive path to verify without retaining the workspace.
+        path: String,
+    },
     /// Applies an ActionIR transaction while constructing SpecIR.
     #[serde(rename = "spec.apply")]
     SpecApply {
@@ -165,6 +194,9 @@ impl Request {
     pub fn request_id(&self) -> &str {
         match self {
             Self::WorkspaceOpen { request_id, .. }
+            | Self::WorkspaceSave { request_id, .. }
+            | Self::WorkspaceLoad { request_id, .. }
+            | Self::WorkspaceVerifyArchive { request_id, .. }
             | Self::SpecApply { request_id, .. }
             | Self::SpecCheck { request_id, .. }
             | Self::SpecFreeze { request_id, .. }

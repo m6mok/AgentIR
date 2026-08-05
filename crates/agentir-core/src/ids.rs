@@ -44,7 +44,7 @@ identifier!(ObligationId);
 identifier!(ContinuationFrameId);
 
 /// Monotonic identifier allocator owned by one workspace.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IdAllocator {
     revision: u64,
     transaction: u64,
@@ -77,4 +77,17 @@ impl IdAllocator {
     allocator_method!(hole, hole, "h", HoleId);
     allocator_method!(obligation, obligation, "o", ObligationId);
     allocator_method!(frame, frame, "cf", ContinuationFrameId);
+
+    /// Compares counters that affect persistent graph and revision identities.
+    #[must_use]
+    pub fn same_persistent_state(&self, other: &Self) -> bool {
+        self.revision == other.revision
+            && self.transaction == other.transaction
+            && self.action == other.action
+            && self.operation == other.operation
+            && self.value == other.value
+            && self.dimension == other.dimension
+            && self.hole == other.hole
+            && self.obligation == other.obligation
+    }
 }
