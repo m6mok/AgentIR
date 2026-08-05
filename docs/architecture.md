@@ -7,17 +7,17 @@ JSONL client
   ↓ Request
 agentir-protocol ── stateful workspace registry and response envelope
   ↓ ActionIR
-agentir-core ────── resolve → infer → verify → atomic commit → Revision
+agentir-core ────── budget → resolve → fact-aware infer → verify → atomic commit → Revision
   ↓ frozen SpecIR
 semantic codec ─── alpha-normalize → reachable DAG → spec_hash
   ↓ frozen Program
 agentir-eval ────── deterministic CPU semantic oracle
 
-agentir-core snapshot/event log
+agentir-core snapshot/versioned event log
   ↓
 agentir-store ───── version sniff → source checksum → migrate → replay
   ↓ save/migrate
-archive v2 ─────── checksum → temp write + sync → atomic rename
+archive v3 ─────── checksum → temp write + sync → atomic rename
 ```
 
 The dependency direction is one-way: `core` knows nothing about JSONL sessions, evaluation input encoding or filesystems; `eval` and `store` depend on `core`; `protocol` composes them; `cli` only streams lines.
@@ -38,7 +38,13 @@ Ordinary writes require the current head. Deliberate search branching uses `allo
 
 A hole is both a synthesis target and a typed placeholder value. `fill_hole` checks type and shape before attaching a value. An open hole has an open `HoleFilled` obligation and blocks freeze and evaluation.
 
-Unknown symbolic equality is not treated as proof. The operation is `conditional` and receives a `ShapeCompatible` obligation. Contradictory static shapes are rejected.
+Unknown symbolic equality is not treated as proof. The operation is `conditional` and receives a structured `ShapeCompatible` obligation. `ConstraintFacts` rechecks its exact left/right types when a new equality arrives; proved obligations close, unrelated facts leave them open, and contradictions reject the transaction atomically.
+
+## Semantics versions and budgets
+
+New events use core semantics v2. Migrated archive v1/v2 events are tagged semantics v1 and replay the Stage 1.1 obligation proposition/constraint behavior exactly; a restored workspace may therefore contain a deterministic mixed v1/v2 history. Archive version is a separate on-disk codec axis.
+
+`ResourceLimits` is runtime policy outside canonical state. Transaction sizes are projected before graph cloning and ID allocation; evaluator output is projected before tensor results; archive counts are checked before replay. Archive replay uses hard safety caps rather than configurable interactive limits.
 
 ## Continuation frames
 

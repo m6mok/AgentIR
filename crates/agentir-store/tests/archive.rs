@@ -1,12 +1,16 @@
 use agentir_core::{
     Action, ErrorCode, RevisionId, Transaction, Workspace, WorkspaceId,
-    persistence::{LegacyWorkspaceSnapshotV1, WorkspaceSnapshot},
+    persistence::{
+        CORE_SEMANTICS_VERSION, LEGACY_CORE_SEMANTICS_VERSION, LegacyWorkspaceSnapshotV1,
+        LegacyWorkspaceSnapshotV2, WorkspaceSnapshot,
+    },
     semantic::SpecHash,
 };
 use agentir_store::{
-    ARCHIVE_FORMAT_VERSION, LEGACY_ARCHIVE_FORMAT_VERSION, MIGRATION_V1_TO_V2, MIGRATION_V2_NOOP,
-    WorkspaceArchiveV1, WorkspaceArchiveV2, load_workspace, load_workspace_bytes, migrate_archive,
-    migrate_archive_v1_to_v2, save_workspace, verify_archive,
+    ARCHIVE_FORMAT_VERSION, LEGACY_ARCHIVE_FORMAT_V2, LEGACY_ARCHIVE_FORMAT_VERSION,
+    MIGRATION_V1_TO_V2, MIGRATION_V2_TO_V3, MIGRATION_V3_NOOP, WorkspaceArchiveV1,
+    WorkspaceArchiveV2, WorkspaceArchiveV3, load_workspace, load_workspace_bytes, migrate_archive,
+    migrate_archive_v1_to_v2, migrate_archive_v2_to_v3, save_workspace, verify_archive,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -22,8 +26,13 @@ use std::{
 const MINIMAL_V1: &[u8] = include_bytes!("fixtures/minimal-v1.json");
 const SAXPY_V1: &[u8] = include_bytes!("fixtures/saxpy-v1.json");
 const MINIMAL_V2: &[u8] = include_bytes!("fixtures/minimal-v2.json");
+const MINIMAL_V3: &[u8] = include_bytes!("fixtures/minimal-v3.json");
+const SAXPY_V3: &[u8] = include_bytes!("fixtures/saxpy-v3.json");
+const MIXED_V3: &[u8] = include_bytes!("fixtures/mixed-v3.json");
+const CORRUPTED_SEMANTICS_V3: &[u8] = include_bytes!("fixtures/corrupted-semantics-v3.json");
 const CORRUPTED_V1: &[u8] = include_bytes!("fixtures/corrupted-v1.json");
 const FUTURE_V3: &[u8] = include_bytes!("fixtures/future-v3.json");
+const FUTURE_V4: &[u8] = include_bytes!("fixtures/future-v4.json");
 
 static PATH_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -89,6 +98,33 @@ fn hash_body(body: &impl Serialize) -> String {
     )
 }
 
+fn hash_bytes(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    digest.iter().fold(
+        String::with_capacity(digest.len() * 2),
+        |mut output, byte| {
+            write!(output, "{byte:02x}").unwrap();
+            output
+        },
+    )
+}
+
+#[test]
+fn immutable_legacy_fixture_bytes_are_pinned() {
+    assert_eq!(
+        hash_bytes(MINIMAL_V1),
+        "6179d2f90d204e51fcbc237f51a4f8695af3f0908d6ac4759b46eab57d3399db"
+    );
+    assert_eq!(
+        hash_bytes(SAXPY_V1),
+        "b235874897a03e822cdd377177023a171b2cdc52a4ca849dca6a37ebd85f749a"
+    );
+    assert_eq!(
+        hash_bytes(MINIMAL_V2),
+        "1e8a5a04317a5e3fbcc96fbd25ccc9b733b52ad15254aa30f98244ac9c8e8b4c"
+    );
+}
+
 #[derive(Serialize)]
 struct BodyV1<'a> {
     format: &'a str,
@@ -102,11 +138,19 @@ struct BodyV2<'a> {
     format: &'a str,
     format_version: u32,
     compiler_version: &'a str,
+    snapshot: &'a LegacyWorkspaceSnapshotV2,
+}
+
+#[derive(Serialize)]
+struct BodyV3<'a> {
+    format: &'a str,
+    format_version: u32,
+    compiler_version: &'a str,
     snapshot: &'a WorkspaceSnapshot,
 }
 
 #[test]
-fn archive_round_trip_writes_v2_replays_and_resumes_ids() {
+fn archive_round_trip_writes_v3_replays_and_resumes_ids() {
     let archive = TestArchive::new("round-trip");
     let workspace = simple_workspace();
     let expected = workspace.snapshot();
@@ -120,7 +164,13 @@ fn archive_round_trip_writes_v2_replays_and_resumes_ids() {
     assert_eq!(loaded.replay.revisions_verified, 2);
     assert_eq!(loaded.replay.content_hashes_verified, 2);
     assert_eq!(loaded.metadata.archive_hash, saved.archive_hash);
-    assert_eq!(loaded.migration.applied_steps, [MIGRATION_V2_NOOP]);
+    assert_eq!(loaded.migration.applied_steps, [MIGRATION_V3_NOOP]);
+    assert!(
+        expected
+            .events
+            .iter()
+            .all(|event| event.semantics_version == CORE_SEMANTICS_VERSION)
+    );
 
     let resumed = loaded
         .workspace
@@ -150,7 +200,7 @@ fn golden_v1_migrates_purely_and_preserves_content_hashes() {
         .map(|(id, revision)| (id.clone(), revision.content_hash.clone()))
         .collect::<BTreeMap<_, _>>();
     let migrated = migrate_archive_v1_to_v2(legacy).expect("pure migration");
-    assert_eq!(migrated.format_version, ARCHIVE_FORMAT_VERSION);
+    assert_eq!(migrated.format_version, LEGACY_ARCHIVE_FORMAT_V2);
     assert_eq!(migrated.snapshot.schema_version, 2);
     for (id, hash) in &expected_hashes {
         assert_eq!(migrated.snapshot.revisions[id].content_hash, *hash);
@@ -164,7 +214,10 @@ fn golden_v1_migrates_purely_and_preserves_content_hashes() {
         loaded.metadata.format_version,
         LEGACY_ARCHIVE_FORMAT_VERSION
     );
-    assert_eq!(loaded.migration.applied_steps, [MIGRATION_V1_TO_V2]);
+    assert_eq!(
+        loaded.migration.applied_steps,
+        [MIGRATION_V1_TO_V2, MIGRATION_V2_TO_V3]
+    );
     assert_eq!(loaded.replay.spec_hashes_verified, 1);
 }
 
@@ -189,31 +242,48 @@ fn golden_saxpy_v1_migrates_and_evaluates() {
 }
 
 #[test]
-fn saving_a_loaded_v1_workspace_writes_only_v2() {
+fn saving_a_loaded_v1_workspace_writes_only_v3() {
     let destination = TestArchive::new("save-migrated");
     let loaded = load_workspace_bytes(MINIMAL_V1).expect("v1 load");
-    let saved = save_workspace(destination.path(), &loaded.workspace).expect("v2 save");
+    let saved = save_workspace(destination.path(), &loaded.workspace).expect("v3 save");
     assert_eq!(saved.format_version, ARCHIVE_FORMAT_VERSION);
     let document: Value =
         serde_json::from_slice(&fs::read(destination.path()).expect("read")).expect("JSON");
     assert_eq!(document["format_version"], ARCHIVE_FORMAT_VERSION);
-    assert_eq!(document["snapshot"]["schema_version"], 2);
+    assert_eq!(document["snapshot"]["schema_version"], 3);
+    assert_eq!(
+        document["snapshot"]["events"][0]["semantics_version"],
+        LEGACY_CORE_SEMANTICS_VERSION
+    );
 }
 
 #[test]
-fn golden_v2_load_is_an_explicit_noop() {
+fn golden_v2_load_runs_explicit_v2_to_v3_migration() {
     let loaded = load_workspace_bytes(MINIMAL_V2).expect("v2 load");
-    assert_eq!(loaded.metadata.format_version, ARCHIVE_FORMAT_VERSION);
+    assert_eq!(loaded.metadata.format_version, LEGACY_ARCHIVE_FORMAT_V2);
     assert_eq!(loaded.migration.source_archive_version, 2);
-    assert_eq!(loaded.migration.target_archive_version, 2);
-    assert_eq!(loaded.migration.applied_steps, [MIGRATION_V2_NOOP]);
+    assert_eq!(
+        loaded.migration.target_archive_version,
+        ARCHIVE_FORMAT_VERSION
+    );
+    assert_eq!(loaded.migration.applied_steps, [MIGRATION_V2_TO_V3]);
+    assert!(
+        loaded
+            .workspace
+            .snapshot()
+            .events
+            .iter()
+            .all(|event| event.semantics_version == LEGACY_CORE_SEMANTICS_VERSION)
+    );
 }
 
 #[test]
 fn corrupted_and_future_fixtures_are_rejected_at_the_versioned_boundary() {
     let checksum = load_workspace_bytes(CORRUPTED_V1).expect_err("checksum fails");
     assert_eq!(checksum.code, ErrorCode::PersistenceIntegrity);
-    let future = load_workspace_bytes(FUTURE_V3).expect_err("future version fails");
+    let malformed_v3 = load_workspace_bytes(FUTURE_V3).expect_err("malformed v3 fails");
+    assert_eq!(malformed_v3.code, ErrorCode::PersistenceFormat);
+    let future = load_workspace_bytes(FUTURE_V4).expect_err("future version fails");
     assert_eq!(future.code, ErrorCode::PersistenceFormat);
     let zero = load_workspace_bytes(br#"{"format":"agentir.workspace","format_version":0}"#)
         .expect_err("version zero fails");
@@ -294,7 +364,7 @@ fn existing_destination_requires_overwrite_and_in_place_is_explicit() {
             .expect("migrated destination")
             .metadata
             .format_version,
-        2
+        ARCHIVE_FORMAT_VERSION
     );
 
     let in_place = migrate_archive(source.path(), source.path(), true).expect("in-place migration");
@@ -304,7 +374,7 @@ fn existing_destination_requires_overwrite_and_in_place_is_explicit() {
             .expect("in-place result")
             .metadata
             .format_version,
-        2
+        ARCHIVE_FORMAT_VERSION
     );
 }
 
@@ -349,6 +419,138 @@ fn archive_round_trip_property_harness_is_deterministic() {
         let second = agentir_store::encode_workspace_archive(&loaded.workspace).expect("reencode");
         assert_eq!(first, second, "seed {seed}");
     }
+}
+
+#[test]
+fn golden_v3_fixtures_cover_minimal_saxpy_and_mixed_history() {
+    let minimal = load_workspace_bytes(MINIMAL_V3).expect("minimal v3");
+    assert_eq!(minimal.metadata.format_version, ARCHIVE_FORMAT_VERSION);
+    assert_eq!(minimal.migration.applied_steps, [MIGRATION_V3_NOOP]);
+    assert!(minimal.workspace.snapshot().events.is_empty());
+
+    let saxpy = load_workspace_bytes(SAXPY_V3).expect("SAXPY v3");
+    assert!(
+        saxpy
+            .workspace
+            .snapshot()
+            .events
+            .iter()
+            .all(|event| event.semantics_version == CORE_SEMANTICS_VERSION)
+    );
+    let program = &saxpy
+        .workspace
+        .revision(&RevisionId::new("r2"))
+        .unwrap()
+        .program;
+    let evaluated = agentir_eval::evaluate(
+        program,
+        &BTreeMap::from([
+            ("a".to_owned(), json!(2.0)),
+            ("x".to_owned(), json!([1.0, 2.0, 3.0, 4.0])),
+            ("y".to_owned(), json!([10.0, 20.0, 30.0, 40.0])),
+        ]),
+    )
+    .unwrap();
+    assert_eq!(evaluated.outputs["out"], json!([12.0, 24.0, 36.0, 48.0]));
+
+    let mixed = load_workspace_bytes(MIXED_V3).expect("mixed v3");
+    let versions = mixed
+        .workspace
+        .snapshot()
+        .events
+        .iter()
+        .map(|event| event.semantics_version)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        versions,
+        [
+            LEGACY_CORE_SEMANTICS_VERSION,
+            LEGACY_CORE_SEMANTICS_VERSION,
+            CORE_SEMANTICS_VERSION,
+        ]
+    );
+    assert_eq!(
+        agentir_store::encode_workspace_archive(&mixed.workspace).unwrap(),
+        MIXED_V3
+    );
+}
+
+#[test]
+fn pure_v2_to_v3_migration_tags_legacy_events() {
+    let archive: WorkspaceArchiveV2 = serde_json::from_slice(MINIMAL_V2).unwrap();
+    let migrated = migrate_archive_v2_to_v3(archive).expect("v2 to v3");
+    assert_eq!(migrated.format_version, ARCHIVE_FORMAT_VERSION);
+    assert_eq!(migrated.snapshot.schema_version, 3);
+    assert!(
+        migrated
+            .snapshot
+            .events
+            .iter()
+            .all(|event| event.semantics_version == LEGACY_CORE_SEMANTICS_VERSION)
+    );
+}
+
+#[test]
+fn unsupported_event_semantics_is_rejected_after_valid_checksum() {
+    let archive: WorkspaceArchiveV3 =
+        serde_json::from_slice(CORRUPTED_SEMANTICS_V3).expect("fixture codec");
+    assert_eq!(
+        archive.archive_hash,
+        hash_body(&BodyV3 {
+            format: &archive.format,
+            format_version: archive.format_version,
+            compiler_version: &archive.compiler_version,
+            snapshot: &archive.snapshot,
+        })
+    );
+    let error = load_workspace_bytes(CORRUPTED_SEMANTICS_V3).expect_err("semantics fails");
+    assert_eq!(error.code, ErrorCode::PersistenceFormat);
+    assert_eq!(error.details["semantics_version"], json!(99));
+}
+
+fn archive_mutation_sequence(seed: u64) -> Vec<String> {
+    let fixtures = [MINIMAL_V1, MINIMAL_V2, MINIMAL_V3, SAXPY_V3, MIXED_V3];
+    let mut state = seed;
+    let mut results = Vec::new();
+    for case in 0..96 {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1);
+        let fixture = fixtures[case % fixtures.len()];
+        let mut mutated = fixture.to_vec();
+        let index = usize::try_from(state).unwrap() % mutated.len();
+        mutated[index] ^= 1_u8 << (state % 7);
+        results.push(match load_workspace_bytes(&mutated) {
+            Ok(_) => "OK".to_owned(),
+            Err(error) => format!("{:?}", error.code),
+        });
+    }
+    results
+}
+
+#[test]
+fn fixed_seed_archive_mutation_corpus_is_panic_free_and_reproducible() {
+    assert_eq!(
+        archive_mutation_sequence(0xa11ce),
+        archive_mutation_sequence(0xa11ce)
+    );
+}
+
+#[test]
+fn allocator_counter_tampering_is_rejected_during_replay() {
+    let mut archive: WorkspaceArchiveV3 = serde_json::from_slice(SAXPY_V3).unwrap();
+    let mut snapshot = serde_json::to_value(&archive.snapshot).unwrap();
+    snapshot["allocator"]["value"] = json!(999);
+    archive.snapshot = serde_json::from_value(snapshot).unwrap();
+    archive.archive_hash = hash_body(&BodyV3 {
+        format: &archive.format,
+        format_version: archive.format_version,
+        compiler_version: &archive.compiler_version,
+        snapshot: &archive.snapshot,
+    });
+    let bytes = serde_json::to_vec(&archive).unwrap();
+    let error = load_workspace_bytes(&bytes).expect_err("allocator mismatch");
+    assert_eq!(error.code, ErrorCode::ReplayMismatch);
 }
 
 #[test]

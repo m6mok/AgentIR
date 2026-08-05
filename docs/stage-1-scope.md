@@ -1,4 +1,4 @@
-# Stage 1.1 contract
+# Stage 1.2 contract
 
 ## Goal
 
@@ -18,7 +18,10 @@ Stage 1 tests whether an LLM-facing compiler can work through small typed transa
 10. No open hole or proof obligation may enter a frozen/deployable specification.
 11. Traversal, wire output, `content_hash`, semantic canonical bytes and `spec_hash` are deterministic.
 12. Arithmetic has defined reference behavior and no hidden undefined behavior.
-13. Archive v1 is validated by its immutable codec before pure migration to v2.
+13. Archive v1/v2 is validated by its immutable codec before pure migration to v3.
+14. A solver result is sound; `unknown` is neither false nor proved.
+15. Legacy events replay with semantics v1 and new events record semantics v2.
+16. Resource rejection is atomic and budgets do not enter program identities.
 
 ## Implemented surface
 
@@ -26,9 +29,9 @@ Types: `bool`, `i32`, `f32`, `index`, dense tensors with static, symbolic or com
 
 Operations: `parameter`, `constant`, `add`, `sub`, `mul`, `div`, `fma`, `compare`, `select`, `cast`, `map`, `zip_map`, full `reduce`.
 
-State: workspace, SpecIR, revision DAG, ActionIR, typed holes, four Stage 1 proof-obligation kinds, continuation frames, exact-state canonical JSON, semantic canonical form and CPU evaluator.
+State: workspace, SpecIR, revision DAG, ActionIR, typed holes, four Stage 1 proof-obligation kinds, compact constraint facts, continuation frames, exact-state canonical JSON, semantic canonical form and CPU evaluator.
 
-Protocol: `workspace.open`, `spec.apply`, `spec.check`, `spec.freeze`, `transaction.apply`, `program.query`, `program.evaluate`, `revision.fork`, `revision.diff`, `continuation.get`, `workspace.save`, `workspace.load`, `workspace.verify_archive` and `workspace.migrate_archive`. Local persistence commands do not add filesystem effects to SpecIR.
+Protocol: `workspace.open`, `spec.apply`, `spec.check`, `spec.freeze`, `transaction.apply`, `program.query`, `program.evaluate`, `revision.fork`, `revision.diff`, `continuation.get`, `workspace.save`, `workspace.load`, `workspace.verify_archive` and `workspace.migrate_archive`. Local persistence commands do not add filesystem effects to SpecIR. Bounded JSONL processing preserves one response per physical line.
 
 ## Explicit non-goals
 

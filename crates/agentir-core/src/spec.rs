@@ -2,6 +2,7 @@
 
 use crate::{
     actions::ActionClassification,
+    constraints::{ConstraintFacts, ConstraintQueryResult},
     diagnostics::{AgentError, AgentResult, ErrorCode},
     ir::{Opcode, Region},
     shapes::{SolverStatus, same_shape},
@@ -17,6 +18,17 @@ pub struct Inference {
     pub ty: Type,
     /// Whether the operation is fully legal or shape-conditional.
     pub classification: ActionClassification,
+    /// Structured shape equalities that remain unknown after inference.
+    pub shape_relations: Vec<ShapeRelation>,
+}
+
+/// One unknown type/shape equality emitted by inference.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShapeRelation {
+    /// Left inferred or required type.
+    pub left: Type,
+    /// Right inferred or required type.
+    pub right: Type,
 }
 
 fn arity(opcode: Opcode, operands: &[Type], expected: usize) -> AgentResult<()> {
@@ -64,6 +76,57 @@ fn same_type(left: &Type, right: &Type) -> AgentResult<ActionClassification> {
     }
 }
 
+fn same_type_with_facts(
+    left: &Type,
+    right: &Type,
+    facts: &ConstraintFacts,
+) -> AgentResult<(ActionClassification, Vec<ShapeRelation>)> {
+    match (left, right) {
+        (Type::Scalar(left), Type::Scalar(right)) if left == right => {
+            Ok((ActionClassification::Legal, Vec::new()))
+        }
+        (
+            Type::Tensor {
+                element: left_element,
+                ..
+            },
+            Type::Tensor {
+                element: right_element,
+                ..
+            },
+        ) if left_element == right_element => match facts.query_types(left, right)? {
+            ConstraintQueryResult::Proved { .. } => Ok((ActionClassification::Legal, Vec::new())),
+            ConstraintQueryResult::Unknown => Ok((
+                ActionClassification::Conditional,
+                vec![ShapeRelation {
+                    left: left.clone(),
+                    right: right.clone(),
+                }],
+            )),
+            ConstraintQueryResult::Contradiction { .. } => Err(AgentError::new(
+                ErrorCode::ShapeMismatch,
+                "tensor shapes contradict accepted facts",
+            )
+            .with_types(left.to_string(), right.to_string())),
+        },
+        _ => Err(
+            AgentError::new(ErrorCode::TypeMismatch, "operand types differ")
+                .with_types(left.to_string(), right.to_string()),
+        ),
+    }
+}
+
+fn compatible_types(
+    left: &Type,
+    right: &Type,
+    facts: Option<&ConstraintFacts>,
+) -> AgentResult<(ActionClassification, Vec<ShapeRelation>)> {
+    facts.map_or_else(
+        || same_type(left, right).map(|classification| (classification, Vec::new())),
+        |facts| same_type_with_facts(left, right, facts),
+    )
+}
+
 fn merge(left: ActionClassification, right: ActionClassification) -> ActionClassification {
     if matches!(left, ActionClassification::Conditional)
         || matches!(right, ActionClassification::Conditional)
@@ -87,45 +150,55 @@ fn require_numeric(opcode: Opcode, ty: &Type) -> AgentResult<()> {
 }
 
 /// Infers a region-free primitive operation.
-pub fn infer_primitive(
+fn infer_primitive_impl(
     opcode: Opcode,
     operands: &[Type],
     attributes: &BTreeMap<String, Value>,
+    facts: Option<&ConstraintFacts>,
 ) -> AgentResult<Inference> {
     match opcode {
         Opcode::Add | Opcode::Sub | Opcode::Mul | Opcode::Div => {
             arity(opcode, operands, 2)?;
             require_numeric(opcode, &operands[0])?;
-            let classification = same_type(&operands[0], &operands[1])?;
+            let (classification, shape_relations) =
+                compatible_types(&operands[0], &operands[1], facts)?;
             Ok(Inference {
                 ty: operands[0].clone(),
                 classification,
+                shape_relations,
             })
         }
         Opcode::Fma => {
             arity(opcode, operands, 3)?;
             require_numeric(opcode, &operands[0])?;
-            let classification = merge(
-                same_type(&operands[0], &operands[1])?,
-                same_type(&operands[0], &operands[2])?,
-            );
+            let (left_classification, mut shape_relations) =
+                compatible_types(&operands[0], &operands[1], facts)?;
+            let (right_classification, right_relations) =
+                compatible_types(&operands[0], &operands[2], facts)?;
+            shape_relations.extend(right_relations);
+            let classification = merge(left_classification, right_classification);
             Ok(Inference {
                 ty: operands[0].clone(),
                 classification,
+                shape_relations,
             })
         }
         Opcode::Compare => {
             arity(opcode, operands, 2)?;
-            let classification = same_type(&operands[0], &operands[1])?;
+            let (classification, shape_relations) =
+                compatible_types(&operands[0], &operands[1], facts)?;
             Ok(Inference {
                 ty: operands[0].with_element_type(ScalarType::Bool),
                 classification,
+                shape_relations,
             })
         }
         Opcode::Select => {
             arity(opcode, operands, 3)?;
-            let branch_classification = same_type(&operands[1], &operands[2])?;
+            let (branch_classification, mut shape_relations) =
+                compatible_types(&operands[1], &operands[2], facts)?;
             let condition = &operands[0];
+            let mut condition_classification = ActionClassification::Legal;
             let condition_ok = match (condition, &operands[1]) {
                 (Type::Scalar(ScalarType::Bool), Type::Scalar(_) | Type::Tensor { .. }) => true,
                 (
@@ -134,7 +207,24 @@ pub fn infer_primitive(
                         shape: condition_shape,
                     },
                     Type::Tensor { shape, .. },
-                ) => same_shape(condition_shape, shape) == SolverStatus::Proved,
+                ) => {
+                    if let Some(facts) = facts {
+                        match facts.query_shapes(condition_shape, shape)? {
+                            ConstraintQueryResult::Proved { .. } => true,
+                            ConstraintQueryResult::Unknown => {
+                                condition_classification = ActionClassification::Conditional;
+                                shape_relations.push(ShapeRelation {
+                                    left: condition.clone(),
+                                    right: operands[1].with_element_type(ScalarType::Bool),
+                                });
+                                true
+                            }
+                            ConstraintQueryResult::Contradiction { .. } => false,
+                        }
+                    } else {
+                        same_shape(condition_shape, shape) == SolverStatus::Proved
+                    }
+                }
                 _ => false,
             };
             if !condition_ok {
@@ -145,7 +235,8 @@ pub fn infer_primitive(
             }
             Ok(Inference {
                 ty: operands[1].clone(),
-                classification: branch_classification,
+                classification: merge(branch_classification, condition_classification),
+                shape_relations,
             })
         }
         Opcode::Cast => {
@@ -188,6 +279,7 @@ pub fn infer_primitive(
             Ok(Inference {
                 ty: operands[0].with_element_type(target_element),
                 classification: ActionClassification::Legal,
+                shape_relations: Vec::new(),
             })
         }
         Opcode::Parameter | Opcode::Constant => Err(AgentError::new(
@@ -201,8 +293,32 @@ pub fn infer_primitive(
     }
 }
 
+/// Infers a region-free primitive operation using legacy Stage 1.1 shape semantics.
+pub fn infer_primitive(
+    opcode: Opcode,
+    operands: &[Type],
+    attributes: &BTreeMap<String, Value>,
+) -> AgentResult<Inference> {
+    infer_primitive_impl(opcode, operands, attributes, None)
+}
+
+/// Infers a primitive operation using accepted Stage 1.2 constraint facts.
+pub fn infer_primitive_with_facts(
+    opcode: Opcode,
+    operands: &[Type],
+    attributes: &BTreeMap<String, Value>,
+    facts: &ConstraintFacts,
+) -> AgentResult<Inference> {
+    infer_primitive_impl(opcode, operands, attributes, Some(facts))
+}
+
 /// Infers a higher-order operation after the region body has been verified.
-pub fn infer_higher(opcode: Opcode, operands: &[Type], region: &Region) -> AgentResult<Inference> {
+fn infer_higher_impl(
+    opcode: Opcode,
+    operands: &[Type],
+    region: &Region,
+    facts: Option<&ConstraintFacts>,
+) -> AgentResult<Inference> {
     match opcode {
         Opcode::Map => {
             arity(opcode, operands, 1)?;
@@ -230,6 +346,7 @@ pub fn infer_higher(opcode: Opcode, operands: &[Type], region: &Region) -> Agent
                     shape: shape.clone(),
                 },
                 classification: ActionClassification::Legal,
+                shape_relations: Vec::new(),
             })
         }
         Opcode::ZipMap => {
@@ -252,8 +369,12 @@ pub fn infer_higher(opcode: Opcode, operands: &[Type], region: &Region) -> Agent
                 ));
             };
             let mut classification = ActionClassification::Legal;
+            let mut shape_relations = Vec::new();
             for operand in &operands[1..] {
-                classification = merge(classification, same_type(&operands[0], operand)?);
+                let (operand_classification, relations) =
+                    compatible_types(&operands[0], operand, facts)?;
+                classification = merge(classification, operand_classification);
+                shape_relations.extend(relations);
             }
             let Type::Scalar(element) = region.yield_type else {
                 return Err(AgentError::new(
@@ -267,6 +388,7 @@ pub fn infer_higher(opcode: Opcode, operands: &[Type], region: &Region) -> Agent
                     shape: shape.clone(),
                 },
                 classification,
+                shape_relations,
             })
         }
         Opcode::Reduce => {
@@ -292,10 +414,26 @@ pub fn infer_higher(opcode: Opcode, operands: &[Type], region: &Region) -> Agent
             Ok(Inference {
                 ty: Type::Scalar(element),
                 classification: ActionClassification::Legal,
+                shape_relations: Vec::new(),
             })
         }
-        _ => infer_primitive(opcode, operands, &BTreeMap::new()),
+        _ => infer_primitive_impl(opcode, operands, &BTreeMap::new(), facts),
     }
+}
+
+/// Infers a higher-order operation with legacy Stage 1.1 shape semantics.
+pub fn infer_higher(opcode: Opcode, operands: &[Type], region: &Region) -> AgentResult<Inference> {
+    infer_higher_impl(opcode, operands, region, None)
+}
+
+/// Infers a higher-order operation using accepted Stage 1.2 constraint facts.
+pub fn infer_higher_with_facts(
+    opcode: Opcode,
+    operands: &[Type],
+    region: &Region,
+    facts: &ConstraintFacts,
+) -> AgentResult<Inference> {
+    infer_higher_impl(opcode, operands, region, Some(facts))
 }
 
 #[cfg(test)]

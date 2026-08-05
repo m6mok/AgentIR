@@ -1,3 +1,4 @@
+use agentir_core::resources::ResourceLimits;
 use agentir_protocol::Engine;
 use serde_json::Value;
 use std::fs;
@@ -137,7 +138,7 @@ fn migrate_archive_command_is_atomic_and_reports_versions() {
     let parsed: Value = serde_json::from_str(&response).expect("migration response");
     assert_eq!(parsed["ok"], true, "{response}");
     assert_eq!(parsed["result"]["source_archive_version"], 1);
-    assert_eq!(parsed["result"]["target_archive_version"], 2);
+    assert_eq!(parsed["result"]["target_archive_version"], 3);
     assert!(parsed["result"]["new_archive_hash"].as_str().is_some());
 
     let existing = engine.process_line(
@@ -182,6 +183,32 @@ fn failed_archive_load_does_not_publish_a_workspace() {
 }
 
 #[test]
+fn failed_version_aware_replay_does_not_publish_a_workspace() {
+    let corrupted = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../agentir-store/tests/fixtures/corrupted-semantics-v3.json"
+    );
+    let mut engine = Engine::new();
+    let load: Value = serde_json::from_str(
+        &engine.process_line(
+            &serde_json::json!({
+                "command": "workspace.load",
+                "request_id": "bad-semantics",
+                "path": corrupted,
+            })
+            .to_string(),
+        ),
+    )
+    .unwrap();
+    assert_eq!(load["error"]["code"], "PERSISTENCE_FORMAT");
+    let query: Value = serde_json::from_str(&engine.process_line(
+        r#"{"command":"program.query","request_id":"query","workspace":"golden-v2"}"#,
+    ))
+    .unwrap();
+    assert_eq!(query["error"]["code"], "WORKSPACE_NOT_FOUND");
+}
+
+#[test]
 fn semantic_query_rejects_unfrozen_specs_structurally() {
     let mut engine = Engine::new();
     for request in [
@@ -196,4 +223,118 @@ fn semantic_query_rejects_unfrozen_specs_structurally() {
     );
     let query: Value = serde_json::from_str(&query).expect("query response");
     assert_eq!(query["error"]["code"], "SPEC_NOT_COMPLETE");
+}
+
+#[test]
+fn request_byte_and_depth_limits_are_checked_before_parse() {
+    let line = r#"{"command":"workspace.open","request_id":"boundary","workspace":"w"}"#;
+    let limits = ResourceLimits {
+        jsonl_request_bytes: u64::try_from(line.len()).unwrap(),
+        ..ResourceLimits::default()
+    };
+    let mut engine = Engine::with_limits(limits.clone());
+    let accepted: Value = serde_json::from_str(&engine.process_line(line)).unwrap();
+    assert_eq!(accepted["ok"], true);
+
+    let mut engine = Engine::with_limits(limits);
+    let rejected: Value = serde_json::from_str(&engine.process_line(&format!("{line} "))).unwrap();
+    assert_eq!(rejected["error"]["code"], "RESOURCE_LIMIT_EXCEEDED");
+    assert_eq!(rejected["request_id"], "boundary");
+
+    let depth_limits = ResourceLimits {
+        json_nesting_depth: 3,
+        ..ResourceLimits::default()
+    };
+    let mut engine = Engine::with_limits(depth_limits);
+    let deep: Value = serde_json::from_str(&engine.process_line(
+        r#"{"command":"workspace.open","request_id":"deep","workspace":[[[["w"]]]]}"#,
+    ))
+    .unwrap();
+    assert_eq!(deep["error"]["code"], "RESOURCE_LIMIT_EXCEEDED");
+}
+
+#[test]
+fn action_array_limit_is_structured_and_protocol_state_is_atomic() {
+    let limits = ResourceLimits {
+        actions_per_transaction: 1,
+        ..ResourceLimits::default()
+    };
+    let mut engine = Engine::with_limits(limits);
+    let open: Value = serde_json::from_str(&engine.process_line(
+        r#"{"command":"workspace.open","request_id":"open-array","workspace":"array-budget"}"#,
+    ))
+    .unwrap();
+    assert_eq!(open["ok"], true);
+    let oversized: Value = serde_json::from_str(&engine.process_line(
+        r#"{"command":"spec.apply","request_id":"too-many","workspace":"array-budget","base_revision":"r0","actions":[{"kind":"create_constant","bind":"$a","type":"i32","value":1},{"kind":"create_constant","bind":"$b","type":"i32","value":2}]}"#,
+    ))
+    .unwrap();
+    assert_eq!(oversized["error"]["code"], "RESOURCE_LIMIT_EXCEEDED");
+    let accepted: Value = serde_json::from_str(&engine.process_line(
+        r#"{"command":"spec.apply","request_id":"one","workspace":"array-budget","base_revision":"r0","actions":[{"kind":"create_constant","bind":"$a","type":"i32","value":1}]}"#,
+    ))
+    .unwrap();
+    assert_eq!(accepted["result"]["revision"], "r1");
+    assert_eq!(accepted["result"]["bindings"]["$a"], "v1");
+}
+
+#[test]
+fn invalid_utf8_unknown_fields_and_malformed_literals_are_structured() {
+    let mut engine = Engine::new();
+    let invalid_utf8: Value =
+        serde_json::from_str(&engine.process_bytes(b"{\"request_id\":\"utf8\",\xff}")).unwrap();
+    assert_eq!(invalid_utf8["request_id"], "utf8");
+    assert_eq!(invalid_utf8["error"]["code"], "INVALID_REQUEST");
+
+    for (case, expected_id) in [
+        (
+            r#"{"command":"workspace.open","request_id":"unknown-field","extra":1}"#,
+            "unknown-field",
+        ),
+        (
+            r#"{"command":"workspace.open","request_id":"duplicate","request_id":"again"}"#,
+            "duplicate",
+        ),
+        (
+            r#"{"command":"workspace.open","request_id":"number","workspace":1e999999}"#,
+            "number",
+        ),
+        ("", "unknown"),
+    ] {
+        let response: Value = serde_json::from_str(&engine.process_line(case)).unwrap();
+        assert_eq!(response["ok"], false, "{case}");
+        assert_eq!(response["error"]["code"], "INVALID_REQUEST", "{case}");
+        assert_eq!(response["request_id"], expected_id, "{case}");
+    }
+}
+
+fn mutation_sequence(seed: u64) -> Vec<String> {
+    let corpus = [
+        b"{}".as_slice(),
+        b"[]".as_slice(),
+        b"not json".as_slice(),
+        b"{\"command\":\"workspace.open\",\"request_id\":\"ok\"}".as_slice(),
+        b"{\"command\":\"unknown\",\"request_id\":\"bad\"}".as_slice(),
+        b"{\"command\":\"workspace.open\",\"request_id\":\"x\",\"workspace\":[]}".as_slice(),
+    ];
+    let mut state = seed;
+    let mut engine = Engine::new();
+    let mut results = Vec::new();
+    for _ in 0..64 {
+        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        let input = corpus[usize::try_from(state).unwrap() % corpus.len()];
+        let response: Value = serde_json::from_str(&engine.process_bytes(input)).unwrap();
+        results.push(
+            response["error"]["code"]
+                .as_str()
+                .unwrap_or("OK")
+                .to_owned(),
+        );
+    }
+    results
+}
+
+#[test]
+fn fixed_seed_protocol_mutation_classification_is_reproducible() {
+    assert_eq!(mutation_sequence(7), mutation_sequence(7));
 }

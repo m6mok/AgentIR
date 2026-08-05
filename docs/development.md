@@ -33,9 +33,9 @@ Run the intentionally dependency-free measurement harness in release mode:
 cargo run --release -p agentir-protocol --example baseline
 ```
 
-It reports transaction apply for 1/10/100 operations, repeated shape queries, exact-state canonical serialization, semantic canonicalization for 10/100/1000 reachable operations, canonical byte sizes, repeated `spec_hash` query, v1 → v2 migration, v2 load/replay, continuation generation and SAXPY evaluation at several sizes. These are local baselines, not stable performance promises. Record hardware, compiler version and git revision when comparing runs.
+Benchmark schema v2 reports warm-ups plus min/median/p95/max for the original workloads and new constraint/resource/v3/mixed-semantics paths. It records crate/git/dirty/target/OS/rustc/build metadata and separates byte sizes from timings. See [benchmarking.md](benchmarking.md); timing changes never fail CI.
 
-Golden v1 archives in `crates/agentir-store/tests/fixtures/` came from commit `97c821a`. Never regenerate them with the current writer. New fixture versions need their own explicit codec and documentation.
+Golden v1 archives came from commit `97c821a`; `minimal-v2.json` is also immutable and pinned by SHA-256. Never regenerate them with the v3 writer. V3 fixtures have separate provenance in the fixture README.
 
 ## Adding an opcode
 

@@ -10,6 +10,7 @@ use agentir_core::{
     actions::{Action, Transaction},
     diagnostics::{AgentError, AgentResult, ErrorCode},
     ids::{RevisionId, WorkspaceId},
+    resources::{BudgetCheck, ResourceKind, ResourceLimits},
     workspace::Workspace,
 };
 use request::{QueryView, Request};
@@ -22,6 +23,7 @@ use std::collections::BTreeMap;
 pub struct Engine {
     workspaces: BTreeMap<WorkspaceId, Workspace>,
     next_workspace: u64,
+    limits: ResourceLimits,
 }
 
 impl Engine {
@@ -29,6 +31,21 @@ impl Engine {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Creates an engine with explicit interactive resource limits.
+    #[must_use]
+    pub fn with_limits(limits: ResourceLimits) -> Self {
+        Self {
+            limits,
+            ..Self::default()
+        }
+    }
+
+    /// Returns the request byte limit used by bounded frontends.
+    #[must_use]
+    pub const fn max_request_bytes(&self) -> u64 {
+        self.limits.jsonl_request_bytes
     }
 
     fn workspace(&self, id: &WorkspaceId) -> AgentResult<&Workspace> {
@@ -104,7 +121,7 @@ impl Engine {
                         format!("workspace `{id}` already exists"),
                     ));
                 }
-                let workspace = Workspace::new(id.clone())?;
+                let workspace = Workspace::with_limits(id.clone(), self.limits.clone())?;
                 let head = workspace.head().clone();
                 let hash = workspace.revision(&head)?.content_hash.clone();
                 self.workspaces.insert(id.clone(), workspace);
@@ -131,7 +148,9 @@ impl Engine {
                     "migration": loaded.migration,
                     "replay": loaded.replay,
                 });
-                self.workspaces.insert(workspace_id, loaded.workspace);
+                let mut workspace = loaded.workspace;
+                workspace.set_resource_limits(self.limits.clone());
+                self.workspaces.insert(workspace_id, workspace);
                 Ok(result)
             }
             Request::WorkspaceVerifyArchive { path, .. } => {
@@ -246,8 +265,12 @@ impl Engine {
             } => {
                 let revision = self.selected_revision(&workspace, revision)?;
                 let program = &self.workspace(&workspace)?.revision(&revision)?.program;
-                serde_json::to_value(agentir_eval::evaluate(program, &inputs)?)
-                    .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
+                serde_json::to_value(agentir_eval::evaluate_with_limits(
+                    program,
+                    &inputs,
+                    &self.limits,
+                )?)
+                .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
             }
             Request::RevisionFork {
                 workspace,
@@ -278,18 +301,41 @@ impl Engine {
         }
     }
 
-    /// Decodes one line and always returns exactly one response object.
+    /// Decodes one UTF-8 line and always returns exactly one response object.
     #[must_use]
     pub fn process_line(&mut self, line: &str) -> String {
-        let parsed_json = serde_json::from_str::<Value>(line);
-        let request_id = parsed_json
-            .as_ref()
-            .ok()
-            .and_then(|value| value.get("request_id"))
-            .and_then(Value::as_str)
-            .unwrap_or("unknown")
-            .to_owned();
-        let response = match parsed_json.and_then(serde_json::from_value::<Request>) {
+        self.process_bytes(line.as_bytes())
+    }
+
+    /// Decodes one bounded byte line, including invalid UTF-8, into one response.
+    #[must_use]
+    pub fn process_bytes(&mut self, line: &[u8]) -> String {
+        let request_id = extract_request_id(line).unwrap_or_else(|| "unknown".to_owned());
+        let byte_check = BudgetCheck::against(
+            &self.limits,
+            ResourceKind::JsonlRequestBytes,
+            u64::try_from(line.len()).unwrap_or(u64::MAX),
+            "JSONL request before parse",
+        );
+        if let Err(error) = byte_check {
+            return self.serialize_response(&Response::failure(request_id, error));
+        }
+        let line = match std::str::from_utf8(line) {
+            Ok(line) => line,
+            Err(error) => {
+                return self.serialize_response(&Response::failure(
+                    request_id,
+                    AgentError::new(
+                        ErrorCode::InvalidRequest,
+                        format!("invalid UTF-8 in JSONL request: {error}"),
+                    ),
+                ));
+            }
+        };
+        if let Err(error) = check_json_depth(line.as_bytes(), &self.limits) {
+            return self.serialize_response(&Response::failure(request_id, error));
+        }
+        let response = match serde_json::from_str::<Request>(line) {
             Ok(request) => self.handle(request),
             Err(error) => Response::failure(
                 request_id,
@@ -299,11 +345,121 @@ impl Engine {
                 ),
             ),
         };
-        response.to_json_line().unwrap_or_else(|error| {
+        self.serialize_response(&response)
+    }
+
+    /// Creates the single response for a line discarded by a bounded reader.
+    #[must_use]
+    pub fn oversized_line_response(&self, retained_prefix: &[u8], attempted: u64) -> String {
+        let request_id =
+            extract_request_id(retained_prefix).unwrap_or_else(|| "unknown".to_owned());
+        let error = BudgetCheck::against(
+            &self.limits,
+            ResourceKind::JsonlRequestBytes,
+            attempted,
+            "bounded JSONL line reader",
+        )
+        .expect_err("oversized line exceeds configured limit");
+        self.serialize_response(&Response::failure(request_id, error))
+    }
+
+    fn serialize_response(&self, response: &Response) -> String {
+        let serialized = response.to_json_line();
+        let serialized = serialized.and_then(|line| {
+            BudgetCheck::against(
+                &self.limits,
+                ResourceKind::CanonicalOutputBytes,
+                u64::try_from(line.len()).unwrap_or(u64::MAX),
+                "protocol response encoding",
+            )?;
+            Ok(line)
+        });
+        serialized.unwrap_or_else(|error| {
+            let fallback = Response::failure("unknown", error);
+            fallback.to_json_line().unwrap_or_else(|error| {
             format!(
                 "{{\"ok\":false,\"request_id\":\"unknown\",\"error\":{{\"code\":\"INVALID_REQUEST\",\"message\":{}}},\"diagnostics\":[]}}",
                 serde_json::to_string(&error.message).unwrap_or_else(|_| "\"serialization failed\"".to_owned())
             )
+            })
         })
     }
+}
+
+fn check_json_depth(bytes: &[u8], limits: &ResourceLimits) -> AgentResult<()> {
+    let mut depth = 0_u64;
+    let mut maximum = 0_u64;
+    let mut in_string = false;
+    let mut escaped = false;
+    for byte in bytes {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if *byte == b'\\' {
+                escaped = true;
+            } else if *byte == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match *byte {
+            b'"' => in_string = true,
+            b'{' | b'[' => {
+                depth = depth.saturating_add(1);
+                maximum = maximum.max(depth);
+                BudgetCheck::against(
+                    limits,
+                    ResourceKind::JsonNestingDepth,
+                    maximum,
+                    "JSON structural scan before parse",
+                )?;
+            }
+            b'}' | b']' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn extract_request_id(bytes: &[u8]) -> Option<String> {
+    let valid_length =
+        std::str::from_utf8(bytes).map_or_else(|error| error.valid_up_to(), str::len);
+    let text = std::str::from_utf8(&bytes[..valid_length]).ok()?;
+    let mut offset = 0;
+    while let Some(relative_start) = text[offset..].find('"') {
+        let start = offset + relative_start;
+        let mut escaped = false;
+        let mut end = None;
+        for (relative, character) in text[start + 1..].char_indices() {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == '"' {
+                end = Some(start + 1 + relative);
+                break;
+            }
+        }
+        let end = end?;
+        let token = serde_json::from_str::<String>(&text[start..=end]).ok()?;
+        offset = end + 1;
+        if token != "request_id" {
+            continue;
+        }
+        let colon = text[offset..].find(':')? + offset;
+        let value_start = text[colon + 1..].find('"')? + colon + 1;
+        let mut escaped = false;
+        for (relative, character) in text[value_start + 1..].char_indices() {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == '"' {
+                let value_end = value_start + 1 + relative;
+                return serde_json::from_str::<String>(&text[value_start..=value_end]).ok();
+            }
+        }
+        return None;
+    }
+    None
 }

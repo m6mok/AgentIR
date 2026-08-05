@@ -1,10 +1,12 @@
 # Glossary
 
 - **ActionIR** — typed algebra of graph edits submitted by an agent.
-- **Archive** — checksummed versioned encoding of a workspace snapshot and replay log; v1 is legacy and v2 is current.
+- **Archive** — checksummed versioned encoding of a workspace snapshot and replay log; v1/v2 are immutable legacy inputs and v3 is current.
 - **Archive hash** — version-specific integrity hash of a concrete archive body.
 - **Canonical state** — deterministic serialized `Program` used for the history-sensitive `content_hash` and replay.
 - **Compiler core** — transport-independent verifier and workspace state machine.
+- **Compiler semantics version** — event-level selector for historical transaction inference and obligation behavior; independent of archive format.
+- **ConstraintFacts** — deterministic derived equality/static-binding model used to query and discharge shape relations.
 - **ContinuationFrame** — parameteric description of legal next choices for a focused task.
 - **Hole** — missing pure value with a persistent ID and required type/shape.
 - **ImplIR** — future layer describing an algorithmic implementation of frozen SpecIR.
@@ -13,6 +15,7 @@
 - **Persistent ID** — compiler-assigned identity such as `v4`, `h1` or `r2`.
 - **Region** — closed pure block with typed arguments, explicit captures and a yield.
 - **Revision** — immutable workspace snapshot with parent links and content hash.
+- **Resource limit** — runtime workload policy excluded from `content_hash`, `spec_hash` and `archive_hash` bodies.
 - **ScheduleIR** — future mapping of work to target hardware.
 - **SpecIR** — functional graph describing what must be computed.
 - **Semantic canonical form** — versioned, alpha-normalized output-reachable representation of frozen SpecIR.

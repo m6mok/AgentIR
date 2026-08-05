@@ -8,6 +8,9 @@ Start with the root [README](../README.md), then choose the document matching th
 - [JSONL protocol](protocol.md) — commands, references, regions, errors and response envelopes.
 - [Persistence and replay](persistence.md) — archive format, save/load lifecycle and integrity model.
 - [Semantic canonicalization](semantic-canonicalization.md) — `spec_hash`, alpha-normalization and graph identity limits.
+- [Constraint solving](constraint-solving.md) — compact facts, soundness and obligation discharge.
+- [Resource budgets](resource-budgets.md) — interactive defaults, hard caps and check placement.
+- [Benchmarking](benchmarking.md) — statistical schema v2, workloads and Stage 1.1 references.
 - [Development](development.md) — repository layout, checks, tests and baseline harness.
 - [Glossary](glossary.md) — short definitions of AgentIR terms.
 - [Roadmap](roadmap.md) — sequencing from the prototype to a GPU backend.

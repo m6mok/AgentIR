@@ -7,6 +7,7 @@ use agentir_core::{
     diagnostics::{AgentError, AgentResult, ErrorCode},
     ids::ValueId,
     ir::{ConstantValue, Opcode, Operation, Program, Region, RegionValue, ValueOrigin},
+    resources::{BudgetCheck, ResourceKind, ResourceLimits},
     types::{DimExpr, ScalarType, Type},
 };
 use serde::{Deserialize, Serialize};
@@ -80,7 +81,15 @@ fn flatten_json(
     depth: usize,
     shape: &mut Vec<usize>,
     scalars: &mut Vec<JsonValue>,
+    max_elements: u64,
+    max_depth: u64,
 ) -> AgentResult<()> {
+    BudgetCheck::ensure(
+        ResourceKind::JsonNestingDepth,
+        max_depth,
+        u64::try_from(depth).unwrap_or(u64::MAX).saturating_add(1),
+        "evaluation tensor JSON",
+    )?;
     let array = value
         .as_array()
         .ok_or_else(|| mismatch("tensor input must use nested JSON arrays"))?;
@@ -91,12 +100,21 @@ fn flatten_json(
     }
     if array.first().is_some_and(JsonValue::is_array) {
         for child in array {
-            flatten_json(child, depth + 1, shape, scalars)?;
+            flatten_json(child, depth + 1, shape, scalars, max_elements, max_depth)?;
         }
     } else {
         if array.iter().any(JsonValue::is_array) {
             return Err(mismatch("tensor input mixes scalar and array elements"));
         }
+        let attempted = u64::try_from(scalars.len())
+            .unwrap_or(u64::MAX)
+            .saturating_add(u64::try_from(array.len()).unwrap_or(u64::MAX));
+        BudgetCheck::ensure(
+            ResourceKind::EvaluationTensorElements,
+            max_elements,
+            attempted,
+            "evaluation input tensor",
+        )?;
         scalars.extend(array.iter().cloned());
     }
     Ok(())
@@ -164,13 +182,21 @@ fn parse_input(
     ty: &Type,
     value: &JsonValue,
     dimensions: &mut BTreeMap<String, usize>,
+    limits: &ResourceLimits,
 ) -> AgentResult<RuntimeValue> {
     match ty {
         Type::Scalar(scalar) => parse_scalar(*scalar, value).map(RuntimeValue::Scalar),
         Type::Tensor { element, shape } => {
             let mut concrete_shape = Vec::new();
             let mut scalars = Vec::new();
-            flatten_json(value, 0, &mut concrete_shape, &mut scalars)?;
+            flatten_json(
+                value,
+                0,
+                &mut concrete_shape,
+                &mut scalars,
+                limits.evaluation_tensor_elements,
+                limits.json_nesting_depth,
+            )?;
             if concrete_shape.len() != shape.0.len() {
                 return Err(mismatch(format!(
                     "tensor rank mismatch: expected {}, got {}",
@@ -192,6 +218,89 @@ fn parse_input(
             }))
         }
     }
+}
+
+fn concrete_dimension(
+    expression: &DimExpr,
+    dimensions: &BTreeMap<String, usize>,
+) -> AgentResult<u64> {
+    match expression {
+        DimExpr::Static(value) => Ok(*value),
+        DimExpr::Symbol(symbol) => dimensions
+            .get(symbol)
+            .copied()
+            .map(|value| u64::try_from(value).unwrap_or(u64::MAX))
+            .ok_or_else(|| mismatch(format!("symbolic dimension `{symbol}` is unbound"))),
+        DimExpr::Affine {
+            coefficient,
+            symbol,
+            constant,
+        } => {
+            let symbol = dimensions
+                .get(symbol)
+                .copied()
+                .ok_or_else(|| mismatch(format!("symbolic dimension `{symbol}` is unbound")))?;
+            let value = i128::from(*coefficient)
+                .checked_mul(i128::try_from(symbol).unwrap_or(i128::MAX))
+                .and_then(|value| value.checked_add(i128::from(*constant)))
+                .ok_or_else(|| mismatch("affine evaluation dimension overflow"))?;
+            if value < 0 {
+                return Err(mismatch("affine evaluation dimension is negative"));
+            }
+            u64::try_from(value).map_err(|_| mismatch("evaluation dimension exceeds u64"))
+        }
+    }
+}
+
+fn preflight_evaluation(
+    program: &Program,
+    dimensions: &BTreeMap<String, usize>,
+    limits: &ResourceLimits,
+) -> AgentResult<()> {
+    for constraint in &program.constraints {
+        match constraint {
+            agentir_core::shapes::ShapeConstraint::Equal { left, right } => {
+                if left.0.len() != right.0.len() {
+                    return Err(mismatch("runtime constraint ranks differ"));
+                }
+                for (left, right) in left.0.iter().zip(&right.0) {
+                    let left = concrete_dimension(left, dimensions)?;
+                    let right = concrete_dimension(right, dimensions)?;
+                    if left != right {
+                        return Err(
+                            mismatch("runtime inputs violate an accepted shape equality")
+                                .with_types(left, right),
+                        );
+                    }
+                }
+            }
+            agentir_core::shapes::ShapeConstraint::NonNegative { .. } => {}
+        }
+    }
+    let mut total = 0_u64;
+    for definition in program.values.values() {
+        let Type::Tensor { shape, .. } = &definition.ty else {
+            continue;
+        };
+        let elements = shape.0.iter().try_fold(1_u64, |count, dimension| {
+            count
+                .checked_mul(concrete_dimension(dimension, dimensions)?)
+                .ok_or_else(|| mismatch("evaluation tensor element count overflow"))
+        })?;
+        BudgetCheck::against(
+            limits,
+            ResourceKind::EvaluationTensorElements,
+            elements,
+            format!("evaluation value `{}`", definition.id),
+        )?;
+        total = total.saturating_add(elements);
+    }
+    BudgetCheck::against(
+        limits,
+        ResourceKind::TotalEvaluationElements,
+        total,
+        "evaluation graph materialization",
+    )
 }
 
 fn constant_value(value: &ConstantValue) -> AgentResult<RuntimeValue> {
@@ -676,6 +785,14 @@ impl Evaluator<'_> {
                     AgentError::new(ErrorCode::InvalidRegion, "zip_map region is absent")
                 })?;
                 let length = tensors.first().map_or(0, |tensor| tensor.elements.len());
+                if tensors.iter().any(|tensor| {
+                    tensor.shape != tensors[0].shape || tensor.elements.len() != length
+                }) {
+                    return Err(AgentError::new(
+                        ErrorCode::TypeMismatch,
+                        "zip_map runtime tensor shapes differ",
+                    ));
+                }
                 let mut elements = Vec::with_capacity(length);
                 for index in 0..length {
                     let arguments = tensors
@@ -738,7 +855,13 @@ fn tensor_json(tensor: &DenseTensor) -> AgentResult<JsonValue> {
         cursor: &mut usize,
     ) -> AgentResult<JsonValue> {
         if shape.is_empty() {
-            let value = scalar_json(&elements[*cursor])?;
+            let value = elements.get(*cursor).ok_or_else(|| {
+                AgentError::new(
+                    ErrorCode::TransactionRejected,
+                    "tensor shape exceeds available runtime elements",
+                )
+            })?;
+            let value = scalar_json(value)?;
             *cursor += 1;
             return Ok(value);
         }
@@ -761,6 +884,15 @@ fn runtime_json(value: &RuntimeValue) -> AgentResult<JsonValue> {
 pub fn evaluate(
     program: &Program,
     inputs: &BTreeMap<String, JsonValue>,
+) -> AgentResult<EvaluationResult> {
+    evaluate_with_limits(program, inputs, &ResourceLimits::default())
+}
+
+/// Evaluates using explicit resource limits that are not part of program semantics.
+pub fn evaluate_with_limits(
+    program: &Program,
+    inputs: &BTreeMap<String, JsonValue>,
+    limits: &ResourceLimits,
 ) -> AgentResult<EvaluationResult> {
     let open_holes: Vec<_> = program
         .holes
@@ -798,6 +930,7 @@ pub fn evaluate(
             &definition.ty,
             inputs.get(name).expect("input names were compared"),
             &mut dimensions,
+            limits,
         )
         .map_err(|error| {
             error
@@ -806,6 +939,7 @@ pub fn evaluate(
         })?;
         parameters.insert(value_id.clone(), value);
     }
+    preflight_evaluation(program, &dimensions, limits)?;
     let mut evaluator = Evaluator {
         program,
         parameters,

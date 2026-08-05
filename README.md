@@ -2,7 +2,7 @@
 
 AgentIR — экспериментальная агентно-нативная компиляционная среда для численных вычислений. В ней программа хранится не как исходный текст, а как типизированный граф. Агент меняет граф небольшими атомарными ActionIR-транзакциями, а compiler core выводит типы, проверяет формы и сохраняет каждое принятое состояние как неизменяемую ревизию.
 
-Сейчас репозиторий содержит reference prototype Stage 1.1. Он не генерирует GPU-код: задача этапа — проверить архитектуру графа, транзакций, typed holes, semantic canonicalization, воспроизводимых ревизий и эволюционирующих archives.
+Сейчас репозиторий содержит reference prototype Stage 1.2. Он не генерирует GPU-код: задача этапа — проверить архитектуру графа, транзакций, typed holes, sound constraint discharge, semantic canonicalization, воспроизводимых ревизий и ограниченных по ресурсам archives/workloads.
 
 ## Что уже работает
 
@@ -16,7 +16,11 @@ AgentIR — экспериментальная агентно-нативная �
 - deterministic canonical JSON и SHA-256 content hash;
 - history-independent semantic canonical form и `spec_hash` замороженного SpecIR;
 - CPU reference interpreter;
-- workspace archive v2, явная migration v1 → v2 и deterministic event replay;
+- компактный deterministic `ConstraintFacts`, который доказывает symbol/static equality и закрывает `ShapeCompatible` obligations;
+- event-level compiler semantics v1/v2 для точного replay исторических транзакций;
+- workspace archive v3, явная migration v1 → v2 → v3 и mixed-semantics replay;
+- централизованные resource budgets для core, evaluator, store, protocol и CLI;
+- fixed-seed soundness/mutation corpora и statistical benchmark schema v2;
 - stateful JSONL CLI с одним ответом на каждый запрос.
 
 ## Быстрый старт
@@ -61,7 +65,7 @@ cargo run -p agentir-cli --bin agentir < examples/saxpy.jsonl
 
 ## Ограничения Stage 1
 
-В прототипе нет GPU backend, LLVM/MLIR, MemoryIR, ScheduleIR, autotuning, SMT solver, сетевого MCP server и concurrent workspace database. Shape solver намеренно мал; unknown shape equality создаёт открытый obligation. Workspace можно сохранить в локальный archive и восстановить в новом процессе, но блокировки и многопроцессная координация пока отсутствуют. Известные компромиссы подробно перечислены в [DECISIONS.md](DECISIONS.md).
+В прототипе нет GPU backend, LLVM/MLIR, MemoryIR, ScheduleIR, autotuning, SMT solver, сетевого MCP server и concurrent workspace database. Shape solver намеренно мал и sound, но incomplete: неизвестное равенство создаёт открытый obligation, а не считается ложным или доказанным. Workspace можно сохранить в локальный archive и восстановить в новом процессе, но блокировки и многопроцессная координация пока отсутствуют. Известные компромиссы подробно перечислены в [DECISIONS.md](DECISIONS.md).
 
 ## Три разных hash
 

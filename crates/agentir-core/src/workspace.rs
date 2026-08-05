@@ -2,7 +2,8 @@
 
 use crate::{
     actions::{Action, ActionClassification, RegionSpec, Transaction},
-    canonical::content_hash,
+    canonical::{content_hash, content_hash_with_limit},
+    constraints::{ConstraintFacts, ConstraintQueryResult},
     continuation::{ContinuationFrame, InteractionMode, build_frame},
     diagnostics::{AgentError, AgentResult, ErrorCode},
     holes::{ExpectedEffects, Hole, HoleStatus},
@@ -11,12 +12,24 @@ use crate::{
         BlockArgument, ConstantValue, Dimension, Opcode, Operation, Program, Region,
         RegionOperation, RegionValue, ValueDef, ValueOrigin,
     },
-    obligations::{ObligationKind, ObligationOrigin, ObligationStatus, ProofObligation},
-    persistence::{ReplayReport, WORKSPACE_SNAPSHOT_VERSION, WorkspaceEvent, WorkspaceSnapshot},
+    obligations::{
+        ObligationKind, ObligationOrigin, ObligationStatus, ProofObligation,
+        ShapeCompatibilityProposition, ShapeObligationContext, ShapeRelationKind,
+    },
+    persistence::{
+        CORE_SEMANTICS_VERSION, LEGACY_CORE_SEMANTICS_VERSION, ReplayReport,
+        VersionedWorkspaceEvent, WORKSPACE_SNAPSHOT_VERSION, WorkspaceEvent, WorkspaceSnapshot,
+    },
+    resources::{BudgetCheck, ResourceKind, ResourceLimits},
     revision::{Revision, RevisionDiff, StatusSummary, diff},
-    semantic::{SPEC_CANONICAL_VERSION, SemanticCanonicalization, SpecHash, canonicalize_spec},
+    semantic::{
+        SPEC_CANONICAL_VERSION, SemanticCanonicalization, SpecHash, canonicalize_spec_with_limit,
+    },
     shapes::{SolverStatus, same_shape},
-    spec::{infer_higher, infer_primitive},
+    spec::{
+        ShapeRelation, infer_higher, infer_higher_with_facts, infer_primitive,
+        infer_primitive_with_facts,
+    },
     transaction::CommitResult,
     types::{DimExpr, Type},
 };
@@ -69,9 +82,12 @@ fn now_unix_ms() -> u128 {
         .map_or(0, |duration| duration.as_millis())
 }
 
-fn semantic_metadata(program: &Program) -> AgentResult<(Option<SpecHash>, Option<u32>)> {
+fn semantic_metadata(
+    program: &Program,
+    max_bytes: u64,
+) -> AgentResult<(Option<SpecHash>, Option<u32>)> {
     if program.frozen {
-        let canonical = canonicalize_spec(program)?;
+        let canonical = canonicalize_spec_with_limit(program, max_bytes)?;
         Ok((Some(canonical.spec_hash), Some(SPEC_CANONICAL_VERSION)))
     } else {
         Ok((None, None))
@@ -248,7 +264,8 @@ fn build_region(
     operands: &[Type],
     program: &Program,
     bindings: &BTreeMap<String, Binding>,
-) -> AgentResult<(Region, ActionClassification)> {
+    facts: Option<&ConstraintFacts>,
+) -> AgentResult<(Region, ActionClassification, Vec<ShapeRelation>)> {
     let expected_arguments = expected_region_arguments(opcode, operands)?;
     if spec.arguments.len() != expected_arguments.len() {
         return Err(AgentError::new(
@@ -329,6 +346,7 @@ fn build_region(
     let mut local_types = BTreeMap::new();
     let mut operations = Vec::new();
     let mut classification = ActionClassification::Legal;
+    let mut shape_relations = Vec::new();
     for operation in &spec.operations {
         if !operation.bind.starts_with('$') || local_types.contains_key(&operation.bind) {
             return Err(AgentError::new(
@@ -355,11 +373,16 @@ fn build_region(
             .map(|reference| resolve_region_value(reference, &local_types))
             .collect::<AgentResult<_>>()?;
         let operand_types: Vec<_> = resolved.iter().map(|(_, ty)| ty.clone()).collect();
-        let inferred = infer_primitive(opcode, &operand_types, &operation.attributes)?;
+        let inferred = if let Some(facts) = facts {
+            infer_primitive_with_facts(opcode, &operand_types, &operation.attributes, facts)?
+        } else {
+            infer_primitive(opcode, &operand_types, &operation.attributes)?
+        };
         if matches!(inferred.classification, ActionClassification::Conditional) {
             classification = ActionClassification::Conditional;
         }
         let result_type = inferred.ty;
+        shape_relations.extend(inferred.shape_relations);
         operations.push(RegionOperation {
             result: operation.bind.clone(),
             opcode,
@@ -379,34 +402,142 @@ fn build_region(
             yield_type,
         },
         classification,
+        shape_relations,
     ))
+}
+
+struct ObligationDraft {
+    kind: ObligationKind,
+    status: ObligationStatus,
+    proposition: JsonValue,
+    discharge_methods: Vec<String>,
 }
 
 fn add_obligation(
     program: &mut Program,
     allocator: &mut IdAllocator,
     action: &ActionId,
-    kind: ObligationKind,
-    status: ObligationStatus,
-    proposition: JsonValue,
-    discharge_methods: Vec<String>,
-) -> ObligationId {
+    draft: ObligationDraft,
+    max_obligations: u64,
+) -> AgentResult<ObligationId> {
+    BudgetCheck::ensure(
+        ResourceKind::ObligationsPerProgram,
+        max_obligations,
+        u64::try_from(program.obligations.len())
+            .unwrap_or(u64::MAX)
+            .saturating_add(1),
+        "create proof obligation",
+    )?;
     let id = allocator.obligation();
     program.obligations.insert(
         id.clone(),
         ProofObligation {
             id: id.clone(),
-            kind,
-            proposition,
+            kind: draft.kind,
+            proposition: draft.proposition,
+            shape_compatibility: None,
             origin: ObligationOrigin {
                 revision: None,
                 action: action.clone(),
             },
-            status,
-            discharge_methods,
+            status: draft.status,
+            discharge_methods: draft.discharge_methods,
         },
     );
-    id
+    Ok(id)
+}
+
+fn involved_symbols(left: &Type, right: &Type) -> Vec<String> {
+    type_symbols(left)
+        .into_iter()
+        .chain(type_symbols(right))
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn add_shape_obligation(
+    program: &mut Program,
+    allocator: &mut IdAllocator,
+    action: &ActionId,
+    relation: ShapeRelation,
+    context: ShapeObligationContext,
+    max_obligations: u64,
+) -> AgentResult<ObligationId> {
+    BudgetCheck::ensure(
+        ResourceKind::ObligationsPerProgram,
+        max_obligations,
+        u64::try_from(program.obligations.len())
+            .unwrap_or(u64::MAX)
+            .saturating_add(1),
+        "create shape compatibility obligation",
+    )?;
+    let proposition = ShapeCompatibilityProposition {
+        relation: ShapeRelationKind::EqualShape,
+        involved_symbols: involved_symbols(&relation.left, &relation.right),
+        left: relation.left,
+        right: relation.right,
+        context,
+    };
+    let id = allocator.obligation();
+    program.obligations.insert(
+        id.clone(),
+        ProofObligation {
+            id: id.clone(),
+            kind: ObligationKind::ShapeCompatible,
+            proposition: json!({"shape_compatibility": proposition}),
+            shape_compatibility: Some(proposition),
+            origin: ObligationOrigin {
+                revision: None,
+                action: action.clone(),
+            },
+            status: ObligationStatus::Open,
+            discharge_methods: vec!["add_constraint".to_owned(), "specialize_shape".to_owned()],
+        },
+    );
+    Ok(id)
+}
+
+fn discharge_shape_obligations(
+    program: &mut Program,
+    facts: &ConstraintFacts,
+    reject_contradiction: bool,
+) -> AgentResult<()> {
+    for obligation in program.obligations.values_mut() {
+        if obligation.kind != ObligationKind::ShapeCompatible
+            || obligation.status != ObligationStatus::Open
+        {
+            continue;
+        }
+        let Some(proposition) = &obligation.shape_compatibility else {
+            continue;
+        };
+        match facts.query_types(&proposition.left, &proposition.right)? {
+            ConstraintQueryResult::Proved { .. } => {
+                obligation.status = ObligationStatus::Proved;
+            }
+            ConstraintQueryResult::Unknown => {}
+            ConstraintQueryResult::Contradiction { contradiction } if reject_contradiction => {
+                return Err(AgentError::new(
+                    ErrorCode::ConstraintContradiction,
+                    "constraint contradicts an open shape compatibility obligation",
+                )
+                .with_types(contradiction.expected, contradiction.actual)
+                .with_detail("obligation", obligation.id.to_string())
+                .with_detail(
+                    "normalized_constraint",
+                    json!(contradiction.normalized_constraint),
+                )
+                .with_detail("conflicting_facts", json!(contradiction.conflicting_facts))
+                .with_repair("remove the conflicting constraint or rebuild the operation"));
+            }
+            ConstraintQueryResult::Contradiction { .. } => {
+                obligation.status = ObligationStatus::Refuted;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn check_program(revision: RevisionId, program: &Program) -> CheckReport {
@@ -481,6 +612,140 @@ fn require_complete(program: &Program) -> AgentResult<()> {
     Ok(())
 }
 
+fn as_u64(value: usize) -> u64 {
+    u64::try_from(value).unwrap_or(u64::MAX)
+}
+
+fn check_attributes(
+    attributes: &BTreeMap<String, JsonValue>,
+    limits: &ResourceLimits,
+    context: &str,
+) -> AgentResult<()> {
+    let bytes = serde_json::to_vec(attributes).map_err(|error| {
+        AgentError::new(
+            ErrorCode::InvalidRequest,
+            format!("attribute encoding failed: {error}"),
+        )
+    })?;
+    BudgetCheck::against(
+        limits,
+        ResourceKind::AttributeJsonBytes,
+        as_u64(bytes.len()),
+        context,
+    )
+}
+
+fn preflight_transaction(
+    program: &Program,
+    transaction: &Transaction,
+    limits: &ResourceLimits,
+    semantics_version: u32,
+) -> AgentResult<()> {
+    BudgetCheck::against(
+        limits,
+        ResourceKind::ActionsPerTransaction,
+        as_u64(transaction.actions.len()),
+        "transaction preflight",
+    )?;
+    let mut dimensions = as_u64(program.dimensions.len());
+    let mut operations = as_u64(program.operations.len());
+    let mut values = as_u64(program.values.len());
+    let mut holes = as_u64(program.holes.len());
+    let mut constraints = as_u64(program.constraints.len()).saturating_add(
+        program
+            .holes
+            .values()
+            .map(|hole| as_u64(hole.shape_constraints.len()))
+            .fold(0, u64::saturating_add),
+    );
+    let mut projected_constraints = program.constraints.iter().cloned().collect::<BTreeSet<_>>();
+    let mut outputs = as_u64(program.outputs.len());
+    let mut projected_output_names = program.outputs.keys().cloned().collect::<BTreeSet<_>>();
+    for action in &transaction.actions {
+        match action {
+            Action::DefineDimension { .. } => dimensions = dimensions.saturating_add(1),
+            Action::CreateParameter { .. } | Action::CreateConstant { .. } => {
+                operations = operations.saturating_add(1);
+                values = values.saturating_add(1);
+            }
+            Action::CreateHole {
+                shape_constraints, ..
+            } => {
+                holes = holes.saturating_add(1);
+                values = values.saturating_add(1);
+                constraints = constraints.saturating_add(as_u64(shape_constraints.len()));
+            }
+            Action::CreateOp {
+                operands,
+                attributes,
+                region,
+                ..
+            } => {
+                operations = operations.saturating_add(1);
+                values = values.saturating_add(1);
+                BudgetCheck::against(
+                    limits,
+                    ResourceKind::OperandsPerOperation,
+                    as_u64(operands.len()),
+                    "top-level operation operands",
+                )?;
+                check_attributes(attributes, limits, "top-level operation attributes")?;
+                if let Some(region) = region {
+                    BudgetCheck::against(
+                        limits,
+                        ResourceKind::RegionArguments,
+                        as_u64(region.arguments.len()),
+                        "inline region arguments",
+                    )?;
+                    BudgetCheck::against(
+                        limits,
+                        ResourceKind::RegionOperations,
+                        as_u64(region.operations.len()),
+                        "inline region operations",
+                    )?;
+                    for operation in &region.operations {
+                        BudgetCheck::against(
+                            limits,
+                            ResourceKind::OperandsPerOperation,
+                            as_u64(operation.operands.len()),
+                            "region operation operands",
+                        )?;
+                        check_attributes(
+                            &operation.attributes,
+                            limits,
+                            "region operation attributes",
+                        )?;
+                    }
+                }
+            }
+            Action::AddConstraint { constraint } => {
+                if semantics_version == LEGACY_CORE_SEMANTICS_VERSION
+                    || projected_constraints.insert(constraint.clone())
+                {
+                    constraints = constraints.saturating_add(1);
+                }
+            }
+            Action::SetOutput { name, .. } => {
+                if projected_output_names.insert(name.clone()) {
+                    outputs = outputs.saturating_add(1);
+                }
+            }
+            Action::FillHole { .. } | Action::FreezeSpec | Action::ForkRevision => {}
+        }
+    }
+    for (resource, actual) in [
+        (ResourceKind::DimensionsPerProgram, dimensions),
+        (ResourceKind::OperationsPerProgram, operations),
+        (ResourceKind::ValuesPerProgram, values),
+        (ResourceKind::HolesPerProgram, holes),
+        (ResourceKind::ConstraintsPerProgram, constraints),
+        (ResourceKind::OutputCount, outputs),
+    ] {
+        BudgetCheck::against(limits, resource, actual, "projected program size")?;
+    }
+    Ok(())
+}
+
 /// In-memory Stage 1 workspace with immutable revision snapshots.
 #[derive(Clone, Debug)]
 pub struct Workspace {
@@ -488,15 +753,21 @@ pub struct Workspace {
     revisions: BTreeMap<RevisionId, Revision>,
     head: RevisionId,
     allocator: IdAllocator,
-    events: Vec<WorkspaceEvent>,
+    events: Vec<VersionedWorkspaceEvent>,
+    limits: ResourceLimits,
 }
 
 impl Workspace {
     /// Creates a workspace with the empty root revision `r0`.
     pub fn new(id: WorkspaceId) -> AgentResult<Self> {
+        Self::with_limits(id, ResourceLimits::default())
+    }
+
+    /// Creates a workspace with explicit interactive limits.
+    pub fn with_limits(id: WorkspaceId, limits: ResourceLimits) -> AgentResult<Self> {
         let program = Program::default();
         let root = RevisionId::new("r0");
-        let hash = content_hash(&program)?;
+        let hash = content_hash_with_limit(&program, limits.canonical_output_bytes)?;
         let revision = Revision {
             id: root.clone(),
             parents: Vec::new(),
@@ -514,7 +785,19 @@ impl Workspace {
             head: root,
             allocator: IdAllocator::default(),
             events: Vec::new(),
+            limits,
         })
+    }
+
+    /// Replaces interactive limits without changing canonical workspace state.
+    pub fn set_resource_limits(&mut self, limits: ResourceLimits) {
+        self.limits = limits;
+    }
+
+    /// Returns current interactive limits.
+    #[must_use]
+    pub const fn resource_limits(&self) -> &ResourceLimits {
+        &self.limits
     }
 
     /// Returns the workspace ID.
@@ -547,6 +830,24 @@ impl Workspace {
 
     /// Atomically applies a transaction and creates exactly one child revision.
     pub fn apply(&mut self, transaction: &Transaction) -> AgentResult<CommitResult> {
+        self.apply_with_semantics(transaction, CORE_SEMANTICS_VERSION)
+    }
+
+    fn apply_with_semantics(
+        &mut self,
+        transaction: &Transaction,
+        semantics_version: u32,
+    ) -> AgentResult<CommitResult> {
+        if !matches!(
+            semantics_version,
+            LEGACY_CORE_SEMANTICS_VERSION | CORE_SEMANTICS_VERSION
+        ) {
+            return Err(AgentError::new(
+                ErrorCode::PersistenceFormat,
+                format!("unsupported compiler semantics version {semantics_version}"),
+            )
+            .with_detail("semantics_version", semantics_version));
+        }
         if transaction.workspace != self.id {
             return Err(AgentError::new(
                 ErrorCode::WorkspaceNotFound,
@@ -580,13 +881,20 @@ impl Workspace {
             )
             .with_detail("current_head", self.head.to_string()));
         }
-        let base = self.revision(&transaction.base_revision)?.clone();
+        let base = self.revision(&transaction.base_revision)?;
+        preflight_transaction(&base.program, transaction, &self.limits, semantics_version)?;
+        let base = base.clone();
         let mut program = base.program;
         let mut allocator = self.allocator.clone();
         let mut bindings = BTreeMap::<String, Binding>::new();
         let mut inferred = BTreeMap::new();
         let mut classifications = Vec::new();
         let mut obligations_created = Vec::new();
+        let mut facts = if semantics_version == CORE_SEMANTICS_VERSION {
+            Some(ConstraintFacts::from_program(&program)?)
+        } else {
+            None
+        };
 
         for action in &transaction.actions {
             if program.frozen && !matches!(action, Action::ForkRevision) {
@@ -612,10 +920,26 @@ impl Workspace {
                     if let Some(bind) = bind {
                         ensure_new_binding(&bindings, bind)?;
                     }
-                    let id = allocator.dimension();
-                    let non_negative = constraints
+                    let normalized_constraints = constraints
                         .iter()
-                        .any(|constraint| constraint.replace(' ', "") == format!("{name}>=0"));
+                        .map(|constraint| constraint.replace(' ', ""))
+                        .collect::<Vec<_>>();
+                    if semantics_version == CORE_SEMANTICS_VERSION
+                        && normalized_constraints
+                            .iter()
+                            .any(|constraint| constraint != &format!("{name}>=0"))
+                    {
+                        return Err(AgentError::new(
+                            ErrorCode::InvalidConstraint,
+                            "define_dimension supports only `<symbol> >= 0` in Stage 1.2",
+                        )
+                        .with_detail("constraints", json!(constraints))
+                        .with_repair("use a structured add_constraint equality for shape facts"));
+                    }
+                    let id = allocator.dimension();
+                    let non_negative = normalized_constraints
+                        .iter()
+                        .any(|constraint| constraint == &format!("{name}>=0"));
                     program.dimensions.insert(
                         id.clone(),
                         Dimension {
@@ -626,6 +950,9 @@ impl Workspace {
                         },
                     );
                     program.dimension_names.insert(name.clone(), id.clone());
+                    if let Some(facts) = facts.as_mut() {
+                        facts.declare_symbol(name, non_negative)?;
+                    }
                     if let Some(bind) = bind {
                         bindings.insert(bind.clone(), Binding::Dimension(id));
                     }
@@ -672,11 +999,14 @@ impl Workspace {
                         &mut program,
                         &mut allocator,
                         &action_id,
-                        ObligationKind::TypeWellFormed,
-                        ObligationStatus::Proved,
-                        json!({"type": ty}),
-                        Vec::new(),
-                    ));
+                        ObligationDraft {
+                            kind: ObligationKind::TypeWellFormed,
+                            status: ObligationStatus::Proved,
+                            proposition: json!({"type": ty}),
+                            discharge_methods: Vec::new(),
+                        },
+                        self.limits.obligations_per_program,
+                    )?);
                 }
                 Action::CreateConstant { bind, ty, value } => {
                     ensure_new_binding(&bindings, bind)?;
@@ -722,6 +1052,12 @@ impl Workspace {
                 } => {
                     ensure_new_binding(&bindings, bind)?;
                     validate_type_symbols(&program, expected_type)?;
+                    if let Some(facts) = facts.as_ref() {
+                        let mut local_facts = facts.clone();
+                        for constraint in shape_constraints {
+                            local_facts.insert(constraint)?;
+                        }
+                    }
                     let hole_id = allocator.hole();
                     let value_id = allocator.value();
                     program.values.insert(
@@ -752,11 +1088,14 @@ impl Workspace {
                         &mut program,
                         &mut allocator,
                         &action_id,
-                        ObligationKind::HoleFilled,
-                        ObligationStatus::Open,
-                        json!({"hole": hole_id}),
-                        vec!["fill_hole".to_owned()],
-                    ));
+                        ObligationDraft {
+                            kind: ObligationKind::HoleFilled,
+                            status: ObligationStatus::Open,
+                            proposition: json!({"hole": hole_id}),
+                            discharge_methods: vec!["fill_hole".to_owned()],
+                        },
+                        self.limits.obligations_per_program,
+                    )?);
                     classification = ActionClassification::Conditional;
                 }
                 Action::CreateOp {
@@ -784,34 +1123,73 @@ impl Workspace {
                         .iter()
                         .map(|value| value_type(&program, value))
                         .collect::<AgentResult<_>>()?;
-                    let (verified_region, region_classification) = match region {
+                    let (verified_region, region_classification, mut shape_relations) = match region
+                    {
                         Some(region) => {
-                            let (region, classification) =
-                                build_region(opcode, region, &operand_types, &program, &bindings)?;
-                            (Some(region), classification)
+                            let (region, classification, relations) = build_region(
+                                opcode,
+                                region,
+                                &operand_types,
+                                &program,
+                                &bindings,
+                                facts.as_ref(),
+                            )?;
+                            (Some(region), classification, relations)
                         }
-                        None => (None, ActionClassification::Legal),
+                        None => (None, ActionClassification::Legal, Vec::new()),
                     };
-                    let operation_inference = if let Some(region) = &verified_region {
-                        infer_higher(opcode, &operand_types, region)?
-                    } else {
-                        infer_primitive(opcode, &operand_types, attributes)?
-                    };
+                    let operation_inference =
+                        if let (Some(region), Some(facts)) = (&verified_region, facts.as_ref()) {
+                            infer_higher_with_facts(opcode, &operand_types, region, facts)?
+                        } else if let Some(region) = &verified_region {
+                            infer_higher(opcode, &operand_types, region)?
+                        } else if let Some(facts) = facts.as_ref() {
+                            infer_primitive_with_facts(opcode, &operand_types, attributes, facts)?
+                        } else {
+                            infer_primitive(opcode, &operand_types, attributes)?
+                        };
+                    shape_relations.extend(operation_inference.shape_relations.clone());
                     if matches!(
                         operation_inference.classification,
                         ActionClassification::Conditional
                     ) || matches!(region_classification, ActionClassification::Conditional)
                     {
                         classification = ActionClassification::Conditional;
-                        obligations_created.push(add_obligation(
-                            &mut program,
-                            &mut allocator,
-                            &action_id,
-                            ObligationKind::ShapeCompatible,
-                            ObligationStatus::Open,
-                            json!({"opcode": opcode, "operands": operand_ids}),
-                            vec!["add_constraint".to_owned(), "specialize_shape".to_owned()],
-                        ));
+                        if semantics_version == LEGACY_CORE_SEMANTICS_VERSION {
+                            obligations_created.push(add_obligation(
+                                &mut program,
+                                &mut allocator,
+                                &action_id,
+                                ObligationDraft {
+                                    kind: ObligationKind::ShapeCompatible,
+                                    status: ObligationStatus::Open,
+                                    proposition: json!({"opcode": opcode, "operands": operand_ids}),
+                                    discharge_methods: vec![
+                                        "add_constraint".to_owned(),
+                                        "specialize_shape".to_owned(),
+                                    ],
+                                },
+                                self.limits.obligations_per_program,
+                            )?);
+                        } else {
+                            shape_relations.sort_by(|left, right| {
+                                (&left.left, &left.right).cmp(&(&right.left, &right.right))
+                            });
+                            shape_relations.dedup();
+                            for relation in shape_relations {
+                                obligations_created.push(add_shape_obligation(
+                                    &mut program,
+                                    &mut allocator,
+                                    &action_id,
+                                    relation,
+                                    ShapeObligationContext::Operation {
+                                        opcode,
+                                        operands: operand_ids.clone(),
+                                    },
+                                    self.limits.obligations_per_program,
+                                )?);
+                            }
+                        }
                     }
                     let result_type = operation_inference.ty;
                     let operation_id = allocator.operation();
@@ -852,6 +1230,7 @@ impl Workspace {
                         .ok_or_else(|| AgentError::new(ErrorCode::UnknownReference, hole))?
                         .expected_type
                         .clone();
+                    let mut fill_relation = None;
                     let fill_classification = match (&expected_ty, &value_ty) {
                         (Type::Scalar(left), Type::Scalar(right)) if left == right => {
                             ActionClassification::Legal
@@ -866,13 +1245,57 @@ impl Workspace {
                                 shape: right_shape,
                             },
                         ) if left_element == right_element => {
-                            match same_shape(left_shape, right_shape) {
-                                SolverStatus::Proved => ActionClassification::Legal,
-                                SolverStatus::Unknown => ActionClassification::Conditional,
-                                SolverStatus::Contradiction => {
+                            let status = if let Some(facts) = facts.as_ref() {
+                                let mut local_facts = facts.clone();
+                                for constraint in &program
+                                    .holes
+                                    .get(&hole_id)
+                                    .expect("resolved hole exists")
+                                    .shape_constraints
+                                {
+                                    local_facts.insert(constraint)?;
+                                }
+                                local_facts.query_types(&expected_ty, &value_ty)?
+                            } else {
+                                match same_shape(left_shape, right_shape) {
+                                    SolverStatus::Proved => ConstraintQueryResult::Proved {
+                                        proof: crate::constraints::ConstraintProof {
+                                            normalized_left: expected_ty.to_string(),
+                                            normalized_right: value_ty.to_string(),
+                                            facts: Vec::new(),
+                                        },
+                                    },
+                                    SolverStatus::Unknown => ConstraintQueryResult::Unknown,
+                                    SolverStatus::Contradiction => {
+                                        ConstraintQueryResult::Contradiction {
+                                            contradiction:
+                                                crate::constraints::ConstraintContradiction {
+                                                    normalized_constraint:
+                                                        crate::shapes::ShapeConstraint::Equal {
+                                                            left: left_shape.clone(),
+                                                            right: right_shape.clone(),
+                                                        },
+                                                    conflicting_facts: Vec::new(),
+                                                    expected: expected_ty.to_string(),
+                                                    actual: value_ty.to_string(),
+                                                },
+                                        }
+                                    }
+                                }
+                            };
+                            match status {
+                                ConstraintQueryResult::Proved { .. } => ActionClassification::Legal,
+                                ConstraintQueryResult::Unknown => {
+                                    fill_relation = Some(ShapeRelation {
+                                        left: expected_ty.clone(),
+                                        right: value_ty.clone(),
+                                    });
+                                    ActionClassification::Conditional
+                                }
+                                ConstraintQueryResult::Contradiction { .. } => {
                                     return Err(AgentError::new(
                                         ErrorCode::HoleTypeMismatch,
-                                        "hole and value shapes contradict",
+                                        "hole and value shapes contradict accepted facts",
                                     )
                                     .with_types(expected_ty.to_string(), value_ty.to_string()));
                                 }
@@ -896,7 +1319,7 @@ impl Workspace {
                             format!("hole `{hole_id}` is already filled"),
                         ));
                     }
-                    hole.filled_with = Some(value_id);
+                    hole.filled_with = Some(value_id.clone());
                     hole.status = HoleStatus::Filled;
                     for obligation in program.obligations.values_mut() {
                         if obligation.kind == ObligationKind::HoleFilled
@@ -907,15 +1330,32 @@ impl Workspace {
                     }
                     classification = fill_classification;
                     if matches!(classification, ActionClassification::Conditional) {
-                        obligations_created.push(add_obligation(
-                            &mut program,
-                            &mut allocator,
-                            &action_id,
-                            ObligationKind::ShapeCompatible,
-                            ObligationStatus::Open,
-                            json!({"hole": hole_id}),
-                            vec!["add_constraint".to_owned()],
-                        ));
+                        if semantics_version == LEGACY_CORE_SEMANTICS_VERSION {
+                            obligations_created.push(add_obligation(
+                                &mut program,
+                                &mut allocator,
+                                &action_id,
+                                ObligationDraft {
+                                    kind: ObligationKind::ShapeCompatible,
+                                    status: ObligationStatus::Open,
+                                    proposition: json!({"hole": hole_id}),
+                                    discharge_methods: vec!["add_constraint".to_owned()],
+                                },
+                                self.limits.obligations_per_program,
+                            )?);
+                        } else {
+                            obligations_created.push(add_shape_obligation(
+                                &mut program,
+                                &mut allocator,
+                                &action_id,
+                                fill_relation.expect("conditional fact query has a relation"),
+                                ShapeObligationContext::Hole {
+                                    hole: hole_id,
+                                    value: value_id,
+                                },
+                                self.limits.obligations_per_program,
+                            )?);
+                        }
                     }
                 }
                 Action::SetOutput { name, value } => {
@@ -923,9 +1363,22 @@ impl Workspace {
                     program.outputs.insert(name.clone(), value);
                 }
                 Action::AddConstraint { constraint } => {
-                    program.constraints.push(constraint.clone());
+                    if let Some(current_facts) = facts.as_mut() {
+                        let mut staged_facts = current_facts.clone();
+                        staged_facts.insert(constraint)?;
+                        if !program.constraints.contains(constraint) {
+                            program.constraints.push(constraint.clone());
+                        }
+                        discharge_shape_obligations(&mut program, &staged_facts, true)?;
+                        *current_facts = staged_facts;
+                    } else {
+                        program.constraints.push(constraint.clone());
+                    }
                 }
                 Action::FreezeSpec => {
+                    if let Some(facts) = facts.as_ref() {
+                        discharge_shape_obligations(&mut program, facts, true)?;
+                    }
                     require_complete(&program)?;
                     program.frozen = true;
                     let outputs = program.outputs.keys().cloned().collect::<Vec<_>>();
@@ -933,11 +1386,14 @@ impl Workspace {
                         &mut program,
                         &mut allocator,
                         &action_id,
-                        ObligationKind::SpecComplete,
-                        ObligationStatus::Proved,
-                        json!({"outputs": outputs}),
-                        Vec::new(),
-                    ));
+                        ObligationDraft {
+                            kind: ObligationKind::SpecComplete,
+                            status: ObligationStatus::Proved,
+                            proposition: json!({"outputs": outputs}),
+                            discharge_methods: Vec::new(),
+                        },
+                        self.limits.obligations_per_program,
+                    )?);
                 }
                 Action::ForkRevision => {}
             }
@@ -951,8 +1407,9 @@ impl Workspace {
                 obligation.origin.revision = Some(revision_id.clone());
             }
         }
-        let hash = content_hash(&program)?;
-        let (spec_hash, semantic_canonical_version) = semantic_metadata(&program)?;
+        let hash = content_hash_with_limit(&program, self.limits.canonical_output_bytes)?;
+        let (spec_hash, semantic_canonical_version) =
+            semantic_metadata(&program, self.limits.canonical_output_bytes)?;
         let revision = Revision {
             id: revision_id.clone(),
             parents: vec![transaction.base_revision.clone()],
@@ -967,11 +1424,14 @@ impl Workspace {
         self.allocator = allocator;
         self.revisions.insert(revision_id.clone(), revision);
         self.head = revision_id.clone();
-        self.events.push(WorkspaceEvent::TransactionApplied {
-            transaction_id: transaction_id.clone(),
-            revision: revision_id.clone(),
-            content_hash: hash.clone(),
-            transaction: transaction.clone(),
+        self.events.push(VersionedWorkspaceEvent {
+            semantics_version,
+            event: WorkspaceEvent::TransactionApplied {
+                transaction_id: transaction_id.clone(),
+                revision: revision_id.clone(),
+                content_hash: hash.clone(),
+                transaction: transaction.clone(),
+            },
         });
         let bindings = bindings
             .into_iter()
@@ -992,6 +1452,23 @@ impl Workspace {
 
     /// Creates an explicit child snapshot of any existing revision.
     pub fn fork(&mut self, base_revision: &RevisionId) -> AgentResult<RevisionId> {
+        self.fork_with_semantics(base_revision, CORE_SEMANTICS_VERSION)
+    }
+
+    fn fork_with_semantics(
+        &mut self,
+        base_revision: &RevisionId,
+        semantics_version: u32,
+    ) -> AgentResult<RevisionId> {
+        if !matches!(
+            semantics_version,
+            LEGACY_CORE_SEMANTICS_VERSION | CORE_SEMANTICS_VERSION
+        ) {
+            return Err(AgentError::new(
+                ErrorCode::PersistenceFormat,
+                format!("unsupported compiler semantics version {semantics_version}"),
+            ));
+        }
         let base = self.revision(base_revision)?.clone();
         let revision_id = self.allocator.revision();
         let hash = base.content_hash;
@@ -1008,10 +1485,13 @@ impl Workspace {
         };
         self.revisions.insert(revision_id.clone(), revision);
         self.head = revision_id.clone();
-        self.events.push(WorkspaceEvent::RevisionForked {
-            base_revision: base_revision.clone(),
-            revision: revision_id.clone(),
-            content_hash: hash,
+        self.events.push(VersionedWorkspaceEvent {
+            semantics_version,
+            event: WorkspaceEvent::RevisionForked {
+                base_revision: base_revision.clone(),
+                revision: revision_id.clone(),
+                content_hash: hash,
+            },
         });
         Ok(revision_id)
     }
@@ -1054,16 +1534,59 @@ impl Workspace {
                 ),
             ));
         }
-        let mut replayed = Self::new(snapshot.workspace.clone())?;
-        for event in &snapshot.events {
-            match event {
+        BudgetCheck::against(
+            &ResourceLimits::hard_safety_caps(),
+            ResourceKind::RevisionsPerArchive,
+            as_u64(snapshot.revisions.len()),
+            "snapshot replay preflight",
+        )?;
+        BudgetCheck::against(
+            &ResourceLimits::hard_safety_caps(),
+            ResourceKind::EventsPerArchive,
+            as_u64(snapshot.events.len()),
+            "snapshot replay preflight",
+        )?;
+        let replay_actions = snapshot.events.iter().fold(0_u64, |total, versioned| {
+            total.saturating_add(match &versioned.event {
+                WorkspaceEvent::TransactionApplied { transaction, .. } => {
+                    as_u64(transaction.actions.len())
+                }
+                WorkspaceEvent::RevisionForked { .. } => 0,
+            })
+        });
+        BudgetCheck::against(
+            &ResourceLimits::hard_safety_caps(),
+            ResourceKind::ActionsReplayedPerArchive,
+            replay_actions,
+            "snapshot replay preflight",
+        )?;
+        let mut replayed = Self::with_limits(
+            snapshot.workspace.clone(),
+            ResourceLimits::hard_safety_caps(),
+        )?;
+        for versioned in &snapshot.events {
+            if !matches!(
+                versioned.semantics_version,
+                LEGACY_CORE_SEMANTICS_VERSION | CORE_SEMANTICS_VERSION
+            ) {
+                return Err(AgentError::new(
+                    ErrorCode::PersistenceFormat,
+                    format!(
+                        "unsupported compiler semantics version {}",
+                        versioned.semantics_version
+                    ),
+                )
+                .with_detail("semantics_version", versioned.semantics_version));
+            }
+            match &versioned.event {
                 WorkspaceEvent::TransactionApplied {
                     transaction_id,
                     revision,
                     content_hash: expected_hash,
                     transaction,
                 } => {
-                    let commit = replayed.apply(transaction)?;
+                    let commit =
+                        replayed.apply_with_semantics(transaction, versioned.semantics_version)?;
                     if commit.transaction != *transaction_id
                         || commit.revision != *revision
                         || commit.content_hash != *expected_hash
@@ -1083,7 +1606,8 @@ impl Workspace {
                     revision,
                     content_hash: expected_hash,
                 } => {
-                    let actual_revision = replayed.fork(base_revision)?;
+                    let actual_revision =
+                        replayed.fork_with_semantics(base_revision, versioned.semantics_version)?;
                     let actual_hash = replayed.revision(&actual_revision)?.content_hash.clone();
                     if actual_revision != *revision || actual_hash != *expected_hash {
                         return Err(AgentError::new(
@@ -1174,7 +1698,10 @@ impl Workspace {
                 ));
             }
 
-            let (recomputed_spec_hash, recomputed_version) = semantic_metadata(&expected.program)?;
+            let (recomputed_spec_hash, recomputed_version) = semantic_metadata(
+                &expected.program,
+                ResourceLimits::hard_safety_caps().canonical_output_bytes,
+            )?;
             if populate_missing_semantic_cache {
                 if expected.spec_hash.is_some() || expected.semantic_canonical_version.is_some() {
                     return Err(AgentError::new(
@@ -1240,6 +1767,7 @@ impl Workspace {
         replayed.head = snapshot.head;
         replayed.allocator = snapshot.allocator;
         replayed.events = snapshot.events;
+        replayed.limits = ResourceLimits::default();
         Ok((replayed, report))
     }
 
@@ -1249,7 +1777,8 @@ impl Workspace {
         revision: &RevisionId,
     ) -> AgentResult<SemanticCanonicalization> {
         let revision = self.revision(revision)?;
-        let canonical = canonicalize_spec(&revision.program)?;
+        let canonical =
+            canonicalize_spec_with_limit(&revision.program, self.limits.canonical_output_bytes)?;
         if revision.spec_hash.as_ref() != Some(&canonical.spec_hash)
             || revision.semantic_canonical_version != Some(SPEC_CANONICAL_VERSION)
         {
@@ -1303,12 +1832,74 @@ impl Workspace {
         }
         let program = revision_data.program.clone();
         let frame_id = self.allocator.frame();
-        Ok(build_frame(
-            frame_id,
-            revision.clone(),
-            &program,
-            &hole_data,
-            mode,
-        ))
+        build_frame(frame_id, revision.clone(), &program, &hole_data, mode)
+    }
+}
+
+#[cfg(test)]
+mod semantics_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_shape_obligation_semantics_replay_without_structured_discharge() {
+        let mut workspace = Workspace::with_limits(
+            WorkspaceId::new("legacy-shape"),
+            ResourceLimits::hard_safety_caps(),
+        )
+        .unwrap();
+        let transaction = Transaction {
+            workspace: workspace.id().clone(),
+            base_revision: RevisionId::new("r0"),
+            actions: vec![
+                Action::DefineDimension {
+                    bind: None,
+                    name: "N".to_owned(),
+                    constraints: vec!["N >= 0".to_owned()],
+                },
+                Action::DefineDimension {
+                    bind: None,
+                    name: "M".to_owned(),
+                    constraints: vec!["M >= 0".to_owned()],
+                },
+                Action::CreateParameter {
+                    bind: "$x".to_owned(),
+                    name: "x".to_owned(),
+                    ty: "tensor<f32,[N]>".parse().unwrap(),
+                },
+                Action::CreateParameter {
+                    bind: "$y".to_owned(),
+                    name: "y".to_owned(),
+                    ty: "tensor<f32,[M]>".parse().unwrap(),
+                },
+                Action::CreateOp {
+                    bind: "$sum".to_owned(),
+                    opcode: "add".to_owned(),
+                    operands: vec!["$x".to_owned(), "$y".to_owned()],
+                    attributes: BTreeMap::new(),
+                    region: None,
+                },
+            ],
+            client_transaction_id: None,
+            allow_branch: false,
+        };
+        let commit = workspace
+            .apply_with_semantics(&transaction, LEGACY_CORE_SEMANTICS_VERSION)
+            .unwrap();
+        let revision = workspace.revision(&commit.revision).unwrap();
+        let shape = revision
+            .program
+            .obligations
+            .values()
+            .find(|obligation| obligation.kind == ObligationKind::ShapeCompatible)
+            .unwrap();
+        assert_eq!(
+            shape.proposition,
+            json!({"opcode": "add", "operands": ["v1", "v2"]})
+        );
+        assert!(shape.shape_compatibility.is_none());
+        let snapshot = workspace.snapshot();
+        let (replayed, report) = Workspace::from_snapshot(snapshot.clone()).unwrap();
+        assert_eq!(report.events_replayed, 1);
+        assert_eq!(replayed.snapshot(), snapshot);
     }
 }

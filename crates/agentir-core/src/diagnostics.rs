@@ -54,6 +54,12 @@ pub enum ErrorCode {
     ReplayMismatch,
     /// A complete specification could not be converted to semantic canonical form.
     CanonicalizationFailed,
+    /// A shape constraint is malformed or outside the supported Stage 1.2 subset.
+    InvalidConstraint,
+    /// A shape constraint proves a conflict with accepted facts or obligations.
+    ConstraintContradiction,
+    /// A configured or hard resource budget was exceeded.
+    ResourceLimitExceeded,
 }
 
 /// Structured compiler error suitable for agent repair loops.
@@ -107,6 +113,13 @@ impl AgentError {
     #[must_use]
     pub fn with_detail(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
         self.details.insert(key.into(), value.into());
+        self
+    }
+
+    /// Adds one deterministic repair recommendation.
+    #[must_use]
+    pub fn with_repair(mut self, repair: impl Into<String>) -> Self {
+        self.repairs.push(repair.into());
         self
     }
 }

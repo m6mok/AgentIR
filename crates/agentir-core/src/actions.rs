@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 
 /// A block argument supplied by a higher-order operation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RegionArgumentSpec {
     /// Local argument name.
     pub name: String,
@@ -17,6 +18,7 @@ pub struct RegionArgumentSpec {
 
 /// One local operation in an inline region specification.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RegionOpSpec {
     /// Transaction-local result binding such as `$product`.
     pub bind: String,
@@ -31,6 +33,7 @@ pub struct RegionOpSpec {
 
 /// Inline pure region accepted by `map`, `zip_map`, and `reduce`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RegionSpec {
     /// Ordered block arguments.
     pub arguments: Vec<RegionArgumentSpec>,
@@ -45,7 +48,7 @@ pub struct RegionSpec {
 
 /// One atomic graph-edit action.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Action {
     /// Declares a symbolic dimension.
     DefineDimension {
@@ -130,6 +133,7 @@ pub enum Action {
 
 /// Atomic ActionIR transaction.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Transaction {
     /// Target workspace.
     pub workspace: WorkspaceId,

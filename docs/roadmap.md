@@ -1,18 +1,18 @@
 # Roadmap
 
-## Completed in Stage 1.1
+## Completed through Stage 1.2
 
 - versioned semantic canonical form and history-independent `spec_hash`;
 - archive/snapshot v2 with explicit v1 migration and golden fixtures;
 - deterministic permutation and archive round-trip property harnesses;
 - migration protocol command and atomic destination handling.
+- deterministic compact constraint facts and incremental `ShapeCompatible` discharge;
+- event-level core semantics versions and archive/snapshot v3;
+- central resource budgets across core/store/protocol/CLI/evaluator;
+- fixed-seed solver soundness plus archive/protocol mutation corpora;
+- statistical benchmark schema v2 with median/p95 and environment metadata.
 
-## Immediate hardening
-
-1. Make constraint addition discharge compact shape obligations incrementally.
-2. Add process locking or a transactional database when concurrent workspace access is required.
-3. Extend resource budgets and fuzz/property coverage for parsers and interpreter edge cases.
-4. Add incremental canonical subgraph digest caching if measurements justify it.
+Process locking remains deferred until concurrent workspace access is required. Incremental canonical subgraph caching should be added only if the statistical baseline identifies it as a material bottleneck.
 
 ## Stage 2: ImplIR and refinement
 

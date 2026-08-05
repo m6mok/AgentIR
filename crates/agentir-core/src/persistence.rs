@@ -9,8 +9,17 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// Current compiler semantics used for newly accepted events.
+pub const CORE_SEMANTICS_VERSION: u32 = 2;
+
+/// Immutable Stage 1.1 compiler semantics used by archive v1/v2 events.
+pub const LEGACY_CORE_SEMANTICS_VERSION: u32 = 1;
+
 /// Current schema version for compiler-core workspace snapshots.
-pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 2;
+pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 3;
+
+/// Immutable Stage 1.1 snapshot schema migrated explicitly to v3.
+pub const LEGACY_WORKSPACE_SNAPSHOT_V2_VERSION: u32 = 2;
 
 /// Immutable legacy schema version accepted only by the explicit v1 migration.
 pub const LEGACY_WORKSPACE_SNAPSHOT_VERSION: u32 = 1;
@@ -41,6 +50,15 @@ pub enum WorkspaceEvent {
     },
 }
 
+/// One event paired with the compiler semantics that originally accepted it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct VersionedWorkspaceEvent {
+    /// Compiler/replay semantics version, independent of archive format version.
+    pub semantics_version: u32,
+    /// Replayable state-changing payload.
+    pub event: WorkspaceEvent,
+}
+
 /// Complete versioned in-memory state required to resume one workspace.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct WorkspaceSnapshot {
@@ -55,6 +73,23 @@ pub struct WorkspaceSnapshot {
     /// Compiler ID counters needed to avoid identity reuse after restore.
     pub allocator: IdAllocator,
     /// Ordered state-changing history used for deterministic replay.
+    pub events: Vec<VersionedWorkspaceEvent>,
+}
+
+/// Immutable compiler-core snapshot schema embedded in archive format version 2.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LegacyWorkspaceSnapshotV2 {
+    /// Legacy schema discriminator, which must equal two.
+    pub schema_version: u32,
+    /// Workspace identity.
+    pub workspace: WorkspaceId,
+    /// Current head revision.
+    pub head: RevisionId,
+    /// Immutable revision snapshots including semantic cache metadata.
+    pub revisions: BTreeMap<RevisionId, Revision>,
+    /// Compiler ID counters.
+    pub allocator: IdAllocator,
+    /// Ordered unversioned Stage 1.1 events.
     pub events: Vec<WorkspaceEvent>,
 }
 
@@ -95,10 +130,10 @@ pub struct LegacyWorkspaceSnapshotV1 {
     pub events: Vec<WorkspaceEvent>,
 }
 
-/// Purely migrates a legacy snapshot to schema version 2 without performing I/O.
+/// Purely migrates legacy snapshot v1 to immutable snapshot schema v2.
 pub fn migrate_snapshot_v1(
     snapshot: LegacyWorkspaceSnapshotV1,
-) -> crate::AgentResult<WorkspaceSnapshot> {
+) -> crate::AgentResult<LegacyWorkspaceSnapshotV2> {
     if snapshot.schema_version != LEGACY_WORKSPACE_SNAPSHOT_VERSION {
         return Err(crate::AgentError::new(
             crate::ErrorCode::PersistenceFormat,
@@ -128,13 +163,43 @@ pub fn migrate_snapshot_v1(
             )
         })
         .collect();
-    Ok(WorkspaceSnapshot {
-        schema_version: WORKSPACE_SNAPSHOT_VERSION,
+    Ok(LegacyWorkspaceSnapshotV2 {
+        schema_version: LEGACY_WORKSPACE_SNAPSHOT_V2_VERSION,
         workspace: snapshot.workspace,
         head: snapshot.head,
         revisions,
         allocator: snapshot.allocator,
         events: snapshot.events,
+    })
+}
+
+/// Purely migrates snapshot schema v2 to v3 by tagging every legacy event.
+pub fn migrate_snapshot_v2(
+    snapshot: LegacyWorkspaceSnapshotV2,
+) -> crate::AgentResult<WorkspaceSnapshot> {
+    if snapshot.schema_version != LEGACY_WORKSPACE_SNAPSHOT_V2_VERSION {
+        return Err(crate::AgentError::new(
+            crate::ErrorCode::PersistenceFormat,
+            format!(
+                "legacy workspace snapshot version {} is unsupported; expected {}",
+                snapshot.schema_version, LEGACY_WORKSPACE_SNAPSHOT_V2_VERSION
+            ),
+        ));
+    }
+    Ok(WorkspaceSnapshot {
+        schema_version: WORKSPACE_SNAPSHOT_VERSION,
+        workspace: snapshot.workspace,
+        head: snapshot.head,
+        revisions: snapshot.revisions,
+        allocator: snapshot.allocator,
+        events: snapshot
+            .events
+            .into_iter()
+            .map(|event| VersionedWorkspaceEvent {
+                semantics_version: LEGACY_CORE_SEMANTICS_VERSION,
+                event,
+            })
+            .collect(),
     })
 }
 

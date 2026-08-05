@@ -1,10 +1,11 @@
 //! Parameteric continuation menus for typed holes.
 
 use crate::{
+    constraints::{ConstraintFacts, ConstraintQueryResult},
+    diagnostics::AgentResult,
     holes::Hole,
     ids::{ContinuationFrameId, RevisionId, ValueId},
     ir::{Opcode, Program, ValueOrigin},
-    shapes::{SolverStatus, same_shape},
     types::{ScalarType, Type},
 };
 use serde::{Deserialize, Serialize};
@@ -80,7 +81,7 @@ pub struct ContinuationFrame {
     pub escape: EscapePolicy,
 }
 
-fn compatible(expected: &Type, candidate: &Type) -> bool {
+fn compatible(expected: &Type, candidate: &Type, facts: &ConstraintFacts) -> bool {
     match (expected, candidate) {
         (Type::Scalar(left), Type::Scalar(right)) => left == right,
         (
@@ -94,7 +95,10 @@ fn compatible(expected: &Type, candidate: &Type) -> bool {
             },
         ) => {
             left_element == right_element
-                && same_shape(left_shape, right_shape) == SolverStatus::Proved
+                && matches!(
+                    facts.query_shapes(left_shape, right_shape),
+                    Ok(ConstraintQueryResult::Proved { .. })
+                )
         }
         _ => false,
     }
@@ -123,20 +127,23 @@ fn allowed_opcodes(expected: &Type) -> Vec<Opcode> {
 }
 
 /// Builds a continuation without materializing operand combinations.
-#[must_use]
 pub fn build_frame(
     frame: ContinuationFrameId,
     revision: RevisionId,
     program: &Program,
     hole: &Hole,
     mode: InteractionMode,
-) -> ContinuationFrame {
+) -> AgentResult<ContinuationFrame> {
+    let mut facts = ConstraintFacts::from_program(program)?;
+    for constraint in &hole.shape_constraints {
+        facts.insert(constraint)?;
+    }
     let compatible_values: Vec<ValueId> = program
         .values
         .iter()
         .filter(|(id, definition)| {
             **id != hole.placeholder
-                && compatible(&hole.expected_type, &definition.ty)
+                && compatible(&hole.expected_type, &definition.ty, &facts)
                 && !matches!(definition.origin, ValueOrigin::Hole(ref id) if program.holes.get(id).is_some_and(|candidate| candidate.filled_with.is_none()))
         })
         .map(|(id, _)| id.clone())
@@ -166,7 +173,7 @@ pub fn build_frame(
             Value::String("PREFER_EXISTING_COMPATIBLE_VALUE".to_owned()),
         )])
     });
-    ContinuationFrame {
+    Ok(ContinuationFrame {
         frame,
         revision,
         purpose: "fill_hole".to_owned(),
@@ -190,5 +197,5 @@ pub fn build_frame(
             .to_owned(),
             verification_required: true,
         },
-    }
+    })
 }

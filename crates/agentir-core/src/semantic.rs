@@ -5,6 +5,7 @@ use crate::{
     ids::{OperationId, ValueId},
     ir::{Opcode, Program, Region, RegionValue, ValueOrigin},
     obligations::ObligationStatus,
+    resources::{BudgetCheck, ResourceKind, ResourceLimits},
     shapes::ShapeConstraint,
     types::{DimExpr, NumericContract, ScalarType, Shape, Type},
 };
@@ -808,6 +809,17 @@ fn digest_hex(bytes: &[u8]) -> SpecHash {
 
 /// Builds semantic canonical form, deterministic bytes, and a domain-separated hash.
 pub fn canonicalize_spec(program: &Program) -> AgentResult<SemanticCanonicalization> {
+    canonicalize_spec_with_limit(
+        program,
+        ResourceLimits::hard_safety_caps().canonical_output_bytes,
+    )
+}
+
+/// Builds semantic canonical form while enforcing an encoded byte limit.
+pub fn canonicalize_spec_with_limit(
+    program: &Program,
+    max_bytes: u64,
+) -> AgentResult<SemanticCanonicalization> {
     validate_complete(program)?;
     let canonical = Canonicalizer::new(program).build()?;
     let bytes = serde_json::to_vec(&canonical).map_err(|error| {
@@ -816,6 +828,12 @@ pub fn canonicalize_spec(program: &Program) -> AgentResult<SemanticCanonicalizat
             format!("semantic canonical serialization failed: {error}"),
         )
     })?;
+    BudgetCheck::ensure(
+        ResourceKind::CanonicalOutputBytes,
+        max_bytes,
+        u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+        "semantic canonical serialization",
+    )?;
     let mut hash_input = Vec::with_capacity(SPEC_HASH_DOMAIN.len() + bytes.len());
     hash_input.extend_from_slice(SPEC_HASH_DOMAIN);
     hash_input.extend_from_slice(&bytes);

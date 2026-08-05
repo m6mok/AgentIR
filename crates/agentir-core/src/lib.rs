@@ -10,6 +10,7 @@
 
 pub mod actions;
 pub mod canonical;
+pub mod constraints;
 pub mod continuation;
 pub mod diagnostics;
 pub mod holes;
@@ -17,6 +18,7 @@ pub mod ids;
 pub mod ir;
 pub mod obligations;
 pub mod persistence;
+pub mod resources;
 pub mod revision;
 pub mod semantic;
 pub mod shapes;

@@ -12,7 +12,9 @@ AgentIR is an agent-native compiler prototype. Preserve these invariants in ever
 6. Serialization and traversal order must remain deterministic.
 7. Stage 1 stays transport-independent and contains no GPU/LLVM/MLIR integration.
 8. `content_hash`, `spec_hash`, and `archive_hash` are distinct contracts and must never be substituted.
-9. Archive v1 is immutable legacy input; new saves use v2 and old archives cross an explicit migration step.
+9. Archive v1/v2 are immutable legacy inputs; new saves use v3 and old archives cross explicit migration steps.
+10. Event compiler semantics and archive format versions are independent compatibility contracts.
+11. Resource limits never participate in `content_hash` or `spec_hash`.
 
 ## Where to look before changing code
 

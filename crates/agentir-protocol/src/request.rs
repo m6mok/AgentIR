@@ -24,7 +24,7 @@ pub enum QueryView {
 
 /// One JSONL command accepted by the Stage 1 engine.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
-#[serde(tag = "command")]
+#[serde(tag = "command", deny_unknown_fields)]
 pub enum Request {
     /// Creates an in-memory workspace.
     #[serde(rename = "workspace.open")]
@@ -64,7 +64,7 @@ pub enum Request {
         /// Archive path to verify without retaining the workspace.
         path: String,
     },
-    /// Verifies and migrates one archive into a current v2 destination.
+    /// Verifies and migrates one archive into a current v3 destination.
     #[serde(rename = "workspace.migrate_archive")]
     WorkspaceMigrateArchive {
         /// Correlation ID echoed in the response.

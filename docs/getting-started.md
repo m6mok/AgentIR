@@ -43,7 +43,7 @@ The invalid transaction leaves `r0` unchanged. The hole example returns a parame
 
 ## Save and reopen a workspace
 
-The first process writes an archive v2 at `/tmp/agentir-example.agentir.json`; the second verifies its checksum, semantic hash cache and event replay before serving `r1`:
+The first process writes an archive v3 at `/tmp/agentir-example.agentir.json`; the second verifies its checksum, event semantics versions, semantic hash cache and replay before serving `r1`:
 
 ```bash
 cargo run -p agentir-cli --bin agentir < examples/persistence_save.jsonl

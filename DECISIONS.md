@@ -62,13 +62,13 @@ The Stage 1 brief takes precedence where it defines a smaller profile than the f
 
 ## ADR-011: Versioned archive and deterministic replay
 
-**Decision.** `agentir-core` exposes an I/O-free `WorkspaceSnapshot` containing schema version, immutable revisions, allocator state and an ordered `WorkspaceEvent` log. `agentir-store` wraps it in the versioned `agentir.workspace` envelope, hashes the deterministic version-specific body with SHA-256, writes a same-directory temporary file, calls `sync_all`, and atomically renames it into place. The original writer published v1; the current writer publishes v2.
+**Decision.** `agentir-core` exposes an I/O-free `WorkspaceSnapshot` containing schema version, immutable revisions, allocator state and an ordered event log. `agentir-store` wraps it in the versioned `agentir.workspace` envelope, hashes the deterministic version-specific body with SHA-256, writes a same-directory temporary file, calls `sync_all`, and atomically renames it into place. The original writer published v1, Stage 1.1 published v2, and Stage 1.2 publishes v3.
 
 Loading is deliberately expensive and defensive: verify the archive hash, replay every transaction/fork through the normal compiler core, reproduce compiler IDs and revision hashes, recompute every archived program hash and status summary, then publish the restored workspace. Timestamps are restored metadata and are not replay-equivalence inputs. Ephemeral continuation counters are persisted but excluded from graph-event equivalence.
 
 **Alternatives.** Serializing only the latest graph would resume quickly but could not establish provenance. Replaying only a log would lose original timestamp metadata and make random-access reads expensive. A SQLite/RocksDB workspace database is premature until the archive schema and query workload stabilize.
 
-**Stage 1.1 evolution.** Archive format v1 and snapshot schema v1 are frozen legacy codecs. New saves use archive/snapshot v2. Loads first select and checksum the exact source codec, then apply the registered pure v1 → v2 migration, then replay current schema. Migration preserves old `content_hash` values and computes semantic metadata for frozen revisions. Unknown future versions are rejected.
+**Evolution.** Archive/snapshot v1 and v2 are frozen legacy codecs. Stage 1.1 introduced explicit v1 → v2 migration and semantic-cache metadata. Stage 1.2 adds the explicit v2 → v3 event-versioning migration described by ADR-015/ADR-016. Every source is checksummed by its exact codec before migration; unknown future versions are rejected.
 
 **Limitations.** Version 2 still has no process locking, directory `fsync`, compression, incremental snapshots or encryption. The local CLI accepts explicit filesystem paths and remains unsuitable as a multi-tenant server boundary.
 
@@ -84,8 +84,42 @@ Potential persistent references inside generic semantic attributes are rejected 
 
 ## ADR-013: Explicit archive migration registry
 
-**Decision.** `agentir-store` keeps separate v1/v2 envelope types and an ordered registry whose only transforming edge is `workspace_archive_v1_to_v2`; v2 → v2 is an explicit reported no-op. The read pipeline is bounded read → version sniff → exact codec → source checksum → pure migration → current schema replay → cached semantic verification.
+**Decision.** `agentir-store` keeps separate v1/v2/v3 envelope types and an ordered registry with `workspace_archive_v1_to_v2` and `workspace_archive_v2_to_v3`; v3 → v3 is an explicit reported no-op. The read pipeline is bounded read → version sniff → exact codec → source checksum → pure migration → current schema replay → cached semantic verification.
 
 `workspace.migrate_archive` fully validates the source before checking/writing the destination, performs migration in memory, and uses the existing same-directory atomic writer. Existing or in-place destinations require `overwrite: true`. A failure never publishes a workspace and does not leave a partial destination.
 
 **Alternatives.** Deserializing v1 into v2 with serde defaults was rejected because it would make future compatibility implicit and could validate an archive using the wrong hash rules. Mutating source files in place was rejected because it weakens recovery and auditability.
+
+## ADR-014: Compact deterministic constraint facts
+
+**Decision.** Stage 1.2 derives an immutable `ConstraintFacts` view from declared dimensions and accepted shape constraints. The engine uses deterministic lexical representatives for symbol equivalence, propagates symbol-to-static bindings, proves identical normalized one-symbol affine expressions, and reports `proved`, `contradiction`, or `unknown`. Equalities outside those compact rules remain `unknown` even when a stronger solver could decide them. Duplicate facts are idempotent.
+
+**Why.** Sound incremental discharge is required before implementation search can rely on proof debt. A small `BTreeMap`/`BTreeSet` model keeps proof results and diagnostics reproducible and auditable.
+
+**Alternatives.** SMT, Presburger arithmetic, divisibility reasoning, nonlinear algebra and general inequality solving are deferred. Stage 1.2 prefers an incomplete sound answer to an opaque or accidentally unsound proof.
+
+## ADR-015: Event-level compiler semantics versions
+
+**Decision.** Compiler semantics and archive format are independent version axes. `LEGACY_CORE_SEMANTICS_VERSION = 1` reproduces Stage 1.1 transaction behavior byte-for-byte; `CORE_SEMANTICS_VERSION = 2` enables constraint validation and structured shape-obligation discharge. Every current event stores its semantics version. Migrated v1/v2 events receive version 1, while newly accepted events receive version 2, including when they extend a migrated workspace.
+
+**Why.** `Program` obligations and provenance participate in `content_hash`. Replaying a historical transaction with newer verifier behavior can therefore change IDs, propositions and hashes even when its mathematical graph is unchanged. Event-level versioning preserves the exact historical contract without applying new semantics retroactively.
+
+## ADR-016: Archive and snapshot version 3
+
+**Decision.** Archive v1 and v2 remain immutable source codecs. The current writer emits archive v3 with snapshot schema v3 and `VersionedWorkspaceEvent`. Loading follows v1 → v2 → v3 or v2 → v3 migrations after verifying the exact source archive hash. Saving a restored workspace always emits v3; mixed semantics histories remain explicit.
+
+**Why.** An event semantics discriminator is replay state, not optional metadata. A new schema and explicit migration make its introduction reviewable and prevent serde defaults from silently changing compatibility behavior.
+
+## ADR-017: Central resource limits and hard safety caps
+
+**Decision.** `ResourceLimits`, `ResourceKind`, `ResourceUsage` and `BudgetCheck` define deterministic limits shared across core, evaluator, store, protocol and CLI. Interactive limits are configurable and excluded from program/archive identities. Archive migration and replay use larger non-configurable hard safety caps so lowering an interactive limit cannot make a previously accepted legacy archive unreplayable. Limits are checked before parsing, graph cloning, persistent-ID allocation, replay and tensor output allocation wherever the boundary exposes the projected size.
+
+**Why.** Bounded individual components are insufficient if requests, replay and evaluation each use unrelated policies. Structured `RESOURCE_LIMIT_EXCEEDED` failures keep rejection atomic and repairable.
+
+## ADR-018: Statistical dependency-light benchmark baseline
+
+**Decision.** Baseline schema v2 runs warm-ups plus repeated samples and reports min, median, p95 and max with workload size, units and build/host metadata. Canonical byte sizes are reported separately from timings. Timing changes never fail CI.
+
+**Why.** Single-shot nanosecond values are too noisy for regressions or architectural comparisons. Median describes the typical local run and p95 exposes tail instability without pretending that the reference interpreter is a GPU benchmark.
+
+**Alternatives.** Criterion and a heavyweight fuzz framework remain deferred. Fixed-seed bounded property/mutation corpora and a small standard-library timing harness provide reproducible Stage 1.2 coverage with minimal dependencies.
