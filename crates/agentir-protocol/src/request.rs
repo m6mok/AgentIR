@@ -18,6 +18,8 @@ pub enum QueryView {
     Summary,
     /// Full canonical revision snapshot.
     Canonical,
+    /// History-independent semantic form for a complete frozen SpecIR.
+    SemanticCanonical,
 }
 
 /// One JSONL command accepted by the Stage 1 engine.
@@ -61,6 +63,19 @@ pub enum Request {
         request_id: String,
         /// Archive path to verify without retaining the workspace.
         path: String,
+    },
+    /// Verifies and migrates one archive into a current v2 destination.
+    #[serde(rename = "workspace.migrate_archive")]
+    WorkspaceMigrateArchive {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Fully verified source archive path.
+        source_path: String,
+        /// Atomically written destination archive path.
+        destination_path: String,
+        /// Explicit permission to replace an existing destination.
+        #[serde(default)]
+        overwrite: bool,
     },
     /// Applies an ActionIR transaction while constructing SpecIR.
     #[serde(rename = "spec.apply")]
@@ -197,6 +212,7 @@ impl Request {
             | Self::WorkspaceSave { request_id, .. }
             | Self::WorkspaceLoad { request_id, .. }
             | Self::WorkspaceVerifyArchive { request_id, .. }
+            | Self::WorkspaceMigrateArchive { request_id, .. }
             | Self::SpecApply { request_id, .. }
             | Self::SpecCheck { request_id, .. }
             | Self::SpecFreeze { request_id, .. }

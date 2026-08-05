@@ -18,6 +18,7 @@ pub mod ir;
 pub mod obligations;
 pub mod persistence;
 pub mod revision;
+pub mod semantic;
 pub mod shapes;
 pub mod spec;
 pub mod transaction;

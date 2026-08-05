@@ -4,7 +4,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{cmp::Ordering, fmt, str::FromStr};
 
 /// A scalar type supported by the Stage 1 profile.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ScalarType {
     /// Boolean value.
     Bool,

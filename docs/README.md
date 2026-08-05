@@ -7,6 +7,7 @@ Start with the root [README](../README.md), then choose the document matching th
 - [Stage 1 scope](stage-1-scope.md) — implemented contract, invariants and explicit non-goals.
 - [JSONL protocol](protocol.md) — commands, references, regions, errors and response envelopes.
 - [Persistence and replay](persistence.md) — archive format, save/load lifecycle and integrity model.
+- [Semantic canonicalization](semantic-canonicalization.md) — `spec_hash`, alpha-normalization and graph identity limits.
 - [Development](development.md) — repository layout, checks, tests and baseline harness.
 - [Glossary](glossary.md) — short definitions of AgentIR terms.
 - [Roadmap](roadmap.md) — sequencing from the prototype to a GPU backend.

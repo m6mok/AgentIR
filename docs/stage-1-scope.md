@@ -1,4 +1,4 @@
-# Stage 1 contract
+# Stage 1.1 contract
 
 ## Goal
 
@@ -16,8 +16,9 @@ Stage 1 tests whether an LLM-facing compiler can work through small typed transa
 8. Result types are inferred; casts and broadcasting are never implicit.
 9. Regions are pure and closed over explicit captures.
 10. No open hole or proof obligation may enter a frozen/deployable specification.
-11. Traversal, wire output and semantic hashing are deterministic.
+11. Traversal, wire output, `content_hash`, semantic canonical bytes and `spec_hash` are deterministic.
 12. Arithmetic has defined reference behavior and no hidden undefined behavior.
+13. Archive v1 is validated by its immutable codec before pure migration to v2.
 
 ## Implemented surface
 
@@ -25,9 +26,9 @@ Types: `bool`, `i32`, `f32`, `index`, dense tensors with static, symbolic or com
 
 Operations: `parameter`, `constant`, `add`, `sub`, `mul`, `div`, `fma`, `compare`, `select`, `cast`, `map`, `zip_map`, full `reduce`.
 
-State: workspace, SpecIR, revision DAG, ActionIR, typed holes, four Stage 1 proof-obligation kinds, continuation frames, canonical JSON and CPU evaluator.
+State: workspace, SpecIR, revision DAG, ActionIR, typed holes, four Stage 1 proof-obligation kinds, continuation frames, exact-state canonical JSON, semantic canonical form and CPU evaluator.
 
-Protocol: `workspace.open`, `spec.apply`, `spec.check`, `spec.freeze`, `transaction.apply`, `program.query`, `program.evaluate`, `revision.fork`, `revision.diff`, `continuation.get`. The post-baseline persistence extension additionally provides `workspace.save`, `workspace.load`, and `workspace.verify_archive` without adding filesystem effects to SpecIR.
+Protocol: `workspace.open`, `spec.apply`, `spec.check`, `spec.freeze`, `transaction.apply`, `program.query`, `program.evaluate`, `revision.fork`, `revision.diff`, `continuation.get`, `workspace.save`, `workspace.load`, `workspace.verify_archive` and `workspace.migrate_archive`. Local persistence commands do not add filesystem effects to SpecIR.
 
 ## Explicit non-goals
 

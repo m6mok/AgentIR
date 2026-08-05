@@ -1,8 +1,9 @@
 # Glossary
 
 - **ActionIR** — typed algebra of graph edits submitted by an agent.
-- **Archive** — checksummed versioned encoding of a workspace snapshot and replay log.
-- **Canonical state** — deterministic serialized `Program` used for hashing and replay.
+- **Archive** — checksummed versioned encoding of a workspace snapshot and replay log; v1 is legacy and v2 is current.
+- **Archive hash** — version-specific integrity hash of a concrete archive body.
+- **Canonical state** — deterministic serialized `Program` used for the history-sensitive `content_hash` and replay.
 - **Compiler core** — transport-independent verifier and workspace state machine.
 - **ContinuationFrame** — parameteric description of legal next choices for a focused task.
 - **Hole** — missing pure value with a persistent ID and required type/shape.
@@ -14,5 +15,7 @@
 - **Revision** — immutable workspace snapshot with parent links and content hash.
 - **ScheduleIR** — future mapping of work to target hardware.
 - **SpecIR** — functional graph describing what must be computed.
+- **Semantic canonical form** — versioned, alpha-normalized output-reachable representation of frozen SpecIR.
+- **Spec hash** — domain-separated SHA-256 identity of semantic canonical form, independent of compiler IDs and construction history.
 - **Temporary binding** — `$name` usable only within one transaction.
 - **Workspace** — revision DAG plus compiler-owned ID state; it is live in memory and may be persisted to a verified local archive.

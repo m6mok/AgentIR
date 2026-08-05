@@ -3,13 +3,17 @@
 use crate::{
     actions::Transaction,
     ids::{IdAllocator, RevisionId, TransactionId, WorkspaceId},
-    revision::Revision,
+    ir::Program,
+    revision::{Revision, StatusSummary},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Current schema version for compiler-core workspace snapshots.
-pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 1;
+pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 2;
+
+/// Immutable legacy schema version accepted only by the explicit v1 migration.
+pub const LEGACY_WORKSPACE_SNAPSHOT_VERSION: u32 = 1;
 
 /// One deterministic state-changing event in workspace history.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -54,6 +58,86 @@ pub struct WorkspaceSnapshot {
     pub events: Vec<WorkspaceEvent>,
 }
 
+/// Revision representation embedded in immutable archive format version 1.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LegacyRevisionV1 {
+    /// Persistent revision ID.
+    pub id: RevisionId,
+    /// Immutable parent revision IDs.
+    pub parents: Vec<RevisionId>,
+    /// History-sensitive content hash retained unchanged during migration.
+    pub content_hash: String,
+    /// Full Stage 1 graph snapshot.
+    pub program: Program,
+    /// Transaction that created the revision, absent for roots and forks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub applied_transaction: Option<TransactionId>,
+    /// Wall-clock metadata excluded from semantic and content hashes.
+    pub created_at_unix_ms: u128,
+    /// Cached verifier summary.
+    pub status: StatusSummary,
+}
+
+/// Immutable compiler-core snapshot schema embedded in archive format version 1.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LegacyWorkspaceSnapshotV1 {
+    /// Legacy schema discriminator, which must equal one.
+    pub schema_version: u32,
+    /// Workspace identity.
+    pub workspace: WorkspaceId,
+    /// Archived head revision.
+    pub head: RevisionId,
+    /// Legacy immutable revisions.
+    pub revisions: BTreeMap<RevisionId, LegacyRevisionV1>,
+    /// Compiler allocator state.
+    pub allocator: IdAllocator,
+    /// Ordered replay events.
+    pub events: Vec<WorkspaceEvent>,
+}
+
+/// Purely migrates a legacy snapshot to schema version 2 without performing I/O.
+pub fn migrate_snapshot_v1(
+    snapshot: LegacyWorkspaceSnapshotV1,
+) -> crate::AgentResult<WorkspaceSnapshot> {
+    if snapshot.schema_version != LEGACY_WORKSPACE_SNAPSHOT_VERSION {
+        return Err(crate::AgentError::new(
+            crate::ErrorCode::PersistenceFormat,
+            format!(
+                "legacy workspace snapshot version {} is unsupported; expected {}",
+                snapshot.schema_version, LEGACY_WORKSPACE_SNAPSHOT_VERSION
+            ),
+        ));
+    }
+    let revisions = snapshot
+        .revisions
+        .into_iter()
+        .map(|(id, revision)| {
+            (
+                id,
+                Revision {
+                    id: revision.id,
+                    parents: revision.parents,
+                    content_hash: revision.content_hash,
+                    spec_hash: None,
+                    semantic_canonical_version: None,
+                    program: revision.program,
+                    applied_transaction: revision.applied_transaction,
+                    created_at_unix_ms: revision.created_at_unix_ms,
+                    status: revision.status,
+                },
+            )
+        })
+        .collect();
+    Ok(WorkspaceSnapshot {
+        schema_version: WORKSPACE_SNAPSHOT_VERSION,
+        workspace: snapshot.workspace,
+        head: snapshot.head,
+        revisions,
+        allocator: snapshot.allocator,
+        events: snapshot.events,
+    })
+}
+
 /// Evidence that an event log reproduced an archived workspace.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReplayReport {
@@ -67,4 +151,6 @@ pub struct ReplayReport {
     pub events_replayed: usize,
     /// Number of revision content hashes independently recomputed.
     pub content_hashes_verified: usize,
+    /// Number of frozen revision semantic hashes independently recomputed.
+    pub spec_hashes_verified: usize,
 }

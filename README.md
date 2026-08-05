@@ -2,7 +2,7 @@
 
 AgentIR — экспериментальная агентно-нативная компиляционная среда для численных вычислений. В ней программа хранится не как исходный текст, а как типизированный граф. Агент меняет граф небольшими атомарными ActionIR-транзакциями, а compiler core выводит типы, проверяет формы и сохраняет каждое принятое состояние как неизменяемую ревизию.
 
-Сейчас репозиторий содержит reference prototype Stage 1. Он не генерирует GPU-код: задача этапа — проверить архитектуру графа, транзакций, typed holes, continuation frames и воспроизводимых ревизий.
+Сейчас репозиторий содержит reference prototype Stage 1.1. Он не генерирует GPU-код: задача этапа — проверить архитектуру графа, транзакций, typed holes, semantic canonicalization, воспроизводимых ревизий и эволюционирующих archives.
 
 ## Что уже работает
 
@@ -14,8 +14,9 @@ AgentIR — экспериментальная агентно-нативная �
 - immutable revision DAG, fork и structural diff;
 - typed holes, proof obligations и continuation frames;
 - deterministic canonical JSON и SHA-256 content hash;
+- history-independent semantic canonical form и `spec_hash` замороженного SpecIR;
 - CPU reference interpreter;
-- versioned checksummed workspace archives with deterministic event replay;
+- workspace archive v2, явная migration v1 → v2 и deterministic event replay;
 - stateful JSONL CLI с одним ответом на каждый запрос.
 
 ## Быстрый старт
@@ -62,9 +63,17 @@ cargo run -p agentir-cli --bin agentir < examples/saxpy.jsonl
 
 В прототипе нет GPU backend, LLVM/MLIR, MemoryIR, ScheduleIR, autotuning, SMT solver, сетевого MCP server и concurrent workspace database. Shape solver намеренно мал; unknown shape equality создаёт открытый obligation. Workspace можно сохранить в локальный archive и восстановить в новом процессе, но блокировки и многопроцессная координация пока отсутствуют. Известные компромиссы подробно перечислены в [DECISIONS.md](DECISIONS.md).
 
+## Три разных hash
+
+- `content_hash` точно идентифицирует history-sensitive состояние ревизии для replay;
+- `spec_hash` идентифицирует семантику complete frozen SpecIR независимо от compiler IDs и истории построения;
+- `archive_hash` проверяет конкретный versioned on-disk archive.
+
+Подробный контракт canonical form — в [docs/semantic-canonicalization.md](docs/semantic-canonicalization.md), migration pipeline — в [docs/persistence.md](docs/persistence.md).
+
 ## Roadmap
 
-Следующий технический шаг — canonical renumbering и schema migrations для archives, затем ImplIR и проверяемое отношение refinement к замороженному SpecIR. Дальнейший путь: MemoryIR → ScheduleIR и simulator → первый GPU backend → обучение и сравнение agent policies. См. [docs/roadmap.md](docs/roadmap.md).
+Следующий технический шаг — ImplIR и проверяемое отношение refinement к замороженному `spec_hash`. Дальнейший путь: MemoryIR → ScheduleIR и simulator → первый GPU backend → обучение и сравнение agent policies. См. [docs/roadmap.md](docs/roadmap.md).
 
 ## Документация
 

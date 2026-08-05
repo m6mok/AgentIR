@@ -66,13 +66,14 @@ An optional `allow_branch: true` explicitly permits a transaction based on a non
 ## Commands
 
 - `workspace.open`: optional `workspace`; returns root `r0`.
-- `workspace.save`: workspace and destination `path`; writes an atomic versioned archive.
-- `workspace.load`: archive `path` and optional `replace`; verifies and replays before inserting.
+- `workspace.save`: workspace and destination `path`; writes an atomic archive v2.
+- `workspace.load`: archive v1/v2 `path` and optional `replace`; verifies, migrates and replays before inserting.
 - `workspace.verify_archive`: verifies checksum and replay without retaining the workspace.
+- `workspace.migrate_archive`: verifies `source_path`, migrates in memory and atomically writes `destination_path`; existing destinations require `overwrite: true`.
 - `spec.apply` and `transaction.apply`: workspace, base revision, actions and optional client transaction ID.
 - `spec.check`: optional revision, default head.
 - `spec.freeze`: base revision; commits `freeze_spec` as a new revision.
-- `program.query`: optional revision and `view: summary | canonical`.
+- `program.query`: optional revision and `view: summary | canonical | semantic_canonical`.
 - `program.evaluate`: optional revision and exact parameter-name `inputs`.
 - `revision.fork`: `base_revision`.
 - `revision.diff`: `from` and `to`.
@@ -95,3 +96,29 @@ In a fresh CLI process, restore it:
 ```
 
 The result contains archive metadata and a replay report. `replace` defaults to `false`, so an archive cannot silently overwrite an already open workspace with the same ID.
+
+Load responses also contain a migration report. A v2 source reports an explicit `workspace_archive_v2_noop`; a v1 source reports `workspace_archive_v1_to_v2`.
+
+## Semantic query
+
+Summary returns history-sensitive `content_hash` plus `spec_hash` and `semantic_canonical_version` when the revision is complete and frozen. The semantic view recomputes and validates the cache:
+
+```json
+{"command":"program.query","request_id":"semantic","workspace":"w1","revision":"r2","view":"semantic_canonical"}
+```
+
+Its result contains `semantic_canonical_version`, `canonical`, `canonical_byte_length` and `spec_hash`. Draft or incomplete revisions fail with `SPEC_NOT_COMPLETE`; canonicalizer internal failures use `CANONICALIZATION_FAILED`.
+
+## Migrate archive
+
+```json
+{
+  "command": "workspace.migrate_archive",
+  "request_id": "m1",
+  "source_path": "/project/legacy.agentir.json",
+  "destination_path": "/project/current.agentir.json",
+  "overwrite": false
+}
+```
+
+The command is intentionally coarse-grained and is not a general filesystem API. It emits one normal response envelope containing `MigrationReport`.

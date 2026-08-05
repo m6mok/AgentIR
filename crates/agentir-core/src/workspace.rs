@@ -14,6 +14,7 @@ use crate::{
     obligations::{ObligationKind, ObligationOrigin, ObligationStatus, ProofObligation},
     persistence::{ReplayReport, WORKSPACE_SNAPSHOT_VERSION, WorkspaceEvent, WorkspaceSnapshot},
     revision::{Revision, RevisionDiff, StatusSummary, diff},
+    semantic::{SPEC_CANONICAL_VERSION, SemanticCanonicalization, SpecHash, canonicalize_spec},
     shapes::{SolverStatus, same_shape},
     spec::{infer_higher, infer_primitive},
     transaction::CommitResult,
@@ -66,6 +67,15 @@ fn now_unix_ms() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |duration| duration.as_millis())
+}
+
+fn semantic_metadata(program: &Program) -> AgentResult<(Option<SpecHash>, Option<u32>)> {
+    if program.frozen {
+        let canonical = canonicalize_spec(program)?;
+        Ok((Some(canonical.spec_hash), Some(SPEC_CANONICAL_VERSION)))
+    } else {
+        Ok((None, None))
+    }
 }
 
 fn ensure_new_binding(bindings: &BTreeMap<String, Binding>, binding: &str) -> AgentResult<()> {
@@ -491,6 +501,8 @@ impl Workspace {
             id: root.clone(),
             parents: Vec::new(),
             content_hash: hash,
+            spec_hash: None,
+            semantic_canonical_version: None,
             status: StatusSummary::from_program(&program),
             program,
             applied_transaction: None,
@@ -940,10 +952,13 @@ impl Workspace {
             }
         }
         let hash = content_hash(&program)?;
+        let (spec_hash, semantic_canonical_version) = semantic_metadata(&program)?;
         let revision = Revision {
             id: revision_id.clone(),
             parents: vec![transaction.base_revision.clone()],
             content_hash: hash.clone(),
+            spec_hash: spec_hash.clone(),
+            semantic_canonical_version,
             status: StatusSummary::from_program(&program),
             program,
             applied_transaction: Some(transaction_id.clone()),
@@ -970,6 +985,8 @@ impl Workspace {
             classifications,
             obligations_created,
             content_hash: hash,
+            spec_hash,
+            semantic_canonical_version,
         })
     }
 
@@ -982,6 +999,8 @@ impl Workspace {
             id: revision_id.clone(),
             parents: vec![base_revision.clone()],
             content_hash: hash.clone(),
+            spec_hash: base.spec_hash,
+            semantic_canonical_version: base.semantic_canonical_version,
             status: base.status,
             program: base.program,
             applied_transaction: None,
@@ -1012,6 +1031,20 @@ impl Workspace {
 
     /// Reconstructs and verifies a workspace from its event-backed snapshot.
     pub fn from_snapshot(snapshot: WorkspaceSnapshot) -> AgentResult<(Self, ReplayReport)> {
+        Self::from_snapshot_with_cache_policy(snapshot, false)
+    }
+
+    /// Verifies a structurally migrated v1 snapshot and populates its new semantic cache fields.
+    pub fn from_legacy_migrated_snapshot(
+        snapshot: WorkspaceSnapshot,
+    ) -> AgentResult<(Self, ReplayReport)> {
+        Self::from_snapshot_with_cache_policy(snapshot, true)
+    }
+
+    fn from_snapshot_with_cache_policy(
+        mut snapshot: WorkspaceSnapshot,
+        populate_missing_semantic_cache: bool,
+    ) -> AgentResult<(Self, ReplayReport)> {
         if snapshot.schema_version != WORKSPACE_SNAPSHOT_VERSION {
             return Err(AgentError::new(
                 ErrorCode::PersistenceFormat,
@@ -1098,6 +1131,8 @@ impl Workspace {
         }
 
         let mut content_hashes_verified = 0;
+        let mut spec_hashes_verified = 0;
+        let mut semantic_cache_updates = Vec::new();
         for (id, expected) in &snapshot.revisions {
             if expected.id != *id {
                 return Err(AgentError::new(
@@ -1138,6 +1173,59 @@ impl Workspace {
                     format!("replayed revision `{id}` differs from snapshot"),
                 ));
             }
+
+            let (recomputed_spec_hash, recomputed_version) = semantic_metadata(&expected.program)?;
+            if populate_missing_semantic_cache {
+                if expected.spec_hash.is_some() || expected.semantic_canonical_version.is_some() {
+                    return Err(AgentError::new(
+                        ErrorCode::PersistenceIntegrity,
+                        format!(
+                            "structurally migrated legacy revision `{id}` unexpectedly contains semantic cache data"
+                        ),
+                    ));
+                }
+                semantic_cache_updates.push((
+                    id.clone(),
+                    recomputed_spec_hash.clone(),
+                    recomputed_version,
+                ));
+            } else if expected.spec_hash != recomputed_spec_hash
+                || expected.semantic_canonical_version != recomputed_version
+            {
+                return Err(AgentError::new(
+                    ErrorCode::PersistenceIntegrity,
+                    format!("revision `{id}` semantic hash metadata is invalid"),
+                )
+                .with_detail("expected_spec_hash", json!(expected.spec_hash))
+                .with_detail("actual_spec_hash", json!(recomputed_spec_hash))
+                .with_detail(
+                    "expected_semantic_canonical_version",
+                    json!(expected.semantic_canonical_version),
+                )
+                .with_detail(
+                    "actual_semantic_canonical_version",
+                    json!(recomputed_version),
+                ));
+            }
+            if actual.spec_hash != recomputed_spec_hash
+                || actual.semantic_canonical_version != recomputed_version
+            {
+                return Err(AgentError::new(
+                    ErrorCode::ReplayMismatch,
+                    format!("replayed revision `{id}` semantic metadata differs"),
+                ));
+            }
+            if recomputed_spec_hash.is_some() {
+                spec_hashes_verified += 1;
+            }
+        }
+        for (id, spec_hash, version) in semantic_cache_updates {
+            let revision = snapshot
+                .revisions
+                .get_mut(&id)
+                .expect("verified migrated revision exists");
+            revision.spec_hash = spec_hash;
+            revision.semantic_canonical_version = version;
         }
 
         let report = ReplayReport {
@@ -1146,12 +1234,41 @@ impl Workspace {
             revisions_verified: snapshot.revisions.len(),
             events_replayed: snapshot.events.len(),
             content_hashes_verified,
+            spec_hashes_verified,
         };
         replayed.revisions = snapshot.revisions;
         replayed.head = snapshot.head;
         replayed.allocator = snapshot.allocator;
         replayed.events = snapshot.events;
         Ok((replayed, report))
+    }
+
+    /// Recomputes semantic canonical form and verifies the revision's cached metadata.
+    pub fn semantic_canonical(
+        &self,
+        revision: &RevisionId,
+    ) -> AgentResult<SemanticCanonicalization> {
+        let revision = self.revision(revision)?;
+        let canonical = canonicalize_spec(&revision.program)?;
+        if revision.spec_hash.as_ref() != Some(&canonical.spec_hash)
+            || revision.semantic_canonical_version != Some(SPEC_CANONICAL_VERSION)
+        {
+            return Err(AgentError::new(
+                ErrorCode::CanonicalizationFailed,
+                format!(
+                    "revision `{}` cached semantic hash metadata does not match recomputation",
+                    revision.id
+                ),
+            )
+            .with_detail("cached_spec_hash", json!(revision.spec_hash))
+            .with_detail("actual_spec_hash", canonical.spec_hash.to_string())
+            .with_detail(
+                "cached_semantic_canonical_version",
+                json!(revision.semantic_canonical_version),
+            )
+            .with_detail("actual_semantic_canonical_version", SPEC_CANONICAL_VERSION));
+        }
+        Ok(canonical)
     }
 
     /// Computes a deterministic structural diff between two revisions.

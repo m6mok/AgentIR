@@ -1,16 +1,22 @@
 # Roadmap
 
+## Completed in Stage 1.1
+
+- versioned semantic canonical form and history-independent `spec_hash`;
+- archive/snapshot v2 with explicit v1 migration and golden fixtures;
+- deterministic permutation and archive round-trip property harnesses;
+- migration protocol command and atomic destination handling.
+
 ## Immediate hardening
 
-1. Add schema migrations and golden archive/protocol fixtures around the versioned persistence layer.
-2. Add canonical renumbering so equivalent construction histories converge on one semantic hash.
-3. Make constraint addition discharge compact shape obligations incrementally.
-4. Add process locking or a transactional database when concurrent workspace access is required.
-5. Add resource budgets and fuzz/property tests for parser, transactions, archives and interpreter.
+1. Make constraint addition discharge compact shape obligations incrementally.
+2. Add process locking or a transactional database when concurrent workspace access is required.
+3. Extend resource budgets and fuzz/property coverage for parsers and interpreter edge cases.
+4. Add incremental canonical subgraph digest caching if measurements justify it.
 
 ## Stage 2: ImplIR and refinement
 
-Freeze SpecIR as an immutable contract, introduce candidate implementations and explicit `EquivalentToSpec`/`RefinesSpec` obligations. Keep candidate search branched and evidence-linked.
+Use frozen SpecIR `spec_hash` as the immutable contract anchor, introduce candidate implementations and explicit `EquivalentToSpec`/`RefinesSpec` obligations. Keep candidate search branched and evidence-linked.
 
 ## Stage 3: MemoryIR
 

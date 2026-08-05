@@ -3,6 +3,7 @@
 use crate::{
     actions::ActionClassification,
     ids::{ObligationId, RevisionId, TransactionId},
+    semantic::SpecHash,
     types::Type,
 };
 use serde::{Deserialize, Serialize};
@@ -25,4 +26,10 @@ pub struct CommitResult {
     pub obligations_created: Vec<ObligationId>,
     /// Canonical content hash of the new revision.
     pub content_hash: String,
+    /// Semantic hash when this transaction produced a frozen specification.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spec_hash: Option<SpecHash>,
+    /// Semantic canonical codec version when a semantic hash is available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub semantic_canonical_version: Option<u32>,
 }

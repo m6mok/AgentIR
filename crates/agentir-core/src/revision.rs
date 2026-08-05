@@ -3,6 +3,7 @@
 use crate::{
     ids::{HoleId, OperationId, RevisionId, TransactionId, ValueId},
     ir::Program,
+    semantic::SpecHash,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -58,6 +59,12 @@ pub struct Revision {
     pub parents: Vec<RevisionId>,
     /// SHA-256 of deterministic canonical state.
     pub content_hash: String,
+    /// History-independent semantic identity for a complete frozen SpecIR.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spec_hash: Option<SpecHash>,
+    /// Semantic canonical codec version used for `spec_hash`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub semantic_canonical_version: Option<u32>,
     /// Full immutable Stage 1 graph snapshot.
     pub program: Program,
     /// Transaction that created the snapshot, absent for roots and explicit forks.

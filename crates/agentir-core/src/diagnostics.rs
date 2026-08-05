@@ -52,6 +52,8 @@ pub enum ErrorCode {
     PersistenceIntegrity,
     /// Replayed events did not reproduce the archived revision graph.
     ReplayMismatch,
+    /// A complete specification could not be converted to semantic canonical form.
+    CanonicalizationFailed,
 }
 
 /// Structured compiler error suitable for agent repair loops.

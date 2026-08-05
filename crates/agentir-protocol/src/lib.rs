@@ -128,6 +128,7 @@ impl Engine {
                 }
                 let result = json!({
                     "metadata": loaded.metadata,
+                    "migration": loaded.migration,
                     "replay": loaded.replay,
                 });
                 self.workspaces.insert(workspace_id, loaded.workspace);
@@ -137,6 +138,17 @@ impl Engine {
                 let (metadata, replay) = agentir_store::verify_archive(&path)?;
                 Ok(json!({"metadata": metadata, "replay": replay}))
             }
+            Request::WorkspaceMigrateArchive {
+                source_path,
+                destination_path,
+                overwrite,
+                ..
+            } => serde_json::to_value(agentir_store::migrate_archive(
+                &source_path,
+                &destination_path,
+                overwrite,
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::PersistenceFormat, error.to_string())),
             Request::SpecApply {
                 workspace,
                 base_revision,
@@ -193,15 +205,37 @@ impl Engine {
                     QueryView::Canonical => serde_json::to_value(snapshot).map_err(|error| {
                         AgentError::new(ErrorCode::InvalidRequest, error.to_string())
                     }),
-                    QueryView::Summary => Ok(json!({
-                        "workspace": workspace,
-                        "revision": snapshot.id,
-                        "parents": snapshot.parents,
-                        "content_hash": snapshot.content_hash,
-                        "status": snapshot.status,
-                        "parameters": snapshot.program.parameters,
-                        "outputs": snapshot.program.outputs,
-                    })),
+                    QueryView::SemanticCanonical => {
+                        let canonical =
+                            self.workspace(&workspace)?.semantic_canonical(&revision)?;
+                        Ok(json!({
+                            "semantic_canonical_version": canonical.canonical.version,
+                            "canonical": canonical.canonical,
+                            "canonical_byte_length": canonical.bytes.len(),
+                            "spec_hash": canonical.spec_hash,
+                        }))
+                    }
+                    QueryView::Summary => {
+                        let mut summary = json!({
+                            "workspace": workspace,
+                            "revision": snapshot.id,
+                            "parents": snapshot.parents,
+                            "content_hash": snapshot.content_hash,
+                            "status": snapshot.status,
+                            "parameters": snapshot.program.parameters,
+                            "outputs": snapshot.program.outputs,
+                        });
+                        let object = summary
+                            .as_object_mut()
+                            .expect("summary literal is a JSON object");
+                        if let Some(spec_hash) = &snapshot.spec_hash {
+                            object.insert("spec_hash".to_owned(), json!(spec_hash));
+                        }
+                        if let Some(version) = snapshot.semantic_canonical_version {
+                            object.insert("semantic_canonical_version".to_owned(), json!(version));
+                        }
+                        Ok(summary)
+                    }
                 }
             }
             Request::ProgramEvaluate {
