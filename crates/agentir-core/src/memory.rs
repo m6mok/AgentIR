@@ -783,6 +783,11 @@ fn lower_fresh(
         }
     }
     rebuild_analysis(&mut memory, implementation)?;
+    for baseline in memory.fresh_baseline_buffers.values_mut() {
+        if let Some(active) = memory.buffers.get(&baseline.id) {
+            baseline.lifetime = active.lifetime.clone();
+        }
+    }
     Ok(memory)
 }
 

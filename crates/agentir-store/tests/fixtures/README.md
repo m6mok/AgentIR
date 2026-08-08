@@ -86,19 +86,19 @@ Pinned SHA-256 bytes for corrupted/future v6 corpus:
 Pinned SHA-256 bytes for the valid v7 corpus:
 
 - `minimal-v7.json`: `67277adac68aad413ea7f440068924ef80b1f8a5e7bb87db5543516a404b4f8d`;
-- `fresh-memory-v7.json`: `e13b1fa9c668c61ad0244b8868eee2d8669548049b124df9e0f553ca8e099b84`;
-- `forked-memory-v7.json`: `982cac4fc4d0e4ab99454aa66d96656c8d225367dc5c711d812da6a6b9e40e8d`;
-- `proved-in-place-reuse-v7.json`: `14161ac80ea974d8b2ce4dacfe09390e032455f8848455252c196d3572733094`;
-- `guarded-memory-reuse-v7.json` and `false-guard-fallback-v7.json`: `59913b3f0fa51a083e46206e8e9d2586d0ac774c34ec14a4e883f8f141360f68`;
-- `sealed-memory-v7.json`: `ac966aa7e2e06013725bff06221017dff1fcf16a4cbd0929038daa1c4e7703d8`;
+- `fresh-memory-v7.json`: `1a3bc4eca07ad8a60c05795b96ef9fa9aafcd67931af32f33a0e22d6f399870c`;
+- `forked-memory-v7.json`: `f2081809e3d7e4857e77a600ea1bf45b530f56e07111b40edc7a1564a4d105ad`;
+- `proved-in-place-reuse-v7.json`: `fb9f076961d089708a34d6d01c8e84f5a2577a841b540aa96759f4c7f93f7293`;
+- `guarded-memory-reuse-v7.json` and `false-guard-fallback-v7.json`: `136f7058dd5910b472f0d46c3adc7503ec38bea4f2b67f7d297ee759321d9ed8`;
+- `sealed-memory-v7.json`: `3292f2206eae0ae0d5ff1d5a16040f58b6a32c29aedf3dd36f6b09477b48a236`;
 - `equality-materialized-memory-v7.json` and `mixed-memory-semantics-v7.json`: `1d4ddcd72db44e5d0c01d1b79867dff0c49942d14a1bc01f1373b498bb200e0e`;
-- `rejected-unsafe-reuse-v7.json`: `e13b1fa9c668c61ad0244b8868eee2d8669548049b124df9e0f553ca8e099b84`.
+- `rejected-unsafe-reuse-v7.json`: `1a3bc4eca07ad8a60c05795b96ef9fa9aafcd67931af32f33a0e22d6f399870c`.
 
 Pinned SHA-256 bytes for corrupted/future v7 corpus:
 
-- buffer/layout/lifetime/alias corruption: `19b0cae20627e005543b727b33836684173b1bad67efc6f57d117c3fdfadbff6`, `13865ddb60f13fa37c27b13dc93c6acde8a434aab6833eae59e004a91770f7f4`, `18273f26f5e6aabd2097b8ab4392fb4f7608ddce089115e0a8151ba03206f922`, `09c82c430fea65a63de33f1c9ce1b37919c21ff87539890935a54ef5315d7f7e`;
-- reuse/guard/fallback corruption: `ec466dac15e2d9ba697c8c70a6f8590338f3a8eb6d39aa828a26f26a06ab7d4b`, `5a1486b4e4ff079a94c37e27590ded673d0c5aa470430cb375cd5ef7561275b5`, `a53214df3d3a427928674c5d6ad773c6b67daeeed2941ae55a6a2c2feed9d1dc`;
-- hash/event/allocator corruption: `16ec70b2792097e36b3b6110cfa32f3b6be14c0c546affe2bba87c00eb773800`, `0f87d74d6641d97ae4aaf803a27717ab530fbada401158ad2629fabe8aeedf4c`, `5d9ae5451ad50d87e60b2540c8a8643de649829de5e84699518a9842b85bc55a`;
+- buffer/layout/lifetime/alias corruption: `8b9fecc014ad443898ed5db5278561fb2ed670063110dfe82bcf60db7b3b9bac`, `851daf142ce73f6228e7f5c20cdc12fd886ad4b17b411f4966b5179509d8f136`, `837d972679c8ee62c05e3bc250adad67584dbfe95749c5efc65cf20c5cdc80d4`, `be27d69b4d1981ab05fcda049907a07b79bb57871f025856f47134c073bbdd4c`;
+- reuse/guard/fallback corruption: `2c9ac065e26a5d43d33ea1d9f9418ee243afe33bc90d3034ccc40edbcc43df43`, `3b5029fc9dc2080f81bcf11130a116a5671c91f1043b83fc4b15a715f4bec26b`, `3e9173ee4161450fefb24dd9e34a00fd8e4b611e897503dfb5754639e39b640d`;
+- hash/event/allocator corruption: `813608ed3b9146624bccc1bc8e89e216916672ab90398bd56b4ce5b48cb886ac`, `d5b563f2d579fda8bbec7b78a571d5a7113198d3f148f333edea711714008d81`, `b2e91fa9afe9e53c85d2146786cb81ff6968aa286fe908f12d8d3c5f390cf875`;
 - `future-v8.json`: `b0b7817b4ae2b10a61fb31bfac04b394829f4a790a7be14e1ce0115fdeba4752`.
 
 The compact one-line encoding is intentional: integrity hashes cover the exact deterministic body codec defined by each version's Rust structs. Historical future-version probes remain immutable regression inputs after their version becomes supported.

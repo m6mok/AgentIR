@@ -9,23 +9,31 @@ fn request(engine: &mut Engine, value: Value) -> Value {
     parsed["result"].clone()
 }
 
-fn prepared_engine() -> (Engine, Value) {
+fn prepared_engine_with_maps(map_count: usize) -> (Engine, Value) {
     let mut engine = Engine::new();
     request(
         &mut engine,
         json!({"command":"workspace.open","request_id":"open","workspace":"w1"}),
     );
+    let mut actions = vec![
+        json!({"kind":"define_dimension","bind":"$N","name":"N","constraints":["N >= 0"]}),
+        json!({"kind":"create_parameter","bind":"$value0","name":"x","type":"tensor<f32,[$N]>"}),
+    ];
+    for index in 0..map_count {
+        actions.push(json!({
+            "kind":"create_op",
+            "bind":format!("$value{}", index + 1),
+            "opcode":"map",
+            "operands":[format!("$value{index}")],
+            "region":{"arguments":[{"name":"element","type":"f32"}],"captures":[],"operations":[],"yield_value":"element"}
+        }));
+    }
+    actions.push(json!({"kind":"set_output","name":"out","value":format!("$value{map_count}")}));
     request(
         &mut engine,
         json!({
             "command":"spec.apply","request_id":"build","workspace":"w1","base_revision":"r0",
-            "actions":[
-                {"kind":"define_dimension","bind":"$N","name":"N","constraints":["N >= 0"]},
-                {"kind":"create_parameter","bind":"$x","name":"x","type":"tensor<f32,[$N]>"},
-                {"kind":"create_op","bind":"$temporary","opcode":"map","operands":["$x"],"region":{"arguments":[{"name":"element","type":"f32"}],"captures":[],"operations":[],"yield_value":"element"}},
-                {"kind":"create_op","bind":"$out","opcode":"map","operands":["$temporary"],"region":{"arguments":[{"name":"element","type":"f32"}],"captures":[],"operations":[],"yield_value":"element"}},
-                {"kind":"set_output","name":"out","value":"$out"}
-            ]
+            "actions":actions
         }),
     );
     request(
@@ -41,6 +49,10 @@ fn prepared_engine() -> (Engine, Value) {
         json!({"command":"memory.create","request_id":"memory","workspace":"w1","candidate":"c1","candidate_revision":"cr1"}),
     );
     (engine, memory)
+}
+
+fn prepared_engine() -> (Engine, Value) {
+    prepared_engine_with_maps(2)
 }
 
 #[test]
@@ -145,4 +157,32 @@ fn guarded_memory_evaluation_takes_only_the_selected_physical_branch() {
             .iter()
             .any(|event| event["kind"] == "guarded_reuse")
     );
+}
+
+#[test]
+fn guarded_fallback_remaps_downstream_reads_to_the_lazy_fresh_buffer() {
+    let (mut engine, memory) = prepared_engine_with_maps(3);
+    let query = &memory["query"];
+    request(
+        &mut engine,
+        json!({
+            "command":"memory.apply","request_id":"guard","workspace":"w1","memory_plan":"mp1",
+            "base_memory_revision":"mr1","expected_memory_hash":query["memory_hash"],
+            "expected_impl_hash":query["impl_hash"],
+            "actions":[{"kind":"request_guarded_reuse","input":"iv2","result":"iv3","guard_against":"buf1"}]
+        }),
+    );
+    let fallback = request(
+        &mut engine,
+        json!({"command":"memory.evaluate","request_id":"fallback","workspace":"w1","memory_plan":"mp1","memory_revision":"mr2","inputs":{"x":[4.0,5.0]},"guard_outcomes":{"mg1":false}}),
+    );
+    let downstream_read = fallback["trace"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|event| {
+            event["kind"] == "access" && event["detail"].as_str().unwrap().ends_with("Read iv3")
+        })
+        .expect("the downstream operation reads the guarded result");
+    assert_eq!(downstream_read["buffer"], "buf3");
 }

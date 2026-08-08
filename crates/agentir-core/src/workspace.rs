@@ -2474,6 +2474,93 @@ impl Workspace {
                 .with_detail("candidate_cursor", event.candidate_event_cursor)
                 .with_detail("equality_cursor", event.equality_event_cursor));
             }
+            if let MemoryEvent::Created {
+                candidate,
+                candidate_revision,
+                ..
+            } = &event.event
+            {
+                let candidate_prefix =
+                    usize::try_from(event.candidate_event_cursor).map_err(|_| {
+                        AgentError::new(
+                            ErrorCode::MemoryEventOrderInvalid,
+                            "memory candidate-event cursor does not fit this platform",
+                        )
+                    })?;
+                let equality_prefix =
+                    usize::try_from(event.equality_event_cursor).map_err(|_| {
+                        AgentError::new(
+                            ErrorCode::MemoryEventOrderInvalid,
+                            "memory equality-event cursor does not fit this platform",
+                        )
+                    })?;
+                let available_from_candidates = expected_candidates.events[..candidate_prefix]
+                    .iter()
+                    .any(|versioned| match &versioned.event {
+                        CandidateEvent::Created {
+                            candidate: created,
+                            candidate_revision: revision,
+                            ..
+                        }
+                        | CandidateEvent::Forked {
+                            candidate: created,
+                            candidate_revision: revision,
+                            ..
+                        }
+                        | CandidateEvent::Validated {
+                            candidate: created,
+                            candidate_revision: revision,
+                            ..
+                        }
+                        | CandidateEvent::Sealed {
+                            candidate: created,
+                            candidate_revision: revision,
+                            ..
+                        }
+                        | CandidateEvent::ProposalAccepted {
+                            candidate: created,
+                            candidate_revision: revision,
+                            ..
+                        }
+                        | CandidateEvent::TranslationChecked {
+                            candidate: created,
+                            candidate_revision: revision,
+                            ..
+                        } => created == candidate && revision == candidate_revision,
+                        CandidateEvent::TransactionApplied {
+                            transaction,
+                            candidate_revision: revision,
+                            ..
+                        } => &transaction.candidate == candidate && revision == candidate_revision,
+                    });
+                let available_from_equality = expected_equality.events[..equality_prefix]
+                    .iter()
+                    .any(|versioned| match &versioned.event {
+                        EqualityEvent::CandidateDischarged {
+                            candidate: created,
+                            candidate_revision: revision,
+                            ..
+                        }
+                        | EqualityEvent::Materialized {
+                            candidate: created,
+                            candidate_revision: revision,
+                            ..
+                        } => created == candidate && revision == candidate_revision,
+                        EqualityEvent::Created { .. }
+                        | EqualityEvent::Expanded { .. }
+                        | EqualityEvent::Saturated { .. } => false,
+                    });
+                if !available_from_candidates && !available_from_equality {
+                    return Err(AgentError::new(
+                        ErrorCode::MemoryEventOrderInvalid,
+                        "memory creation anchor was not available at its dependency cursors",
+                    )
+                    .with_detail("candidate", candidate.to_string())
+                    .with_detail("candidate_revision", candidate_revision.to_string())
+                    .with_detail("candidate_cursor", event.candidate_event_cursor)
+                    .with_detail("equality_cursor", event.equality_event_cursor));
+                }
+            }
             candidate_cursor = event.candidate_event_cursor;
             equality_cursor = event.equality_event_cursor;
             self.replay_memory_event(event)?;

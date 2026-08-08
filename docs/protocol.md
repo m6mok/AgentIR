@@ -75,7 +75,7 @@ An optional `allow_branch: true` explicitly permits a transaction based on a non
 
 - `workspace.open`: optional `workspace`; returns root `r0`.
 - `workspace.save`: workspace and destination `path`; writes an atomic archive v7.
-- `workspace.load`: archive v1/v2/v3/v4/v5/v6 `path` and optional `replace`; verifies, migrates and replays before inserting.
+- `workspace.load`: archive v1/v2/v3/v4/v5/v6/v7 `path` and optional `replace`; verifies, migrates and replays before inserting.
 - `workspace.verify_archive`: verifies checksum and replay without retaining the workspace.
 - `workspace.migrate_archive`: verifies `source_path`, migrates in memory and atomically writes `destination_path`; existing destinations require `overwrite: true`.
 - `spec.apply` and `transaction.apply`: workspace, base revision, actions and optional client transaction ID.
@@ -124,7 +124,7 @@ In a fresh CLI process, restore it:
 
 The result contains archive metadata and a replay report. `replace` defaults to `false`, so an archive cannot silently overwrite an already open workspace with the same ID.
 
-Load responses also contain a migration report. V6 reports `workspace_archive_v6_noop`; v5 reports `workspace_archive_v5_to_v6`; older sources report the explicit suffix of the v1 → v2 → v3 → v4 → v5 → v6 chain.
+Load responses also contain a migration report. V7 reports `workspace_archive_v7_noop`; v6 reports `workspace_archive_v6_to_v7`; older sources report the explicit suffix of the v1 → v2 → v3 → v4 → v5 → v6 → v7 chain.
 
 ## Candidate rewrite
 

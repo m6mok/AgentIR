@@ -276,16 +276,16 @@ pub struct WorkspaceArchiveV5 {
     pub archive_hash: String,
 }
 
-/// Current self-checking v6 workspace archive with Stage 2C equality state.
+/// Immutable self-checking v6 workspace archive with Stage 2C equality state.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct WorkspaceArchiveV6 {
     /// Stable format discriminator.
     pub format: String,
-    /// Current on-disk format version, always six.
+    /// Legacy on-disk format version, always six.
     pub format_version: u32,
     /// AgentIR crate version that wrote the archive.
     pub compiler_version: String,
-    /// Current compiler-core snapshot schema v6.
+    /// Immutable compiler-core snapshot schema v6.
     pub snapshot: LegacyWorkspaceSnapshotV6,
     /// SHA-256 of the deterministic v6 archive body.
     pub archive_hash: String,

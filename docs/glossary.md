@@ -9,7 +9,7 @@
 **memory_hash** — exact history-sensitive identity of one typed MemoryIR revision, distinct from all SpecIR, candidate, equality and archive hashes.
 
 - **ActionIR** — typed algebra of graph edits submitted by an agent.
-- **Archive** — checksummed versioned workspace encoding; v1/v2/v3/v4/v5 are immutable legacy inputs and v6 is current.
+- **Archive** — checksummed versioned workspace encoding; v1/v2/v3/v4/v5/v6 are immutable legacy inputs and v7 is current.
 - **Archive hash** — version-specific integrity hash of a concrete archive body.
 - **Canonical state** — deterministic serialized `Program` used for the history-sensitive `content_hash` and replay.
 - **Compiler core** — transport-independent verifier and workspace state machine.
@@ -44,4 +44,4 @@
 - **Semantic canonical form** — versioned, alpha-normalized output-reachable representation of frozen SpecIR.
 - **Spec hash** — domain-separated SHA-256 identity of semantic canonical form, independent of compiler IDs and construction history.
 - **Temporary binding** — `$name` usable only within one transaction.
-- **Workspace** — SpecIR revision DAG plus independent CandidateForest, EqualityStore and compiler-owned allocators; it may be persisted only after complete replay verification.
+- **Workspace** — SpecIR revision DAG plus independent CandidateForest, EqualityStore, MemoryPlanStore and compiler-owned allocators; it may be persisted only after complete replay verification.

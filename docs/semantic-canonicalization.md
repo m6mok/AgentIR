@@ -12,6 +12,7 @@ Stage 1.1 introduced two deliberately different frozen-SpecIR identities. Stage 
 | `proposal_hash` | Base implementation, target/boundary, alpha-normalized fragment, output type and `NumericContract` | candidate/revision/evidence and later persistent ImplIR IDs, time and limits | proposal identity before allocation |
 | `candidate_hash` v1/v2/v3 | Exact candidate revision, IDs, anchor, ImplIR and proof state; v2 adds proposals/debt/frontier/guard; v3 adds equality proofs/materialization | timestamps and resource policy | candidate replay and provenance |
 | `equality_hash` v1 | Anchor, whole-program nodes, trusted edges, worklist and saturation status | equality revision history, timestamps and resource policy | resumable exact equality state |
+| `memory_hash` v1 | Exact MemoryIR anchor, typed regions, accesses, alias/lifetime facts, reuse/guard decisions and proof state | timestamps, resource policy, traces, benchmark and platform data | physical-plan replay and provenance |
 | `archive_hash` | Version-specific archive body and snapshot | the `archive_hash` field itself | corruption and codec verification |
 
 None substitutes for another. Migration preserves legacy `content_hash`, `spec_hash` and candidate hashes; v4 → v5 adds empty speculative stores and v5 → v6 adds an empty equality store without legacy hash recalculation.

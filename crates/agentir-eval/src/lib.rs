@@ -1338,21 +1338,24 @@ pub fn evaluate_memory_with_limits(
     for operation_id in &revision.program.operation_order {
         let operation = &revision.program.operations[operation_id];
         for access in &operation.accesses {
-            let fallback_read = operation.results.iter().any(|binding| {
+            let fallback_producer_read = operation.results.iter().any(|binding| {
                 fallback_results.contains_key(binding.value())
                     && binding.buffer() == Some(&access.buffer)
             });
-            let effective_kind = if fallback_read {
+            let effective_kind = if fallback_producer_read {
                 BufferAccessKind::Read
             } else {
                 access.kind
             };
-            let buffer = &revision.program.buffers[&access.buffer];
+            let effective_buffer = fallback_results
+                .get(&access.value)
+                .unwrap_or(&access.buffer);
+            let buffer = &revision.program.buffers[effective_buffer];
             execute_abstract_access(buffer, effective_kind, &mut abstract_buffers)?;
             memory_trace_push(
                 &mut trace,
                 "access",
-                Some(access.buffer.clone()),
+                Some(effective_buffer.clone()),
                 format!(
                     "{} {} {}",
                     operation.id,
@@ -1403,6 +1406,35 @@ pub fn evaluate_memory_with_limits(
                     "release",
                     Some(buffer.id.clone()),
                     format!("after logical point {}", buffer.lifetime.last_use),
+                    limits,
+                )?;
+            }
+        }
+        for (result, buffer_id) in &fallback_results {
+            let fallback = revision
+                .program
+                .reuse_decisions
+                .get(result)
+                .and_then(|decision| match decision {
+                    ReuseDecision::Guarded { fallback, .. } => Some(&fallback.fresh_buffer),
+                    ReuseDecision::Fresh { .. } | ReuseDecision::InPlace { .. } => None,
+                })
+                .expect("fallback result was built from a guarded decision");
+            if fallback.lifetime.deallocation_eligible
+                && fallback.lifetime.last_use <= logical_point
+                && abstract_buffers
+                    .get(buffer_id)
+                    .is_some_and(|state| !state.released)
+            {
+                abstract_buffers
+                    .get_mut(buffer_id)
+                    .expect("selected fallback allocation exists")
+                    .released = true;
+                memory_trace_push(
+                    &mut trace,
+                    "release",
+                    Some(buffer_id.clone()),
+                    format!("after logical point {}", fallback.lifetime.last_use),
                     limits,
                 )?;
             }

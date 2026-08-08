@@ -964,6 +964,28 @@ fn verify_layout(buffer: &MemoryBuffer, limits: &ResourceLimits) -> AgentResult<
             "buffer alignment is smaller than its element size",
         ));
     }
+    for stride in &buffer.strides.entries {
+        match stride {
+            MemoryStride::Static { value: 0 } => {
+                return Err(memory_error(
+                    ErrorCode::InvalidMemoryLayout,
+                    "explicit memory strides must be non-zero",
+                ));
+            }
+            MemoryStride::Static { .. } => {}
+            MemoryStride::Product { factors } => {
+                if factors.is_empty() {
+                    return Err(memory_error(
+                        ErrorCode::InvalidMemoryLayout,
+                        "product memory strides must contain at least one shape factor",
+                    ));
+                }
+                // Reuse the checked row-major product logic to reject zero static
+                // factors and multiplication overflow while preserving symbolic products.
+                stride_product(factors)?;
+            }
+        }
+    }
     let contiguous = contiguous_strides(&buffer.shape)?;
     match &buffer.layout {
         MemoryLayout::ContiguousRowMajor if buffer.strides != contiguous => Err(memory_error(
@@ -1041,6 +1063,65 @@ pub fn verify_memory_program(
     )?;
 
     let reached = reachable_impl_operations(implementation)?;
+    let expected_operation_order = implementation
+        .operation_order
+        .iter()
+        .filter(|operation| {
+            reached.contains(*operation)
+                && !matches!(
+                    implementation.operations[*operation].opcode,
+                    crate::ir::Opcode::Parameter | crate::ir::Opcode::Constant
+                )
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let actual_operation_order = memory
+        .operation_order
+        .iter()
+        .map(|operation| {
+            memory
+                .operations
+                .get(operation)
+                .map(|operation| operation.impl_operation.clone())
+                .ok_or_else(|| {
+                    memory_error(
+                        ErrorCode::MemoryEquivalenceUnproved,
+                        "memory operation order references a missing operation",
+                    )
+                })
+        })
+        .collect::<AgentResult<Vec<_>>>()?;
+    if actual_operation_order != expected_operation_order
+        || memory.operation_for_impl.len() != expected_operation_order.len()
+    {
+        return Err(memory_error(
+            ErrorCode::MemoryEquivalenceUnproved,
+            "MemoryIR operation order differs from reachable ImplIR order",
+        ));
+    }
+    for (memory_operation_id, memory_operation) in &memory.operations {
+        let source = implementation
+            .operations
+            .get(&memory_operation.impl_operation)
+            .ok_or_else(|| {
+                memory_error(
+                    ErrorCode::MemoryEquivalenceUnproved,
+                    "memory operation references a missing ImplIR operation",
+                )
+            })?;
+        if memory_operation.id != *memory_operation_id
+            || memory
+                .operation_for_impl
+                .get(&memory_operation.impl_operation)
+                != Some(memory_operation_id)
+            || memory_operation.opcode != source.opcode.to_string()
+        {
+            return Err(memory_error(
+                ErrorCode::MemoryEquivalenceUnproved,
+                "memory operation identity, source mapping, or opcode is inconsistent",
+            ));
+        }
+    }
     let expected_values = reached
         .iter()
         .flat_map(|operation| implementation.operations[operation].results.iter().cloned())
@@ -1114,6 +1195,40 @@ pub fn verify_memory_program(
             ));
         }
     }
+    for (result, baseline) in &memory.fresh_baseline_buffers {
+        let Type::Tensor { element, shape } = &implementation
+            .values
+            .get(result)
+            .ok_or_else(|| {
+                memory_error(
+                    ErrorCode::MemoryEquivalenceUnproved,
+                    "fresh baseline result is missing from ImplIR",
+                )
+            })?
+            .ty
+        else {
+            return Err(memory_error(
+                ErrorCode::MemoryEquivalenceUnproved,
+                "fresh baseline exists for a scalar ImplIR value",
+            ));
+        };
+        if baseline.source_value != *result
+            || baseline.element_type != *element
+            || baseline.shape != *shape
+            || baseline.ownership != Ownership::PlanOwned
+            || !matches!(
+                baseline.access,
+                AccessMode::WriteOnly | AccessMode::ReadWrite
+            )
+            || !memory.alias_domains.contains_key(&baseline.alias_domain)
+        {
+            return Err(memory_error(
+                ErrorCode::MemoryEquivalenceUnproved,
+                "fresh baseline buffer is inconsistent with its ImplIR result",
+            ));
+        }
+        verify_layout(baseline, limits)?;
+    }
     BudgetCheck::against(
         limits,
         ResourceKind::MemoryTotalAllocationBytes,
@@ -1160,6 +1275,33 @@ pub fn verify_memory_program(
             "compiler-owned access, lifetime, or alias analysis is stale",
         ));
     }
+    for operation in memory.operations.values() {
+        for access in &operation.accesses {
+            let buffer = memory.buffers.get(&access.buffer).ok_or_else(|| {
+                memory_error(
+                    ErrorCode::InvalidMemoryAccess,
+                    "memory access references a missing active buffer",
+                )
+            })?;
+            let reads = matches!(
+                access.kind,
+                BufferAccessKind::Read | BufferAccessKind::ReadWrite
+            );
+            let writes = matches!(
+                access.kind,
+                BufferAccessKind::Write | BufferAccessKind::ReadWrite
+            );
+            if (reads && !matches!(buffer.access, AccessMode::ReadOnly | AccessMode::ReadWrite))
+                || (writes
+                    && !matches!(buffer.access, AccessMode::WriteOnly | AccessMode::ReadWrite))
+            {
+                return Err(memory_error(
+                    ErrorCode::InvalidMemoryAccess,
+                    "memory access violates the active buffer access mode",
+                ));
+            }
+        }
+    }
     for (result, decision) in &memory.reuse_decisions {
         match decision {
             ReuseDecision::Fresh { buffer } => {
@@ -1175,9 +1317,14 @@ pub fn verify_memory_program(
                     ));
                 }
             }
-            ReuseDecision::InPlace { input, buffer, .. } => {
+            ReuseDecision::InPlace {
+                input,
+                buffer,
+                certificate,
+            } => {
                 if memory.bindings.get(result).and_then(MemoryBinding::buffer) != Some(buffer)
                     || memory.bindings.get(input).and_then(MemoryBinding::buffer) != Some(buffer)
+                    || certificate != "static_in_place_reuse_v1"
                 {
                     return Err(memory_error(
                         ErrorCode::MemoryEquivalenceUnproved,
@@ -1191,7 +1338,7 @@ pub fn verify_memory_program(
                 buffer,
                 guard,
                 fallback,
-                ..
+                certificate,
             } => {
                 BudgetCheck::against(
                     limits,
@@ -1214,6 +1361,8 @@ pub fn verify_memory_program(
                 if memory.bindings.get(result).and_then(MemoryBinding::buffer) != Some(buffer)
                     || fallback.result != *result
                     || fallback.fresh_buffer.source_value != *result
+                    || memory.fresh_baseline_buffers.get(result) != Some(&fallback.fresh_buffer)
+                    || fallback.strategy != "lazy_fresh_allocation"
                     || guard.primary_buffer != *buffer
                     || guard.predicate != crate::memory::MemoryGuardPredicate::NoOverlap
                     || guard.primary_buffer == guard.other_buffer
@@ -1224,6 +1373,7 @@ pub fn verify_memory_program(
                         "strides",
                         "element_type",
                     ])
+                    || certificate != "guarded_no_overlap_reuse_v1"
                 {
                     return Err(memory_error(
                         ErrorCode::MemoryGuardInvalid,

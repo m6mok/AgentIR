@@ -18,10 +18,12 @@ ImplIR ──────────── separate typed graph → verify → 
 CandidateForest ─── atomic revisions → proof debt/validation/guard → candidate_hash v1/v2/v3
   ↓ proved exact anchor / selected member
 EqualityStore ───── whole-program nodes → trusted edges → bounded saturation → equality_hash
-  ↓ SpecIR + ImplIR
-agentir-eval ────── deterministic CPU semantic/differential oracle
+  ↓ explicit materialized exact candidate
+MemoryIR ────────── typed regions → alias/lifetime proof → exact reuse/fallback → memory_hash
+  ↓ SpecIR + ImplIR + MemoryIR
+agentir-eval ────── deterministic CPU semantic/physical oracle and memory trace
 
-agentir-core snapshot/SpecIR+candidate+equality event logs
+agentir-core snapshot/SpecIR+candidate+equality+memory event logs
   ↓
 agentir-store ───── version sniff → source checksum → migrate → replay
   ↓ save/migrate
@@ -74,4 +76,4 @@ The core derives frames from the same verified program used by free transactions
 
 ## Persistence boundary
 
-The core snapshot contains the complete SpecIR revision DAG/allocator/events, CandidateForest/proposals/debt/evidence/events, and EqualityStore/spaces/revisions/events. Loading never trusts serialized graphs directly: `agentir-store` checks the exact source codec/hash, migrates, replays SpecIR, interleaves candidate/equality events at explicit dependency cursors and verifies all programs, hashes, proof edges, worklists, frontiers and evidence chains. Only the complete verified workspace is published. See [persistence.md](persistence.md).
+The core snapshot contains the complete SpecIR revision DAG/allocator/events, CandidateForest/proposals/debt/evidence/events, EqualityStore/spaces/revisions/events, and MemoryPlanStore/plans/evidence/events. Loading never trusts serialized graphs directly: `agentir-store` checks the exact source codec/hash, migrates, replays SpecIR, respects explicit candidate/equality/memory dependency cursors and verifies every program, hash, proof edge, worklist, frontier, buffer, alias/lifetime fact and evidence chain. Only the complete verified workspace is published. See [persistence.md](persistence.md).

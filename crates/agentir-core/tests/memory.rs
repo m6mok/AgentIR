@@ -7,8 +7,9 @@ use agentir_core::{
     },
     memory::{MemoryAction, MemoryStatus, MemoryTransaction},
     memory_ir::{
-        AddressSpace, AliasProvenance, AliasRelation, ReuseDecision, alias_relation, buffer_of,
-        can_reuse, last_use, lifetime_of, may_overlap, prove_static_reuse, required_alignment,
+        AddressSpace, AliasProvenance, AliasRelation, MemoryLayout, MemoryStride, MemoryStrides,
+        ReuseDecision, alias_relation, buffer_of, can_reuse, last_use, lifetime_of, may_overlap,
+        prove_static_reuse, required_alignment,
     },
     resources::ResourceLimits,
 };
@@ -228,6 +229,33 @@ fn memory_hash_covers_physical_layout_but_not_interactive_limits() {
 }
 
 #[test]
+fn zero_explicit_stride_is_rejected_atomically() {
+    let mut workspace = memory_workspace();
+    let root = workspace
+        .memory_query(&MemoryPlanId::new("mp1"), &MemoryRevisionId::new("mr1"))
+        .unwrap();
+    let before = workspace.snapshot();
+    let error = workspace
+        .memory_apply(&MemoryTransaction {
+            memory_plan: root.memory_plan,
+            base_memory_revision: root.memory_revision,
+            expected_memory_hash: root.memory_hash,
+            expected_impl_hash: root.impl_hash,
+            actions: vec![MemoryAction::SetLayout {
+                buffer: BufferId::new("buf2"),
+                layout: MemoryLayout::ExplicitStrided {
+                    strides: MemoryStrides {
+                        entries: vec![MemoryStride::Static { value: 0 }],
+                    },
+                },
+            }],
+        })
+        .expect_err("zero strides cannot describe a legal typed region");
+    assert_eq!(error.code, ErrorCode::InvalidMemoryLayout);
+    assert_eq!(workspace.snapshot(), before);
+}
+
+#[test]
 fn compiler_owned_alias_and_lifetime_queries_are_deterministic_and_non_mutating() {
     let workspace = memory_workspace();
     let before = workspace.snapshot();
@@ -311,4 +339,14 @@ fn bounded_generated_memory_roots_are_reproducible() {
         assert_eq!(first_query.buffer_count, map_count + 1);
         assert_eq!(first_query.fresh_buffer_count, map_count);
     }
+}
+
+#[test]
+fn replay_rejects_memory_anchor_before_its_dependency_cursor() {
+    let workspace = memory_workspace();
+    let mut snapshot = workspace.snapshot();
+    snapshot.memory_store.events[0].candidate_event_cursor = 0;
+    let error = Workspace::from_snapshot(snapshot)
+        .expect_err("memory creation cannot precede its candidate anchor");
+    assert_eq!(error.code, ErrorCode::MemoryEventOrderInvalid);
 }

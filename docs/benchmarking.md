@@ -39,4 +39,4 @@ The pre-change single-shot run at commit `5a838d8540f57d7e171c1e333cd008957c1c60
 
 Those values were single-shot, some include setup effects, and they are not directly comparable to median schema-v2 records. They are historical orientation, not a performance contract.
 
-The SAXPY, candidate and equality evaluators are deterministic CPU semantic oracles. Their numbers say nothing about GPU code generation, device throughput, kernels, transfers or launch overhead; Stage 2C contains no GPU backend.
+The SAXPY, candidate, equality and memory evaluators are deterministic CPU semantic/physical oracles. Their numbers say nothing about GPU code generation, device throughput, kernels, transfers or launch overhead; Stage 3 contains no GPU backend.

@@ -30,6 +30,10 @@ cargo run -p agentir-cli --bin agentir < examples/guarded_candidate.jsonl
 cargo run -p agentir-cli --bin agentir < examples/equality_saturate.jsonl
 cargo run -p agentir-cli --bin agentir < examples/equality_discharge.jsonl
 cargo run -p agentir-cli --bin agentir < examples/equality_materialize.jsonl
+cargo run -p agentir-cli --bin agentir < examples/memory_fresh.jsonl
+cargo run -p agentir-cli --bin agentir < examples/memory_reuse.jsonl
+cargo run -p agentir-cli --bin agentir < examples/memory_guarded_reuse.jsonl
+cargo run -p agentir-cli --bin agentir < examples/equality_to_memory.jsonl
 cargo run --release -p agentir-protocol --example baseline
 ```
 
@@ -45,7 +49,7 @@ cargo run --release -p agentir-protocol --example baseline
 
 Benchmark schema v2 reports warm-ups plus min/median/p95/max for SpecIR, candidate, proposal/debt/guard, equality creation/saturation/explanation/materialization, rewrite, evidence, migration and replay paths. It records crate/git/dirty/target/OS/rustc/build metadata and separates SpecIR/ImplIR/proposal/candidate/equality/archive byte sizes from timings. See [benchmarking.md](benchmarking.md); timing changes never fail CI.
 
-Golden v1 archives came from commit `97c821a`; v2, v3, v4 and v5 inputs are immutable and pinned by SHA-256. Never regenerate them with a newer writer. V5 and v6 fixture corpora have separate reproducible generators: `cargo run -p agentir-store --example generate_v5_fixtures` and `cargo run -p agentir-store --example generate_v6_fixtures`; review their pinned hashes in the fixture README.
+Golden v1 archives came from commit `97c821a`; v2, v3, v4, v5 and v6 inputs are immutable and pinned by SHA-256. Never regenerate them with a newer writer. V5, v6 and v7 fixture corpora have separate reproducible generators: `cargo run -p agentir-store --example generate_v5_fixtures`, `cargo run -p agentir-store --example generate_v6_fixtures`, and `cargo run -p agentir-store --example generate_v7_fixtures`; review their pinned hashes in the fixture README.
 
 ## Adding a known rewrite
 

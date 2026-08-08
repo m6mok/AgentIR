@@ -3,6 +3,6 @@
 {"command":"spec.freeze","request_id":"freeze","workspace":"w1","base_revision":"r1"}
 {"command":"candidate.create","request_id":"candidate-create","workspace":"w1","spec_revision":"r2"}
 {"command":"memory.create","request_id":"memory-create","workspace":"w1","candidate":"c1","candidate_revision":"cr1"}
-{"command":"memory.apply","request_id":"memory-guarded","workspace":"w1","memory_plan":"mp1","base_memory_revision":"mr1","expected_memory_hash":"4eeac4d75f530eae2f3c2b43b2cd10d61eea28afb175d47c2f935345462a1682","expected_impl_hash":"18f9ff5c18b15057cfce1ba416edc4ff815dc54f2549549f5daa74e9ab13eb4b","actions":[{"kind":"request_guarded_reuse","input":"iv2","result":"iv3","guard_against":"buf1"}]}
+{"command":"memory.apply","request_id":"memory-guarded","workspace":"w1","memory_plan":"mp1","base_memory_revision":"mr1","expected_memory_hash":"82efc7e6792251e4b23a07e7f6d28af3e242bddd26d7558bde18537ae70f92b6","expected_impl_hash":"18f9ff5c18b15057cfce1ba416edc4ff815dc54f2549549f5daa74e9ab13eb4b","actions":[{"kind":"request_guarded_reuse","input":"iv2","result":"iv3","guard_against":"buf1"}]}
 {"command":"memory.evaluate","request_id":"memory-evaluate-primary","workspace":"w1","memory_plan":"mp1","memory_revision":"mr2","inputs":{"x":[1.0,2.0,3.0,4.0]},"guard_outcomes":{"mg1":true}}
 {"command":"memory.evaluate","request_id":"memory-evaluate-fallback","workspace":"w1","memory_plan":"mp1","memory_revision":"mr2","inputs":{"x":[1.0,2.0,3.0,4.0]},"guard_outcomes":{"mg1":false}}
