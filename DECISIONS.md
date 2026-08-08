@@ -351,3 +351,75 @@ Potential persistent references inside generic semantic attributes are rejected 
 ## ADR-072: Stage 4 ends before backend lowering
 
 **Decision.** Stage 4 completes exact high-level scheduling, target contracts, resource simulation, and reference execution. Backend IR, machine code, device execution, target discovery, autotuning, ranking, search, and performance evidence begin in Stage 5 or later.
+
+## ADR-073: BackendIR is separate and schedule anchored
+
+**Decision.** Stage 5 stores typed kernels, bindings, expressions, statements and dispatches in an immutable BackendIR plan anchored to one exact ScheduleIR revision. WGSL source is an output artifact, never the canonical program.
+
+## ADR-074: The first backend is a deliberately small WebGPU profile
+
+**Decision.** `webgpu_wgsl_v1` supports exact one-dimensional f32 elementwise kernels, deterministic storage/uniform ABI, serial or grid execution, widths 1/2/4, restricted fusion and compiler-owned bounds/NoOverlap handling. Unsupported reductions, layouts, address spaces and GPU features reject structurally.
+
+## ADR-075: Backend and artifact hashes are independent contracts
+
+**Decision.** `backend_hash` covers typed BackendIR and its proof state; `artifact_hash` covers the complete manifest and exact WGSL bytes. Neither includes runtime limits, device fingerprints or measurements, and neither substitutes for any earlier hash.
+
+## ADR-076: WGSL validation and devices have no correctness authority
+
+**Decision.** Naga parsing/validation establishes artifact well-formedness. Device execution and benchmarks are confidence evidence only. `BackendEquivalentToSchedule` and `ArtifactEquivalentToBackend` are compiler-owned structural certificates.
+
+## ADR-077: Executable packages retain the complete binding ABI
+
+**Decision.** Every artifact entry point retains ordered storage bindings, parameter block, logical extent and output mappings. The runtime consumes this manifest directly and never reverse-engineers ABI or semantics from WGSL text.
+
+## ADR-078: Backend events require archive v9
+
+**Decision.** Snapshot/archive v9 adds BackendStore, ArtifactStore and MeasurementStore. Loading verifies exact hashes, certificates, WGSL/manifest consistency and dependency order before publication. Immutable v1–v8 inputs cross explicit migrations; new saves use v9.
+
+## ADR-079: Hardware measurements remain provenance-rich observations
+
+**Decision.** A measurement anchors artifact, target, compiler build and device fingerprint plus bounded configuration and timing statistics. It cannot rank artifacts, mutate ScheduleIR or advance equivalence.
+
+## ADR-080: Compiler, emitter and runtime remain separate crates
+
+**Decision.** Transport-independent BackendIR, hashes, stores and replay stay in `agentir-core`; `agentir-backend-wgsl` owns deterministic lowering/emission/offline Naga validation; `agentir-runtime-wgpu` alone owns adapters, devices, buffers, pipelines and readback. Core has no wgpu/Naga/device/OS dependency.
+
+## ADR-081: Lowering and all correctness certificates are compiler owned
+
+**Decision.** Protocol clients select immutable IDs/hashes and runtime inputs only. Kernel boundaries, BackendIR values/statements, ABI, dispatch formulas, bounds/guard predicates and both Stage 5 certificates are constructed and verified by trusted compiler code; arbitrary WGSL and external shader modules are rejected by request decoding.
+
+## ADR-082: The serial root is the exact backend baseline
+
+**Decision.** Every supported one-dimensional elementwise serial ScheduleIR root lowers to one deterministic dispatch containing a bounded fixed-order loop. Unsupported higher-performance schedules remain legal ScheduleIR and return a structured lowering rejection; Stage 5 does not mutate or repair them.
+
+## ADR-083: Bounds, tiles and remainders are retained structurally
+
+**Decision.** Grid/workgroup lowering derives invocation indices, workgroup counts and exact compiler-owned bounds/remainder predicates from verified ScheduleIR. Clients cannot provide these formulas, and checked/saturating arithmetic plus resource bounds precede publication.
+
+## ADR-084: Fusion is explicit and multi-dispatch order is semantic
+
+**Decision.** Only ScheduleIR fusion groups that re-pass structural coverage/dependency checks form one kernel. All other operations retain deterministic ordered dispatches; no emitter or runtime heuristic fuses, reorders, ranks or drops them.
+
+## ADR-085: Vector and unroll choices are exact BackendIR metadata
+
+**Decision.** Widths 1/2/4 and bounded unroll factors are copied from verified ScheduleIR into each typed kernel and its certificate/query surface. Width 8 and unsupported ABI/layout cases reject. Scalar WGSL accesses remain the conservative exact execution form for the v1 emitter; vector metadata does not authorize reassociation or approximate math.
+
+## ADR-086: Memory reuse and guards are not re-proved by the backend
+
+**Decision.** Static read-write bindings require existing MemoryIR reuse certificates. Guarded packages retain only compiler-owned `NoOverlap`, explicit true/fallback dispatch selections and the exact fresh fallback provenance; runtime chooses one branch and execution traces record the outcome without changing artifact identity.
+
+## ADR-087: WGSL bytes are deterministic portable output
+
+**Decision.** Stable identifiers, declaration/binding/module order, LF whitespace and numeric encoding define WGSL bytes. Timestamps, paths, diagnostics, device data, driver binaries and pipeline caches are excluded. Re-emitting identical BackendIR with one compiler build is byte-identical.
+
+## ADR-088: Compiler build identity is separate from artifacts and backends
+
+**Decision.** `compiler_build_hash` uses its own versioned domain and records emitter/validator compatibility. It participates in `artifact_hash` and measurement provenance but never substitutes for `backend_hash`, earlier correctness hashes, or a device fingerprint.
+
+## ADR-089: Device discovery is mutable runtime state only
+
+**Decision.** Adapter limits are checked against immutable `webgpu_wgsl_v1`; discovery cannot mutate TargetManifest or `target_hash`. Device fingerprints and execution results remain outside backend/artifact correctness and archive replay never opens hardware.
+
+## ADR-090: Stage 5 completes without comparative search
+
+**Decision.** Stage 5 explicitly lowers/emits/executes the client-selected ScheduleIR revision and records bounded measurements. It has no autotuning, cost model, best-plan/artifact selection, beam/population search, learned policy, profile-guided specialization or performance-derived correctness claim; those policies begin no earlier than Stage 6.

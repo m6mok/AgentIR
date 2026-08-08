@@ -43,3 +43,7 @@ The SAXPY, candidate, equality and memory evaluators are deterministic CPU seman
 # Stage 4 workloads
 
 Benchmark schema v2 remains wire-compatible. Stage 4 coverage measures median/p95 serial construction at 10/100/1,000 operations and domain construction at 10/100/1,000 axes, dependency analysis, split/tile/remainder, legal and rejected fusion, binding, vector/unroll proof paths, resource simulation, verification/canonicalization/hash query, fork/seal, serial/tiled/remainder/guarded evaluation, v7 → v8 migration, and v8 replay variants. Canonical sizes are reported separately for TargetManifest, schedule state, axes/domains, dependencies, fusion, bindings, estimates, and certificates. Machine-specific output is never committed.
+
+# Stage 5 workloads
+
+The dependency-light baseline remains GPU-independent and adds BackendIR lowering/verification, deterministic WGSL emission, offline Naga validation, artifact hashing, v8→v9 migration and v9 replay. Device timing is recorded separately through the bounded benchmark protocol described in [hardware-benchmarking.md](hardware-benchmarking.md); those machine-specific measurements are confidence evidence and are not committed as baseline expectations.

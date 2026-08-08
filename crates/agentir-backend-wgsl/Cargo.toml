@@ -1,0 +1,15 @@
+[package]
+name = "agentir-backend-wgsl"
+description = "Deterministic AgentIR BackendIR lowering and WGSL artifact emission"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+agentir-core = { path = "../agentir-core" }
+naga.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

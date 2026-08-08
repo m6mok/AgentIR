@@ -1,0 +1,10 @@
+{"command":"workspace.open","request_id":"open","workspace":"w1"}
+{"command":"spec.apply","request_id":"build","workspace":"w1","base_revision":"r0","actions":[{"kind":"define_dimension","bind":"$N","name":"N","constraints":["N >= 0"]},{"kind":"create_parameter","bind":"$x","name":"x","type":"tensor<f32,[$N]>"},{"kind":"create_op","bind":"$out","opcode":"map","operands":["$x"],"region":{"arguments":[{"name":"element","type":"f32"}],"captures":[],"operations":[],"yield_value":"element"}},{"kind":"set_output","name":"out","value":"$out"}]}
+{"command":"spec.freeze","request_id":"freeze","workspace":"w1","base_revision":"r1"}
+{"command":"candidate.create","request_id":"candidate","workspace":"w1","spec_revision":"r2"}
+{"command":"memory.create","request_id":"memory","workspace":"w1","candidate":"c1","candidate_revision":"cr1"}
+{"command":"target.create","request_id":"target","workspace":"w1","profile":"webgpu_wgsl_v1"}
+{"command":"schedule.create","request_id":"schedule","workspace":"w1","memory_plan":"mp1","memory_revision":"mr1","target_manifest":"tm1","target_revision":"tmr1"}
+{"command":"schedule.apply","request_id":"split","workspace":"w1","schedule_plan":"sp1","base_schedule_revision":"sr1","expected_schedule_hash":"48cf62b5bab54b360a381d2f07b44d4a6e0f40a6ad1780814a66a8e8985c8115","expected_memory_hash":"a6a485a88cd70612614e928d07d1c00c85303a31b8a4db15dc4b1866d3a522b3","expected_target_hash":"52cf4b8ba1e1ee2ad04ab78d126dbcd87210946b5acd9078401686e3b640fe92","actions":[{"kind":"split_axis","axis":"sa1","factor":4}]}
+{"command":"backend.lower","request_id":"backend","workspace":"w1","schedule_plan":"sp1","schedule_revision":"sr2","expected_schedule_hash":"e53f75752f96b97dbd5858249f0a8d6696b955522bfe24ed25581f29b83523ee"}
+{"command":"artifact.emit","request_id":"artifact","workspace":"w1","backend_plan":"bp1","backend_revision":"br1","expected_backend_hash":"b4538c50112f63574065ccf39922885e7416a8013aa1dcabb36d07573848985d"}

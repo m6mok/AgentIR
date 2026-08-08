@@ -24,3 +24,7 @@ A proposal record is provenance, not EvidenceIR correctness. The proof frontier 
 # Stage 4 evidence
 
 `ScheduleEquivalentToMemory` advances only through compiler-owned structural certificates for exact coverage, dependency order, fusion, binding, vectorization/unrolling, MemoryIR preservation, and target-resource validity. Reference scheduled execution and any future measurements remain confidence-only and never close a schedule obligation.
+
+# Stage 5 evidence
+
+`BackendEquivalentToSchedule` and `ArtifactEquivalentToBackend` are compiler-owned structural relations. WGSL parsing/validation establishes well-formedness only; reference/device differential execution and hardware measurements remain confidence evidence. Neither device success nor benchmark speed can advance, replace, or rank correctness certificates.

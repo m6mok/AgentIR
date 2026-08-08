@@ -1,0 +1,11 @@
+{"command":"workspace.open","request_id":"open","workspace":"w1"}
+{"command":"spec.apply","request_id":"build","workspace":"w1","base_revision":"r0","actions":[{"kind":"define_dimension","bind":"$N","name":"N","constraints":["N >= 0"]},{"kind":"create_parameter","bind":"$x","name":"x","type":"tensor<f32,[$N]>"},{"kind":"create_op","bind":"$temporary","opcode":"map","operands":["$x"],"region":{"arguments":[{"name":"element","type":"f32"}],"captures":[],"operations":[],"yield_value":"element"}},{"kind":"create_op","bind":"$out","opcode":"map","operands":["$temporary"],"region":{"arguments":[{"name":"element","type":"f32"}],"captures":[],"operations":[],"yield_value":"element"}},{"kind":"set_output","name":"out","value":"$out"}]}
+{"command":"spec.freeze","request_id":"freeze","workspace":"w1","base_revision":"r1"}
+{"command":"candidate.create","request_id":"candidate","workspace":"w1","spec_revision":"r2"}
+{"command":"memory.create","request_id":"memory","workspace":"w1","candidate":"c1","candidate_revision":"cr1"}
+{"command":"memory.apply","request_id":"reuse","workspace":"w1","memory_plan":"mp1","base_memory_revision":"mr1","expected_memory_hash":"82efc7e6792251e4b23a07e7f6d28af3e242bddd26d7558bde18537ae70f92b6","expected_impl_hash":"18f9ff5c18b15057cfce1ba416edc4ff815dc54f2549549f5daa74e9ab13eb4b","actions":[{"kind":"request_in_place_reuse","input":"iv2","result":"iv3"}]}
+{"command":"target.create","request_id":"target","workspace":"w1","profile":"webgpu_wgsl_v1"}
+{"command":"schedule.create","request_id":"schedule","workspace":"w1","memory_plan":"mp1","memory_revision":"mr2","target_manifest":"tm1","target_revision":"tmr1"}
+{"command":"backend.lower","request_id":"backend","workspace":"w1","schedule_plan":"sp1","schedule_revision":"sr1","expected_schedule_hash":"39e649d5abdb040c8adf6dc08ce59a757f92ec480fe42d6fb20e0178542bfd6c"}
+{"command":"artifact.emit","request_id":"artifact","workspace":"w1","backend_plan":"bp1","backend_revision":"br1","expected_backend_hash":"5228797b95372d3a028844ff05825400c62884d53c1ceeef3594d19a1fd610ff"}
+{"command":"artifact.reference_evaluate","request_id":"reference","workspace":"w1","artifact":"art1","inputs":{"x":[1.0,2.0,3.0,4.0]}}

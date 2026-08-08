@@ -2,6 +2,12 @@
 
 use crate::{
     actions::{Action, ActionClassification, RegionSpec, Transaction},
+    backend::{
+        ArtifactCheckReport, ArtifactQuery, ArtifactStore, BackendAllocator, BackendCheckReport,
+        BackendEvent, BackendHash, BackendQuery, BackendStore, MeasurementStore,
+        canonical_backend_bytes,
+    },
+    backend_ir::{ArtifactPackage, BackendAnchor, BackendKind, BackendProgram},
     candidate::{
         CANDIDATE_SEMANTICS_VERSION, Candidate, CandidateCheckReport, CandidateContinuation,
         CandidateEvent, CandidateForest, CandidateRevision, CandidateTransaction,
@@ -20,10 +26,11 @@ use crate::{
     },
     holes::{ExpectedEffects, Hole, HoleStatus},
     ids::{
-        ActionId, BufferId, CandidateId, CandidateRevisionId, EqualityNodeId, EqualityRevisionId,
-        EqualitySpaceId, HoleId, IdAllocator, MemoryPlanId, MemoryRevisionId, ObligationId,
-        ProposalId, RevisionId, ScheduleAxisId, SchedulePlanId, ScheduleRevisionId,
-        TargetManifestId, TargetManifestRevisionId, ValueId, WorkspaceId,
+        ActionId, ArtifactId, BackendPlanId, BackendRevisionId, BufferId, CandidateId,
+        CandidateRevisionId, EqualityNodeId, EqualityRevisionId, EqualitySpaceId, HoleId,
+        IdAllocator, MemoryPlanId, MemoryRevisionId, ObligationId, ProposalId, RevisionId,
+        ScheduleAxisId, SchedulePlanId, ScheduleRevisionId, TargetManifestId,
+        TargetManifestRevisionId, ValueId, WorkspaceId,
     },
     ir::{
         BlockArgument, ConstantValue, Dimension, Opcode, Operation, Program, Region,
@@ -791,6 +798,9 @@ pub struct Workspace {
     memory: MemoryPlanStore,
     targets: TargetManifestStore,
     schedules: SchedulePlanStore,
+    backends: BackendStore,
+    artifacts: ArtifactStore,
+    measurements: MeasurementStore,
     limits: ResourceLimits,
 }
 
@@ -827,6 +837,9 @@ impl Workspace {
             memory: MemoryPlanStore::default(),
             targets: TargetManifestStore::default(),
             schedules: SchedulePlanStore::default(),
+            backends: BackendStore::default(),
+            artifacts: ArtifactStore::default(),
+            measurements: MeasurementStore::default(),
             limits,
         })
     }
@@ -876,6 +889,24 @@ impl Workspace {
     #[must_use]
     pub const fn schedule_store(&self) -> &SchedulePlanStore {
         &self.schedules
+    }
+
+    /// Returns persistent typed BackendIR plans.
+    #[must_use]
+    pub const fn backend_store(&self) -> &BackendStore {
+        &self.backends
+    }
+
+    /// Returns deterministic WGSL artifact packages.
+    #[must_use]
+    pub const fn artifact_store(&self) -> &ArtifactStore {
+        &self.artifacts
+    }
+
+    /// Returns confidence-only hardware measurement records.
+    #[must_use]
+    pub const fn measurement_store(&self) -> &MeasurementStore {
+        &self.measurements
     }
 
     /// Returns the current head revision ID.
@@ -2505,6 +2536,479 @@ impl Workspace {
             .impl_program)
     }
 
+    /// Atomically lowers one explicit immutable schedule through a trusted backend component.
+    fn validate_backend_budgets(&self, store: &BackendStore) -> AgentResult<()> {
+        let revisions = store.plans.values().fold(0_u64, |sum, plan| {
+            sum.saturating_add(as_u64(plan.revisions.len()))
+        });
+        for (kind, actual) in [
+            (
+                ResourceKind::BackendPlansPerWorkspace,
+                as_u64(store.plans.len()),
+            ),
+            (ResourceKind::BackendRevisionsPerWorkspace, revisions),
+            (ResourceKind::BackendEvents, as_u64(store.events.len())),
+        ] {
+            BudgetCheck::against(&self.limits, kind, actual, "BackendStore")?;
+        }
+        for (plan_id, plan) in &store.plans {
+            for revision in plan.revisions.values() {
+                let values = revision
+                    .program
+                    .kernels
+                    .values()
+                    .map(|kernel| kernel.values.len())
+                    .sum::<usize>();
+                let statements = revision
+                    .program
+                    .kernels
+                    .values()
+                    .map(|kernel| kernel.statements.len())
+                    .sum::<usize>();
+                for (kind, actual) in [
+                    (ResourceKind::BackendKernels, revision.program.kernels.len()),
+                    (ResourceKind::BackendValues, values),
+                    (ResourceKind::BackendStatements, statements),
+                    (
+                        ResourceKind::BackendDispatches,
+                        revision.program.dispatches.len(),
+                    ),
+                    (
+                        ResourceKind::BackendGuardBranches,
+                        usize::from(revision.program.guard.is_some()),
+                    ),
+                    (
+                        ResourceKind::BackendProofRecords,
+                        revision
+                            .evidence
+                            .len()
+                            .saturating_add(revision.obligations.len()),
+                    ),
+                ] {
+                    BudgetCheck::against(&self.limits, kind, as_u64(actual), "BackendIR")?;
+                }
+                for kernel in revision.program.kernels.values() {
+                    for (kind, actual) in [
+                        (
+                            ResourceKind::BackendSourceNodesPerKernel,
+                            kernel.source_schedule_nodes.len(),
+                        ),
+                        (
+                            ResourceKind::BackendBindingsPerKernel,
+                            kernel.bindings.len(),
+                        ),
+                        (
+                            ResourceKind::BackendParameterEntries,
+                            kernel.parameter_block.entries.len(),
+                        ),
+                    ] {
+                        BudgetCheck::against(&self.limits, kind, as_u64(actual), "BackendKernel")?;
+                    }
+                    BudgetCheck::against(
+                        &self.limits,
+                        ResourceKind::BackendParameterBytes,
+                        kernel.parameter_block.byte_size,
+                        "BackendKernel parameters",
+                    )?;
+                }
+                BudgetCheck::against(
+                    &self.limits,
+                    ResourceKind::BackendCanonicalBytes,
+                    as_u64(canonical_backend_bytes(plan_id, &plan.anchor, revision)?.len()),
+                    "BackendIR canonical form",
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_artifact_budgets(&self, store: &ArtifactStore) -> AgentResult<()> {
+        for (kind, actual) in [
+            (ResourceKind::ArtifactPackages, store.packages.len()),
+            (ResourceKind::ArtifactEvents, store.events.len()),
+        ] {
+            BudgetCheck::against(&self.limits, kind, as_u64(actual), "ArtifactStore")?;
+        }
+        for package in store.packages.values() {
+            for (kind, actual) in [
+                (ResourceKind::ArtifactModules, package.modules.len()),
+                (
+                    ResourceKind::ArtifactEntryPoints,
+                    package.manifest.entry_points.len(),
+                ),
+            ] {
+                BudgetCheck::against(&self.limits, kind, as_u64(actual), "ArtifactPackage")?;
+            }
+            for module in &package.modules {
+                BudgetCheck::against(
+                    &self.limits,
+                    ResourceKind::WgslBytesPerModule,
+                    as_u64(module.wgsl.len()),
+                    "WGSL module",
+                )?;
+            }
+            BudgetCheck::against(
+                &self.limits,
+                ResourceKind::ArtifactManifestBytes,
+                as_u64(
+                    serde_json::to_vec(&package.manifest)
+                        .map_err(|error| {
+                            AgentError::new(ErrorCode::CanonicalizationFailed, error.to_string())
+                        })?
+                        .len(),
+                ),
+                "artifact manifest",
+            )?;
+            BudgetCheck::against(
+                &self.limits,
+                ResourceKind::ArtifactTotalBytes,
+                as_u64(
+                    serde_json::to_vec(package)
+                        .map_err(|error| {
+                            AgentError::new(ErrorCode::CanonicalizationFailed, error.to_string())
+                        })?
+                        .len(),
+                ),
+                "artifact package",
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Atomically lowers one explicit immutable schedule through a trusted backend component.
+    pub fn backend_lower_with<F>(
+        &mut self,
+        schedule_plan: &SchedulePlanId,
+        schedule_revision: &ScheduleRevisionId,
+        expected_schedule_hash: &ScheduleHash,
+        lower: F,
+    ) -> AgentResult<BackendCheckReport>
+    where
+        F: FnOnce(
+            &mut BackendAllocator,
+            &crate::schedule::SchedulePlan,
+            &crate::schedule::ScheduleRevision,
+            &crate::memory::MemoryRevision,
+            &crate::impl_ir::ImplProgram,
+            &crate::target::TargetManifest,
+        ) -> AgentResult<BackendProgram>,
+    {
+        self.schedule_check(schedule_plan, schedule_revision)?;
+        let schedule_plan_data = self.schedules.plan(schedule_plan)?.clone();
+        let schedule_revision_data = self
+            .schedules
+            .revision(schedule_plan, schedule_revision)?
+            .clone();
+        if &schedule_revision_data.schedule_hash != expected_schedule_hash {
+            return Err(AgentError::new(
+                ErrorCode::BackendScheduleMismatch,
+                "backend.lower expected schedule_hash differs from the selected revision",
+            )
+            .with_types(
+                expected_schedule_hash.to_string(),
+                schedule_revision_data.schedule_hash.to_string(),
+            ));
+        }
+        let (_, memory_revision, implementation, target) = self.schedule_inputs(schedule_plan)?;
+        let anchor = BackendAnchor {
+            spec_revision: schedule_plan_data.anchor.spec_revision.clone(),
+            spec_hash: schedule_plan_data.anchor.spec_hash.clone(),
+            impl_hash: schedule_plan_data.anchor.impl_hash.clone(),
+            memory_hash: schedule_plan_data.anchor.memory_hash.clone(),
+            memory_plan: schedule_plan_data.anchor.memory_plan.clone(),
+            memory_revision: schedule_plan_data.anchor.memory_revision.clone(),
+            target_hash: schedule_plan_data.anchor.target_hash.clone(),
+            target_manifest: schedule_plan_data.anchor.target_manifest.clone(),
+            target_revision: schedule_plan_data.anchor.target_revision.clone(),
+            schedule_hash: schedule_revision_data.schedule_hash.clone(),
+            schedule_plan: schedule_plan.clone(),
+            schedule_revision: schedule_revision.clone(),
+            numeric_contract: schedule_plan_data.anchor.numeric_contract.clone(),
+            backend_kind: BackendKind::WebGpuWgslV1,
+        };
+        let expected_nodes = schedule_revision_data.program.node_order.clone();
+        let mut staged = self.backends.clone();
+        let report = staged.lower_with(
+            anchor,
+            &expected_nodes,
+            u64::try_from(self.candidates.events.len()).unwrap_or(u64::MAX),
+            u64::try_from(self.equality.events.len()).unwrap_or(u64::MAX),
+            u64::try_from(self.memory.events.len()).unwrap_or(u64::MAX),
+            u64::try_from(self.targets.events.len()).unwrap_or(u64::MAX),
+            u64::try_from(self.schedules.events.len()).unwrap_or(u64::MAX),
+            |allocator| {
+                lower(
+                    allocator,
+                    &schedule_plan_data,
+                    &schedule_revision_data,
+                    &memory_revision,
+                    &implementation,
+                    &target,
+                )
+            },
+        )?;
+        self.validate_backend_budgets(&staged)?;
+        self.backends = staged;
+        Ok(report)
+    }
+
+    /// Reads one immutable BackendIR summary.
+    pub fn backend_query(
+        &self,
+        plan: &BackendPlanId,
+        revision: &BackendRevisionId,
+    ) -> AgentResult<BackendQuery> {
+        self.backends.query(plan, revision)
+    }
+
+    /// Fully verifies one BackendIR revision.
+    pub fn backend_check(
+        &self,
+        plan: &BackendPlanId,
+        revision: &BackendRevisionId,
+    ) -> AgentResult<BackendCheckReport> {
+        let plan_data = self.backends.plan(plan)?;
+        let schedule = self.schedules.revision(
+            &plan_data.anchor.schedule_plan,
+            &plan_data.anchor.schedule_revision,
+        )?;
+        if schedule.schedule_hash != plan_data.anchor.schedule_hash
+            || self
+                .memory
+                .revision(
+                    &plan_data.anchor.memory_plan,
+                    &plan_data.anchor.memory_revision,
+                )?
+                .memory_hash
+                != plan_data.anchor.memory_hash
+            || self
+                .targets
+                .manifest(
+                    &plan_data.anchor.target_manifest,
+                    &plan_data.anchor.target_revision,
+                )?
+                .target_hash
+                != plan_data.anchor.target_hash
+        {
+            return Err(AgentError::new(
+                ErrorCode::BackendScheduleMismatch,
+                "backend immutable anchor chain no longer matches Stage 3-4 state",
+            ));
+        }
+        self.backends.check(plan, revision)
+    }
+
+    /// Returns bounded deterministic BackendIR capabilities without mutation.
+    pub fn backend_continuation(
+        &self,
+        plan: &BackendPlanId,
+        revision: &BackendRevisionId,
+    ) -> AgentResult<crate::backend::BackendContinuation> {
+        self.backend_check(plan, revision)?;
+        let anchor = &self.backends.plan(plan)?.anchor;
+        Ok(crate::backend::BackendContinuation {
+            schedule_hash: anchor.schedule_hash.clone(),
+            backend_kind: anchor.backend_kind,
+            serial_available: true,
+            vector_widths: vec![1, 2, 4],
+            unsupported: vec![
+                "reduce".to_owned(),
+                "non_contiguous_or_non_global_storage".to_owned(),
+                "subgroup_or_shared_memory".to_owned(),
+            ],
+        })
+    }
+
+    /// Forks one immutable BackendIR revision into an independent plan.
+    pub fn backend_fork(
+        &mut self,
+        plan: &BackendPlanId,
+        revision: &BackendRevisionId,
+        expected_hash: &BackendHash,
+    ) -> AgentResult<BackendCheckReport> {
+        self.backend_check(plan, revision)?;
+        let mut staged = self.backends.clone();
+        let report = staged.fork(plan, revision, expected_hash)?;
+        self.validate_backend_budgets(&staged)?;
+        self.backends = staged;
+        Ok(report)
+    }
+
+    /// Seals one proved BackendIR revision.
+    pub fn backend_seal(
+        &mut self,
+        plan: &BackendPlanId,
+        revision: &BackendRevisionId,
+        expected_hash: &BackendHash,
+    ) -> AgentResult<BackendCheckReport> {
+        self.backend_check(plan, revision)?;
+        let mut staged = self.backends.clone();
+        let report = staged.seal(plan, revision, expected_hash)?;
+        self.validate_backend_budgets(&staged)?;
+        self.backends = staged;
+        Ok(report)
+    }
+
+    /// Atomically emits one deterministic artifact through a trusted compiler component.
+    pub fn artifact_emit_with<F>(
+        &mut self,
+        backend_plan: &BackendPlanId,
+        backend_revision: &BackendRevisionId,
+        expected_backend_hash: &BackendHash,
+        emit: F,
+    ) -> AgentResult<ArtifactCheckReport>
+    where
+        F: FnOnce(
+            &mut BackendAllocator,
+            ArtifactId,
+            BackendAnchor,
+            BackendHash,
+            &BackendProgram,
+        ) -> AgentResult<ArtifactPackage>,
+    {
+        self.backend_check(backend_plan, backend_revision)?;
+        let backend_plan_data = self.backends.plan(backend_plan)?.clone();
+        let backend_revision_data = self
+            .backends
+            .revision(backend_plan, backend_revision)?
+            .clone();
+        if &backend_revision_data.backend_hash != expected_backend_hash {
+            return Err(AgentError::new(
+                ErrorCode::BackendHashMismatch,
+                "artifact.emit expected backend_hash differs from the selected revision",
+            )
+            .with_types(
+                expected_backend_hash.to_string(),
+                backend_revision_data.backend_hash.to_string(),
+            ));
+        }
+        let mut backends = self.backends.clone();
+        let mut artifacts = self.artifacts.clone();
+        let report = artifacts.emit_with(
+            &mut backends,
+            backend_plan,
+            backend_revision,
+            |allocator, artifact| {
+                emit(
+                    allocator,
+                    artifact,
+                    backend_plan_data.anchor,
+                    backend_revision_data.backend_hash,
+                    &backend_revision_data.program,
+                )
+            },
+        )?;
+        self.validate_backend_budgets(&backends)?;
+        self.validate_artifact_budgets(&artifacts)?;
+        self.backends = backends;
+        self.artifacts = artifacts;
+        Ok(report)
+    }
+
+    /// Lists deterministic artifact summaries.
+    #[must_use]
+    pub fn artifact_list(&self) -> Vec<ArtifactQuery> {
+        self.artifacts.list()
+    }
+
+    /// Reads one deterministic artifact summary.
+    pub fn artifact_query(&self, artifact: &ArtifactId) -> AgentResult<ArtifactQuery> {
+        self.artifacts.query(artifact)
+    }
+
+    /// Returns one immutable artifact package for runtime or reference evaluation.
+    pub fn artifact_package(&self, artifact: &ArtifactId) -> AgentResult<&ArtifactPackage> {
+        self.artifacts.package(artifact)
+    }
+
+    /// Fully verifies one artifact package against its source BackendIR revision.
+    pub fn artifact_check(&self, artifact: &ArtifactId) -> AgentResult<ArtifactCheckReport> {
+        let event = self
+            .artifacts
+            .events
+            .iter()
+            .find(|event| event.event.package.id == *artifact)
+            .ok_or_else(|| {
+                AgentError::new(
+                    ErrorCode::ArtifactNotFound,
+                    format!("artifact `{artifact}` does not exist"),
+                )
+            })?;
+        let backend = self
+            .backends
+            .revision(&event.event.backend_plan, &event.event.backend_revision)?;
+        self.artifacts.check(artifact, backend)
+    }
+
+    /// Returns the ScheduleIR source selected by one backend plan.
+    pub fn backend_source_schedule(
+        &self,
+        backend_plan: &BackendPlanId,
+    ) -> AgentResult<(&SchedulePlanId, &ScheduleRevisionId)> {
+        let anchor = &self.backends.plan(backend_plan)?.anchor;
+        Ok((&anchor.schedule_plan, &anchor.schedule_revision))
+    }
+
+    /// Returns the backend plan and revision that emitted one artifact.
+    pub fn artifact_source_backend(
+        &self,
+        artifact: &ArtifactId,
+    ) -> AgentResult<(&BackendPlanId, &BackendRevisionId)> {
+        let event = self
+            .artifacts
+            .events
+            .iter()
+            .find(|event| event.event.package.id == *artifact)
+            .ok_or_else(|| {
+                AgentError::new(
+                    ErrorCode::ArtifactNotFound,
+                    format!("artifact `{artifact}` does not exist"),
+                )
+            })?;
+        Ok((&event.event.backend_plan, &event.event.backend_revision))
+    }
+
+    /// Returns one immutable compiler-owned target manifest for runtime checks.
+    pub fn target_manifest(
+        &self,
+        manifest: &TargetManifestId,
+        revision: &TargetManifestRevisionId,
+    ) -> AgentResult<&crate::target::TargetManifest> {
+        self.targets.manifest(manifest, revision)
+    }
+
+    /// Reads one completed confidence-only hardware measurement.
+    pub fn measurement_query(
+        &self,
+        measurement: &crate::ids::MeasurementId,
+    ) -> AgentResult<&crate::backend_ir::HardwareMeasurementRecord> {
+        self.measurements.records.get(measurement).ok_or_else(|| {
+            AgentError::new(
+                ErrorCode::BenchmarkTaskNotFound,
+                format!("measurement `{measurement}` does not exist"),
+            )
+        })
+    }
+
+    /// Publishes one runtime-created confidence-only measurement atomically.
+    pub fn measurement_publish(
+        &mut self,
+        record: crate::backend_ir::HardwareMeasurementRecord,
+    ) -> AgentResult<crate::ids::MeasurementId> {
+        BudgetCheck::against(
+            &self.limits,
+            ResourceKind::BenchmarkRecords,
+            as_u64(self.measurements.records.len()).saturating_add(1),
+            "measurement publication",
+        )?;
+        let mut allocator = self.backends.allocator.clone();
+        let mut measurements = self.measurements.clone();
+        let id = measurements.publish(&mut allocator, &self.artifacts, record)?;
+        self.backends.allocator = allocator;
+        self.measurements = measurements;
+        Ok(id)
+    }
+
     fn replay_target_event(&mut self, versioned: &VersionedTargetEvent) -> AgentResult<()> {
         if versioned.semantics_version != TARGET_EVENT_SEMANTICS_VERSION {
             return Err(AgentError::new(
@@ -3047,6 +3551,7 @@ impl Workspace {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn replay_optimization_state(
         &mut self,
         expected_candidates: &CandidateForest,
@@ -3054,6 +3559,9 @@ impl Workspace {
         expected_memory: &MemoryPlanStore,
         expected_targets: &TargetManifestStore,
         expected_schedules: &SchedulePlanStore,
+        expected_backends: &BackendStore,
+        expected_artifacts: &ArtifactStore,
+        expected_measurements: &MeasurementStore,
     ) -> AgentResult<()> {
         let mut candidate_cursor = 0_usize;
         for equality_event in &expected_equality.events {
@@ -3326,7 +3834,171 @@ impl Workspace {
                 .manifest(&anchor.target_manifest, &anchor.target_revision)?
                 .clone();
             Ok((memory_plan, memory_revision, implementation, target))
-        })
+        })?;
+        expected_backends.verify_all()?;
+        let candidate_count = u64::try_from(expected_candidates.events.len()).unwrap_or(u64::MAX);
+        let equality_count = u64::try_from(expected_equality.events.len()).unwrap_or(u64::MAX);
+        let memory_count = u64::try_from(expected_memory.events.len()).unwrap_or(u64::MAX);
+        let target_count = u64::try_from(expected_targets.events.len()).unwrap_or(u64::MAX);
+        let schedule_count = u64::try_from(expected_schedules.events.len()).unwrap_or(u64::MAX);
+        let mut dependency_cursors = [0_u64; 5];
+        let mut replayed_backend_plans = BTreeMap::new();
+        for event in &expected_backends.events {
+            if event.semantics_version != crate::backend::BACKEND_EVENT_SEMANTICS_VERSION {
+                return Err(AgentError::new(
+                    ErrorCode::BackendEventOrderInvalid,
+                    "backend event semantics version is invalid",
+                ));
+            }
+            match &event.event {
+                BackendEvent::Lowered {
+                    plan,
+                    candidate_event_cursor,
+                    equality_event_cursor,
+                    memory_event_cursor,
+                    target_event_cursor,
+                    schedule_event_cursor,
+                } => {
+                    let next = [
+                        *candidate_event_cursor,
+                        *equality_event_cursor,
+                        *memory_event_cursor,
+                        *target_event_cursor,
+                        *schedule_event_cursor,
+                    ];
+                    let available = [
+                        candidate_count,
+                        equality_count,
+                        memory_count,
+                        target_count,
+                        schedule_count,
+                    ];
+                    if next
+                        .iter()
+                        .zip(dependency_cursors)
+                        .any(|(next, previous)| *next < previous)
+                        || next
+                            .iter()
+                            .zip(available)
+                            .any(|(required, count)| *required > count)
+                        || replayed_backend_plans
+                            .insert(plan.id.clone(), plan.clone())
+                            .is_some()
+                    {
+                        return Err(AgentError::new(
+                            ErrorCode::BackendEventOrderInvalid,
+                            "backend dependency cursors regress/exceed history or duplicate a plan",
+                        ));
+                    }
+                    dependency_cursors = next;
+                }
+                BackendEvent::Forked {
+                    source_plan,
+                    source_revision,
+                    expected_backend_hash,
+                    plan,
+                } => {
+                    let source = replayed_backend_plans
+                        .get(source_plan)
+                        .and_then(|source| source.revisions.get(source_revision));
+                    if source.is_none_or(|source| &source.backend_hash != expected_backend_hash)
+                        || replayed_backend_plans
+                            .insert(plan.id.clone(), plan.clone())
+                            .is_some()
+                    {
+                        return Err(AgentError::new(
+                            ErrorCode::BackendEventOrderInvalid,
+                            "backend fork does not follow an available exact source revision",
+                        ));
+                    }
+                }
+                BackendEvent::Sealed {
+                    backend_plan,
+                    base_revision,
+                    expected_backend_hash,
+                    revision,
+                } => {
+                    let Some(plan) = replayed_backend_plans.get_mut(backend_plan) else {
+                        return Err(AgentError::new(
+                            ErrorCode::BackendEventOrderInvalid,
+                            "backend seal references an unavailable plan",
+                        ));
+                    };
+                    if plan.head != *base_revision
+                        || plan
+                            .revisions
+                            .get(base_revision)
+                            .is_none_or(|base| &base.backend_hash != expected_backend_hash)
+                        || revision.parents != [base_revision.clone()]
+                        || plan
+                            .revisions
+                            .insert(revision.id.clone(), revision.clone())
+                            .is_some()
+                    {
+                        return Err(AgentError::new(
+                            ErrorCode::BackendEventOrderInvalid,
+                            "backend seal event does not extend the exact current head",
+                        ));
+                    }
+                    plan.head = revision.id.clone();
+                }
+            }
+        }
+        if replayed_backend_plans != expected_backends.plans {
+            return Err(AgentError::new(
+                ErrorCode::BackendEventOrderInvalid,
+                "backend event log does not reproduce BackendStore plans",
+            ));
+        }
+        let mut backend_cursor = 0_u64;
+        for event in &expected_artifacts.events {
+            if event.semantics_version != crate::backend::ARTIFACT_EVENT_SEMANTICS_VERSION
+                || event.event.backend_event_cursor < backend_cursor
+                || event.event.backend_event_cursor > expected_backends.events.len() as u64
+            {
+                return Err(AgentError::new(
+                    ErrorCode::ArtifactEventOrderInvalid,
+                    "artifact event dependency cursor or semantics version is invalid",
+                ));
+            }
+            let backend = expected_backends
+                .revision(&event.event.backend_plan, &event.event.backend_revision)?;
+            crate::backend::verify_artifact(&event.event.package, backend)?;
+            backend_cursor = event.event.backend_event_cursor;
+        }
+        if expected_artifacts.events.len() != expected_artifacts.packages.len()
+            || expected_artifacts.events.iter().any(|event| {
+                expected_artifacts.packages.get(&event.event.package.id)
+                    != Some(&event.event.package)
+            })
+        {
+            return Err(AgentError::new(
+                ErrorCode::ArtifactEventOrderInvalid,
+                "artifact event log does not reproduce ArtifactStore",
+            ));
+        }
+        let mut artifact_cursor = 0_u64;
+        for event in &expected_measurements.events {
+            if event.semantics_version != crate::backend::MEASUREMENT_EVENT_SEMANTICS_VERSION
+                || event.event.artifact_event_cursor < artifact_cursor
+                || event.event.artifact_event_cursor > expected_artifacts.events.len() as u64
+                || expected_measurements.records.get(&event.event.measurement)
+                    != Some(&event.event.record)
+                || crate::backend::measurement_hash(&event.event.record)?
+                    != event.event.record.measurement_hash
+            {
+                return Err(AgentError::new(
+                    ErrorCode::MeasurementEventOrderInvalid,
+                    "measurement event provenance, hash, or ordering is invalid",
+                ));
+            }
+            artifact_cursor = event.event.artifact_event_cursor;
+        }
+        expected_backends.verify_allocator_state(expected_artifacts, expected_measurements)?;
+        self.backends = expected_backends.clone();
+        self.artifacts = expected_artifacts.clone();
+        self.measurements = expected_measurements.clone();
+        Ok(())
     }
 
     /// Captures all state required to resume and replay this workspace.
@@ -3344,6 +4016,9 @@ impl Workspace {
             memory_store: self.memory.clone(),
             target_store: self.targets.clone(),
             schedule_store: self.schedules.clone(),
+            backend_store: self.backends.clone(),
+            artifact_store: self.artifacts.clone(),
+            measurement_store: self.measurements.clone(),
         }
     }
 
@@ -3641,6 +4316,9 @@ impl Workspace {
             &snapshot.memory_store,
             &snapshot.target_store,
             &snapshot.schedule_store,
+            &snapshot.backend_store,
+            &snapshot.artifact_store,
+            &snapshot.measurement_store,
         )?;
         replayed.validate_target_budgets(&snapshot.target_store)?;
         replayed.validate_schedule_budgets(&snapshot.schedule_store)?;
@@ -3663,6 +4341,12 @@ impl Workspace {
             target_events_replayed: snapshot.target_store.events.len(),
             schedule_plans_verified: snapshot.schedule_store.plans.len(),
             schedule_events_replayed: snapshot.schedule_store.events.len(),
+            backend_plans_verified: snapshot.backend_store.plans.len(),
+            backend_events_replayed: snapshot.backend_store.events.len(),
+            artifacts_verified: snapshot.artifact_store.packages.len(),
+            artifact_events_replayed: snapshot.artifact_store.events.len(),
+            measurements_verified: snapshot.measurement_store.records.len(),
+            measurement_events_replayed: snapshot.measurement_store.events.len(),
         };
         replayed.revisions = snapshot.revisions;
         replayed.head = snapshot.head;
@@ -3673,6 +4357,9 @@ impl Workspace {
         replayed.memory = snapshot.memory_store;
         replayed.targets = snapshot.target_store;
         replayed.schedules = snapshot.schedule_store;
+        replayed.backends = snapshot.backend_store;
+        replayed.artifacts = snapshot.artifact_store;
+        replayed.measurements = snapshot.measurement_store;
         replayed.limits = ResourceLimits::default();
         Ok((replayed, report))
     }

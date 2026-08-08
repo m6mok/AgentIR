@@ -1,5 +1,7 @@
 # Development
 
+Stage 5 offline checks require no GPU. Run `cargo test --workspace` and the backend examples normally; set `AGENTIR_RUN_GPU_TESTS=1` only to opt into compatible real-device differential tests. The workspace pins the wgpu/Naga 24 family to retain the repository Rust 1.85 MSRV while using matching WGSL validation/runtime APIs.
+
 Stage 3 changes should additionally run the four MemoryIR JSONL examples and verify fresh/reuse/guarded outputs agree, the unsafe reuse request is rejected without preventing the following transaction, v6 fixtures retain their pinned bytes, and v7 save/replay reproduces memory IDs/hashes. `cargo test --workspace` includes core atomicity/replay and protocol branch-laziness coverage.
 
 ## Repository layout
@@ -8,6 +10,8 @@ Stage 3 changes should additionally run the four MemoryIR JSONL examples and ver
 crates/agentir-core       canonical data and compiler state machine
 crates/agentir-eval       CPU reference semantics
 crates/agentir-store      versioned archive I/O and replay verification
+crates/agentir-backend-wgsl deterministic BackendIR/WGSL compiler and offline validator
+crates/agentir-runtime-wgpu optional WebGPU discovery, execution and measurements
 crates/agentir-protocol   wire requests, responses, workspace registry
 crates/agentir-cli        stdin/stdout JSONL process
 examples                  reproducible protocol sessions
@@ -34,6 +38,23 @@ cargo run -p agentir-cli --bin agentir < examples/memory_fresh.jsonl
 cargo run -p agentir-cli --bin agentir < examples/memory_reuse.jsonl
 cargo run -p agentir-cli --bin agentir < examples/memory_guarded_reuse.jsonl
 cargo run -p agentir-cli --bin agentir < examples/equality_to_memory.jsonl
+cargo run -p agentir-cli --bin agentir < examples/schedule_serial.jsonl
+cargo run -p agentir-cli --bin agentir < examples/schedule_tiled.jsonl
+cargo run -p agentir-cli --bin agentir < examples/schedule_remainder.jsonl
+cargo run -p agentir-cli --bin agentir < examples/schedule_fused.jsonl
+cargo run -p agentir-cli --bin agentir < examples/schedule_vectorized.jsonl
+cargo run -p agentir-cli --bin agentir < examples/schedule_guarded_memory.jsonl
+cargo run -p agentir-cli --bin agentir < examples/equality_to_schedule.jsonl
+cargo run -p agentir-cli --bin agentir < examples/backend_saxpy_wgsl.jsonl
+cargo run -p agentir-cli --bin agentir < examples/backend_serial.jsonl
+cargo run -p agentir-cli --bin agentir < examples/backend_tiled.jsonl
+cargo run -p agentir-cli --bin agentir < examples/backend_remainder.jsonl
+cargo run -p agentir-cli --bin agentir < examples/backend_fused.jsonl
+cargo run -p agentir-cli --bin agentir < examples/backend_vectorized.jsonl
+cargo run -p agentir-cli --bin agentir < examples/backend_reuse.jsonl
+cargo run -p agentir-cli --bin agentir < examples/backend_guarded_memory.jsonl
+cargo run -p agentir-cli --bin agentir < examples/equality_to_artifact.jsonl
+cargo run -p agentir-cli --bin agentir < examples/backend_rejected_reduce.jsonl
 cargo run --release -p agentir-protocol --example baseline
 ```
 

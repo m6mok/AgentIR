@@ -182,3 +182,9 @@ Resource limits are policy, not SpecIR. Archive replay uses hard safety caps; no
 # Stage 4 commands
 
 `target.list`, `target.create`, `target.query`, and `target.check` expose immutable compiler profiles. `schedule.create`, `schedule.query`, `schedule.check`, `schedule.apply`, `schedule.fork`, `schedule.seal`, `schedule.evaluate`, `schedule.resource_query`, `schedule.axis_query`, `schedule.legality_query`, and `schedule.continuation` operate on exact ScheduleIR revisions. Apply requests include an explicit base plus expected schedule, memory, and target hashes. Action objects accept only transform choices; unknown proof, guard, capability, or certificate fields are rejected. The CLI still emits exactly one JSON response per input line.
+
+# Stage 5 commands
+
+`backend.lower`, `backend.query`, `backend.check`, `backend.continuation`, `backend.fork` and `backend.seal` operate on immutable BackendIR plans. `artifact.emit`, `artifact.list`, `artifact.query`, `artifact.check` and `artifact.reference_evaluate` are GPU-independent. `artifact.execute`, `device.list`, `device.query`, and the `benchmark.start/status/cancel/query` family are optional device paths.
+
+Mutations require explicit source revisions and expected schedule/backend/artifact hashes. Requests accept only IDs, stable enums, runtime inputs and bounded benchmark configuration. Unknown WGSL, BackendIR nodes, bindings, dispatch expressions, guards, target capabilities, certificates, fingerprints or measurement results are rejected by `deny_unknown_fields`.

@@ -1,6 +1,6 @@
 # Persistence, semantics versions, migration and replay
 
-The current writer emits archive/snapshot v7. V1–v6 remain immutable legacy inputs; v6 is decoded through `LegacyWorkspaceSnapshotV6`, its exact envelope checksum and complete Stage 1/2 replay are verified, then explicit v6 → v7 migration adds an empty deterministic `MemoryPlanStore`. Legacy IDs, events and hashes are not recalculated.
+The current writer emits archive/snapshot v9. V1–v8 remain immutable legacy inputs and cross explicit migration edges. The v8→v9 edge adds empty BackendStore, ArtifactStore and MeasurementStore without recalculating any legacy ID, event or hash.
 
 V7 snapshots persist memory plans, memory-local allocator/evidence, and semantics-v1 events with candidate/equality dependency cursors. Publication occurs only after legacy replay, MemoryIR event replay, anchor revalidation, structural verification, exact `memory_hash` recomputation, and allocator/head/store equality. New saves never write v6.
 
@@ -12,8 +12,8 @@ Archive format, workspace snapshot schema, event compiler semantics and semantic
 
 | Contract | Legacy | Current | Purpose |
 | --- | --- | --- | --- |
-| archive format | v1, v2, v3, v4, v5, v6 | v7 | exact on-disk envelope and `archive_hash` |
-| snapshot schema | v1, v2, v3, v4, v5, v6 | v7 | resumable workspace representation |
+| archive format | v1–v8 | v9 | exact on-disk envelope and `archive_hash` |
+| snapshot schema | v1–v8 | v9 | resumable workspace representation |
 | core semantics | v1 | v2 | transaction inference, obligation proposition and discharge |
 | semantic canonical form | — | v1 | history-independent `spec_hash` |
 | candidate semantics | v1, v2 | v3 | exact, speculative and equality-linked candidate events |
@@ -22,7 +22,7 @@ Archive format, workspace snapshot schema, event compiler semantics and semantic
 | ImplIR semantics/canonical | — | v1/v1 | verifier/evaluator behavior and `impl_hash` codec |
 | memory semantics/event/canonical | — | v1/v1/v1 | MemoryIR verification, replay and exact state identity |
 
-Archive v1 was published by commit `97c821a`. V2 added cached `spec_hash`; v3 added `VersionedWorkspaceEvent`; v4 added CandidateForest and candidate events; v5 added proposals, proof debt, translation records and guards; v6 added EqualityStore, equality events and candidate v3 linkage. All six source codecs are immutable. V7 adds MemoryPlanStore and memory events; new saves always write v7.
+Archive v1 was published by commit `97c821a`. V2 added cached `spec_hash`; v3 added versioned SpecIR events; v4 added CandidateForest; v5 added speculative state; v6 added EqualityStore; v7 added MemoryPlanStore; v8 added target and schedule stores; v9 adds backend, artifact and measurement stores. V1–v8 source codecs are immutable and new saves always write v9.
 
 Migration tags every v1/v2 event with `LEGACY_CORE_SEMANTICS_VERSION = 1`. New transactions and forks use `CORE_SEMANTICS_VERSION = 2`. A restored draft can therefore append v2 events without rewriting old history. Replay dispatches each event independently, so legacy obligation propositions and `content_hash` values remain unchanged.
 
@@ -32,11 +32,11 @@ Nothing is published until all stages succeed:
 
 1. read at most the hard archive-byte cap;
 2. inspect only `format` and `format_version`;
-3. deserialize the exact v1, v2, v3, v4, v5, v6 or v7 codec;
+3. deserialize the exact v1–v9 codec;
 4. recompute that source version's `archive_hash`;
 5. check revision/event/action counts against hard safety caps;
-6. apply the explicit v1 → v2 → v3 → v4 → v5 → v6 → v7 chain (or suffix/no-op);
-7. require snapshot schema v7;
+6. apply the explicit v1 → v2 → v3 → v4 → v5 → v6 → v7 → v8 → v9 chain (or suffix/no-op);
+7. require snapshot schema v9;
 8. replay every event with its declared core semantics version;
 9. reproduce persistent IDs, parents, event hashes, `content_hash` and status summaries;
 10. recompute every frozen revision's `spec_hash` and semantic codec version;
@@ -53,9 +53,9 @@ Unknown archive, snapshot or event-semantics versions are rejected. Serde defaul
 
 ## Save and migrate guarantees
 
-`workspace.save` builds archive v7 in memory, checks its encoded size, writes a unique same-directory temporary file, flushes and `sync_all`s it, then atomically renames it. A failed write removes the temporary file and leaves the prior destination untouched where same-directory rename is atomic.
+`workspace.save` builds archive v9 in memory, checks its encoded size, writes a unique same-directory temporary file, flushes and `sync_all`s it, then atomically renames it. A failed write removes the temporary file and leaves the prior destination untouched where same-directory rename is atomic.
 
-`workspace.migrate_archive` fully verifies and replays the source before checking/writing the destination. The source is never edited. Existing or identical destinations require `overwrite: true`; a failure creates no partial destination. `MigrationReport` records the verified source version/hash, target v7, every migration step and the new hash when written.
+`workspace.migrate_archive` fully verifies and replays the source before checking/writing the destination. The source is never edited. Existing or identical destinations require `overwrite: true`; a failure creates no partial destination. `MigrationReport` records the verified source version/hash, target v9, every migration step and the new hash when written.
 
 V4 to v5 first verifies the exact v4 envelope through immutable v4 structs. It preserves SpecIR revisions/events/hashes and every candidate ID, state, evidence reference, candidate-hash-v1 byte contract and candidate-semantics-v1 event. It adds empty proposal/debt/guard stores and a zero proposal allocator; it never manufactures proposals or recalculates legacy hashes.
 
@@ -70,4 +70,8 @@ This remains local atomic replacement, not a concurrent database: there is no pr
 V1/v2/v3/v4/v5/v6 fixtures are immutable compatibility inputs. V6 fixtures cover empty/root/partial/saturated/merged/discharged/materialized and mixed candidate-semantics histories. V7 fixtures add fresh, reused, guarded, sealed and equality-materialized MemoryIR histories plus corruption at each memory integrity boundary. See `crates/agentir-store/tests/fixtures/README.md` for pinned hashes and reproducible version-specific generators.
 # Archive v8
 
-New saves use archive/snapshot v8. V1–v7 remain immutable input codecs; v7 → v8 verifies the complete legacy replay and adds empty TargetManifest and SchedulePlan stores. V8 records target events and schedule events with candidate/equality/memory/target dependency cursors, then replay-verifies manifest hashes, schedule anchors, structural certificates, resource estimates, allocator state, event order, and `schedule_hash` before publishing a workspace.
+Archive/snapshot v8 is the immutable Stage 4 codec. Its v7→v8 edge adds empty TargetManifest and SchedulePlan stores. V8 records target and schedule events with candidate/equality/memory/target dependency cursors and verifies manifest hashes, schedule anchors, structural certificates, resource estimates, allocator state, event order and `schedule_hash`.
+
+# Archive v9
+
+V8 is now an immutable Stage 4 input. The explicit v8→v9 migration verifies its envelope and complete Stage 1–4 replay, then adds empty backend, artifact and measurement stores. Native v9 replay also verifies BackendIR hashes/certificates, exact WGSL package bytes and ABIs, artifact certificates, compiler build provenance, measurement hashes and event dependency order before publication.

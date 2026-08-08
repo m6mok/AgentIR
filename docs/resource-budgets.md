@@ -103,3 +103,7 @@ These are robustness limits, not a multi-tenant security sandbox. Stage 3 still 
 # Stage 4 budgets
 
 Central limits cover target manifests/revisions/events/capabilities/canonical bytes; schedule plans/revisions/events/nodes/axes/transforms/fusion/dependencies/legality facts; tile rank, remainders, bindings, vector width, unroll factor and launch dimensions; simulator coordinates/work; obligations/evidence/canonical/archive bytes; schedule trace events/bytes; and generated schedule cases. Checks use checked or saturating arithmetic and stage mutations so hard-limit rejection consumes no persistent ID. Limits never participate in `target_hash`, `schedule_hash`, or archive semantic state.
+
+# Stage 5 budgets
+
+Central limits cover backend plans/revisions/events/kernels/values/expressions/statements/source nodes/bindings/parameters/dispatches/guards/work units/obligations/evidence/canonical bytes; artifact packages/modules/entry points/WGSL/manifest/events/validation work; execution buffers/elements/bytes/traces/tasks; benchmark warmups/iterations/records/bytes/wall time; generated cases; and backend/archive bytes. Checks precede persistent ID, shader, buffer, device-task, and publication work. Policy remains excluded from all correctness and reproducibility hashes.

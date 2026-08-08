@@ -22,6 +22,8 @@ pub const TARGET_EVENT_SEMANTICS_VERSION: u32 = 1;
 pub const TARGET_HASH_DOMAIN: &[u8] = b"agentir.target.manifest.v1\0";
 /// Stable name of the deterministic abstract GPU profile.
 pub const GENERIC_GPU_V1: &str = "generic_gpu_v1";
+/// Stable name of the executable WebGPU/WGSL v1 profile.
+pub const WEBGPU_WGSL_V1: &str = "webgpu_wgsl_v1";
 
 /// SHA-256 identity of one immutable target-manifest revision.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -54,6 +56,9 @@ impl fmt::Display for TargetHash {
 pub enum TargetProfile {
     /// Deterministic abstract GPU capability profile, not a real device claim.
     GenericGpuV1,
+    /// Deterministic minimum WebGPU compute contract for WGSL v1 artifacts.
+    #[serde(rename = "webgpu_wgsl_v1")]
+    WebGpuWgslV1,
 }
 
 /// Broad execution-target category.
@@ -62,6 +67,8 @@ pub enum TargetProfile {
 pub enum TargetKind {
     /// Abstract GPU-like hierarchy used by the deterministic simulator.
     GenericGpu,
+    /// Portable WebGPU compute target emitting WGSL source.
+    WebGpu,
 }
 
 /// Work-distribution hierarchy exposed by a manifest.
@@ -434,8 +441,98 @@ fn build_generic_gpu_v1(
     Ok(manifest)
 }
 
+fn build_webgpu_wgsl_v1(
+    id: TargetManifestId,
+    revision: TargetManifestRevisionId,
+    allocator: &mut TargetAllocator,
+) -> AgentResult<TargetManifest> {
+    let capability_names = [
+        "webgpu_compute",
+        "wgsl_v1_source",
+        "serial_execution",
+        "grid_workgroup_binding",
+        "global_storage_buffers",
+        "uniform_parameter_block",
+        "compiler_bounds_checks",
+        "compiler_remainder",
+        "exact_vectorization_1_2_4",
+        "ordered_dispatch_graph",
+    ];
+    let capabilities = capability_names
+        .into_iter()
+        .map(|name| TargetCapability {
+            id: allocator.capability(),
+            name: name.to_owned(),
+            parameters: BTreeMap::new(),
+        })
+        .collect();
+    let mut manifest = TargetManifest {
+        id,
+        revision,
+        profile: WEBGPU_WGSL_V1.to_owned(),
+        kind: TargetKind::WebGpu,
+        hierarchy: ExecutionHierarchy {
+            max_grid_dimensions: [65_535, 65_535, 65_535],
+            max_workgroup_dimensions: [256, 256, 64],
+            max_threads_per_workgroup: 256,
+            supports_grid_block: false,
+            supports_workgroup: true,
+        },
+        subgroup: SubgroupModel {
+            width: 1,
+            lane_binding: false,
+        },
+        vector: VectorCapability {
+            widths: vec![1, 2, 4],
+            element_types: vec![ScalarType::I32, ScalarType::F32],
+        },
+        memory_spaces: vec![
+            MemorySpaceCapability {
+                address_space: AddressSpace::Global,
+                minimum_alignment: 4,
+            },
+            MemorySpaceCapability {
+                address_space: AddressSpace::Constant,
+                minimum_alignment: 4,
+            },
+        ],
+        resources: ResourceCapacity {
+            max_shared_bytes_per_workgroup: 0,
+            max_private_bytes_per_thread: 16_384,
+            maximum_rank: 1,
+        },
+        capabilities,
+        status: TargetStatus::Sealed,
+        certificate: TargetCertificate {
+            method: "compiler_owned_webgpu_wgsl_v1".to_owned(),
+            semantics_version: TARGET_SEMANTICS_VERSION,
+            validator_version: TARGET_VALIDATOR_VERSION,
+            conditions: vec![
+                "portable WebGPU minimum capability contract".to_owned(),
+                "device discovery is separate from target_hash".to_owned(),
+                "no subgroup, atomics, matrix, texture, or shared-cache features".to_owned(),
+            ],
+        },
+        target_hash: TargetHash::new("pending"),
+    };
+    manifest.target_hash = target_hash(&manifest)?;
+    Ok(manifest)
+}
+
 fn verify_manifest(manifest: &TargetManifest) -> AgentResult<()> {
-    if manifest.profile != GENERIC_GPU_V1
+    let profile_valid = match manifest.profile.as_str() {
+        GENERIC_GPU_V1 => manifest.kind == TargetKind::GenericGpu,
+        WEBGPU_WGSL_V1 => {
+            manifest.kind == TargetKind::WebGpu
+                && manifest.vector.widths == [1, 2, 4]
+                && !manifest.subgroup.lane_binding
+                && !manifest.hierarchy.supports_grid_block
+                && manifest.hierarchy.supports_workgroup
+                && manifest.resources.maximum_rank == 1
+        }
+        _ => false,
+    };
+    if !profile_valid
         || manifest.status != TargetStatus::Sealed
         || manifest.hierarchy.max_threads_per_workgroup == 0
         || manifest.subgroup.width == 0
@@ -455,9 +552,9 @@ fn verify_manifest(manifest: &TargetManifest) -> AgentResult<()> {
     {
         return Err(target_error(
             ErrorCode::TargetCapabilityUnsupported,
-            "target manifest is not a valid compiler-owned generic_gpu_v1 capability contract",
+            "target manifest is not a valid compiler-owned built-in capability contract",
         )
-        .with_repair("create a fresh compiler-owned generic_gpu_v1 manifest"));
+        .with_repair("create a fresh compiler-owned target manifest"));
     }
     let actual = target_hash(manifest)?;
     if actual != manifest.target_hash {
@@ -479,6 +576,9 @@ impl TargetManifestStore {
         let manifest = match profile {
             TargetProfile::GenericGpuV1 => {
                 build_generic_gpu_v1(id.clone(), revision.clone(), &mut staged.allocator)?
+            }
+            TargetProfile::WebGpuWgslV1 => {
+                build_webgpu_wgsl_v1(id.clone(), revision.clone(), &mut staged.allocator)?
             }
         };
         verify_manifest(&manifest)?;

@@ -3103,6 +3103,121 @@ fn main() {
 
     let exact_size = canonical_bytes(&partial_program).unwrap().len();
     canonical_sizes.insert("exact_state_partial_program".to_owned(), exact_size);
+    for (name, source, workload) in [
+        (
+            "saxpy_lower_emit_validate_reference",
+            include_str!("../../../examples/backend_saxpy_wgsl.jsonl"),
+            json!({"operations": 1, "kernels": 1, "modules": 1}),
+        ),
+        (
+            "serial_kernel_formation_binding_dispatch",
+            include_str!("../../../examples/backend_serial.jsonl"),
+            json!({"schedule": "serial", "device_required": false}),
+        ),
+        (
+            "tiled_exact_coverage",
+            include_str!("../../../examples/backend_tiled.jsonl"),
+            json!({"schedule": "tiled", "device_required": false}),
+        ),
+        (
+            "remainder_bounds_lowering",
+            include_str!("../../../examples/backend_remainder.jsonl"),
+            json!({"schedule": "remainder", "device_required": false}),
+        ),
+        (
+            "legal_fusion_lowering",
+            include_str!("../../../examples/backend_fused.jsonl"),
+            json!({"schedule": "fused", "device_required": false}),
+        ),
+        (
+            "vector_unroll_lowering",
+            include_str!("../../../examples/backend_vectorized.jsonl"),
+            json!({"vector_width": 4, "unroll_factor": 2}),
+        ),
+        (
+            "guarded_package_construction",
+            include_str!("../../../examples/backend_guarded_memory.jsonl"),
+            json!({"guard": "no_overlap", "branches": 2}),
+        ),
+        (
+            "static_reuse_binding",
+            include_str!("../../../examples/backend_reuse.jsonl"),
+            json!({"reuse": "compiler_proved_in_place", "dispatches": 2}),
+        ),
+        (
+            "equality_materialized_artifact",
+            include_str!("../../../examples/equality_to_artifact.jsonl"),
+            json!({"source": "equality_materialization", "device_required": false}),
+        ),
+        (
+            "rejected_lowering_fast_path",
+            include_str!("../../../examples/backend_rejected_reduce.jsonl"),
+            json!({"unsupported_opcode": "reduce", "publication": false}),
+        ),
+    ] {
+        timings.insert(
+            format!("stage5_{name}"),
+            measure(
+                || {
+                    elapsed_ns(|| {
+                        let mut engine = agentir_protocol::Engine::new();
+                        for line in source.lines().filter(|line| !line.is_empty()) {
+                            black_box(engine.process_line(line));
+                        }
+                    })
+                },
+                workload,
+            ),
+        );
+        canonical_sizes.insert(format!("stage5_{name}_jsonl_bytes"), source.len());
+    }
+    for (name, bytes) in [
+        (
+            "serial",
+            include_bytes!("../../agentir-store/tests/fixtures/backend-serial-v9.json").as_slice(),
+        ),
+        (
+            "tiled",
+            include_bytes!("../../agentir-store/tests/fixtures/backend-tiled-v9.json").as_slice(),
+        ),
+        (
+            "fused",
+            include_bytes!("../../agentir-store/tests/fixtures/backend-fused-v9.json").as_slice(),
+        ),
+        (
+            "vectorized",
+            include_bytes!("../../agentir-store/tests/fixtures/backend-vectorized-v9.json")
+                .as_slice(),
+        ),
+        (
+            "guarded",
+            include_bytes!("../../agentir-store/tests/fixtures/backend-guarded-v9.json").as_slice(),
+        ),
+        (
+            "equality_materialized",
+            include_bytes!(
+                "../../agentir-store/tests/fixtures/equality-materialized-artifact-v9.json"
+            )
+            .as_slice(),
+        ),
+    ] {
+        canonical_sizes.insert(format!("archive_v9_{name}"), bytes.len());
+        timings.insert(
+            format!("archive_v9_replay_{name}"),
+            measure(
+                || elapsed_ns(|| black_box(load_workspace_bytes(bytes).unwrap())),
+                json!({"archive_bytes": bytes.len()}),
+            ),
+        );
+    }
+    let legacy_v8 = include_bytes!("../../agentir-store/tests/fixtures/minimal-v8.json");
+    timings.insert(
+        "archive_v8_to_v9_migration".to_owned(),
+        measure(
+            || elapsed_ns(|| black_box(load_workspace_bytes(legacy_v8).unwrap())),
+            json!({"archive_bytes": legacy_v8.len()}),
+        ),
+    );
     println!(
         "{}",
         serde_json::to_string(&json!({

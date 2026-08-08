@@ -1,5 +1,12 @@
 # Glossary
 
+- **BackendIR**: separate typed executable kernel graph anchored to one proved ScheduleIR revision.
+- **BackendEquivalentToSchedule**: compiler-owned structural certificate for exact backend lowering.
+- **Artifact package**: deterministic manifest, complete runtime ABI and exact WGSL module bytes.
+- **ArtifactEquivalentToBackend**: compiler-owned structural emission certificate.
+- **Device fingerprint**: separately hashed runtime-reported adapter and capability provenance.
+- **Hardware measurement**: confidence-only bounded timing record; never a proof or ranking decision.
+
 **MemoryIR** — separate typed graph that materializes reachable ImplIR tensor values into abstract buffer regions without changing computation semantics.
 
 **Memory plan/revision** — independent `mp*` branch and immutable `mr*` physical-state revision anchored to one `spec_hash` and `impl_hash`.

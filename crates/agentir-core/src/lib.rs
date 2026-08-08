@@ -9,6 +9,8 @@
 #![warn(missing_docs)]
 
 pub mod actions;
+pub mod backend;
+pub mod backend_ir;
 pub mod candidate;
 pub mod canonical;
 pub mod constraints;
@@ -38,8 +40,8 @@ pub mod workspace;
 pub use actions::{Action, Transaction};
 pub use diagnostics::{AgentError, AgentResult, ErrorCode};
 pub use ids::{
-    CandidateId, CandidateRevisionId, HoleId, MemoryPlanId, MemoryRevisionId, ProposalId,
-    RevisionId, SchedulePlanId, ScheduleRevisionId, TargetManifestId, TargetManifestRevisionId,
-    WorkspaceId,
+    ArtifactId, BackendPlanId, BackendRevisionId, CandidateId, CandidateRevisionId, HoleId,
+    MemoryPlanId, MemoryRevisionId, ProposalId, RevisionId, SchedulePlanId, ScheduleRevisionId,
+    TargetManifestId, TargetManifestRevisionId, WorkspaceId,
 };
 pub use workspace::Workspace;

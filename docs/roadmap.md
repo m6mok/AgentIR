@@ -76,9 +76,15 @@ Completion mapping: SpecIR → Stage 1; ImplIR/CandidateForest → Stage 2A; pro
 
 Completion mapping: SpecIR → Stage 1; ImplIR/CandidateForest → Stage 2A; proof debt/guarded candidates → Stage 2B; exact equality → Stage 2C; MemoryIR → Stage 3; ScheduleIR/TargetManifest/resource simulator → Stage 4; backend lowering and executable artifacts → Stage 5.
 
-## Stage 5: first GPU backend
+## Completed Stage 5: WebGPU/WGSL backend
 
-Select one target family, lower a deliberately small kernel subset, emit reproducibility manifests, and compare generated artifacts on target hardware. Stage 4 does not pre-empt this boundary with backend IR or device execution.
+- immutable typed BackendIR anchored to proved ScheduleIR and `backend_hash`;
+- exact serial/grid, bounded remainder, restricted fusion, vector/unroll metadata and guarded-memory lowering for the one-dimensional elementwise subset;
+- deterministic WGSL packages with retained binding ABI, offline Naga validation and independent `artifact_hash`;
+- optional wgpu execution, separate device fingerprints and bounded confidence-only measurements;
+- backend/artifact/measurement event persistence in archive/snapshot v9 with explicit v8 migration.
+
+Stage 5 deliberately contains no reduction lowering, shared memory/subgroups, arbitrary GPU IR, autotuning, cost model, ranking or best-artifact search.
 
 ## Stage 6: agent evaluation
 

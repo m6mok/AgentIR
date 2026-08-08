@@ -2,7 +2,7 @@
 
 AgentIR — экспериментальная агентно-нативная компиляционная среда для численных вычислений. В ней программа хранится не как исходный текст, а как типизированный граф. Агент меняет граф небольшими атомарными ActionIR-транзакциями, а compiler core выводит типы, проверяет формы и сохраняет каждое принятое состояние как неизменяемую ревизию.
 
-Сейчас репозиторий содержит завершённый exact reference prototype Stage 4. Поверх SpecIR, ImplIR/equality и MemoryIR он добавляет отдельный typed ScheduleIR, immutable compiler-owned TargetManifest, exact schedule transforms, deterministic resource simulation и reference scheduled execution. GPU-код по-прежнему не генерируется.
+Сейчас репозиторий содержит завершённый exact reference prototype Stage 5. Поверх SpecIR, ImplIR/equality, MemoryIR и ScheduleIR он добавляет отдельный typed BackendIR, первый `webgpu_wgsl_v1` backend, deterministic WGSL artifacts, обязательную offline validation и опциональное исполнение через wgpu.
 
 ## Что уже работает
 
@@ -18,7 +18,7 @@ AgentIR — экспериментальная агентно-нативная �
 - CPU reference interpreter;
 - компактный deterministic `ConstraintFacts`, который доказывает symbol/static equality и закрывает `ShapeCompatible` obligations;
 - event-level compiler semantics v1/v2 для точного replay исторических транзакций;
-- workspace archive v8, явная migration v1 → v2 → v3 → v4 → v5 → v6 → v7 → v8, mixed candidate/equality/memory/target/schedule replay;
+- workspace archive v9, явная migration v1 → v2 → v3 → v4 → v5 → v6 → v7 → v8 → v9, mixed candidate/equality/memory/target/schedule/backend/artifact replay;
 - централизованные resource budgets для core, evaluator, store, protocol и CLI;
 - fixed-seed soundness/mutation corpora и statistical benchmark schema v2;
 - stateful JSONL CLI с одним ответом на каждый запрос;
@@ -97,17 +97,19 @@ cargo run -p agentir-cli --bin agentir < examples/equality_to_schedule.jsonl
 
 ## Crates
 
-- `agentir-core` — SpecIR/ImplIR/MemoryIR/ScheduleIR, TargetManifest, verifiers, immutable plans, proofs и continuations;
+- `agentir-core` — SpecIR/ImplIR/MemoryIR/ScheduleIR/BackendIR, TargetManifest, verifiers, immutable plans, proofs и continuations;
 - `agentir-eval` — детерминированные semantic и physical reference interpreters;
+- `agentir-backend-wgsl` — deterministic lowering, WGSL package emission и offline Naga validation без device I/O;
+- `agentir-runtime-wgpu` — опциональные adapter/device, upload/dispatch/readback и confidence-only hardware measurements;
 - `agentir-store` — atomic file persistence, archive integrity и deterministic replay;
 - `agentir-protocol` — wire types и stateful command engine;
 - `agentir-cli` — тонкий JSONL stdin/stdout frontend.
 
-## Ограничения Stage 4
+## Ограничения Stage 5
 
-ScheduleIR хранит exact high-level schedule, а не backend loops или machine instructions. Единственный memory guard — compiler-owned `NoOverlap` с fully proved fresh fallback. В прототипе нет agent certificates, arbitrary target capability input, target discovery, ranking/search, performance evidence, GPU backend или LLVM/MLIR. Shape solver намеренно sound, но incomplete. Известные компромиссы подробно перечислены в [DECISIONS.md](DECISIONS.md).
+Первый backend намеренно поддерживает только одномерные f32 elementwise kernels. Единственный memory guard — compiler-owned `NoOverlap` с fully proved fresh fallback. В прототипе нет agent certificates, arbitrary target capability input, reductions/shared memory/subgroups, autotuning, ranking/search или LLVM/MLIR. Device execution и hardware measurements являются confidence evidence, а не proof. Shape solver намеренно sound, но incomplete. Известные компромиссы подробно перечислены в [DECISIONS.md](DECISIONS.md).
 
-## Десять разных hash
+## Независимые hash-контракты
 
 - `content_hash` точно идентифицирует history-sensitive состояние ревизии для replay;
 - `spec_hash` идентифицирует семантику complete frozen SpecIR независимо от compiler IDs и истории построения;
@@ -118,13 +120,18 @@ ScheduleIR хранит exact high-level schedule, а не backend loops или 
 - `memory_hash` идентифицирует exact typed physical plan при неизменном `impl_hash`;
 - `target_hash` идентифицирует immutable compiler-owned target capability contract;
 - `schedule_hash` идентифицирует exact ScheduleIR state при неизменных `memory_hash` и `target_hash`;
+- `backend_hash` идентифицирует typed BackendIR и compiler-owned lowering proof;
+- `compiler_build_hash` идентифицирует совместимую версию emitter/validator toolchain;
+- `artifact_hash` идентифицирует manifest, ABI и exact ordered WGSL bytes;
+- `device_fingerprint_hash` идентифицирует runtime adapter provenance, но не correctness;
+- `measurement_hash` идентифицирует completed confidence-only benchmark record;
 - `archive_hash` проверяет конкретный versioned on-disk archive.
 
 Подробный контракт canonical form — в [docs/semantic-canonicalization.md](docs/semantic-canonicalization.md), migration pipeline — в [docs/persistence.md](docs/persistence.md).
 
 ## Roadmap
 
-Следующий технический шаг после завершения Stage 4 — первый ограниченный GPU backend, затем обучение и сравнение agent policies. См. [docs/roadmap.md](docs/roadmap.md).
+Следующий технический шаг после завершения Stage 5 — обучение и сравнение agent policies без расширения proof boundary. См. [docs/roadmap.md](docs/roadmap.md).
 
 ## Документация
 

@@ -2,6 +2,7 @@
 
 use crate::{
     actions::Transaction,
+    backend::{ArtifactStore, BackendStore, MeasurementStore},
     candidate::{
         Candidate, CandidateAllocator, CandidateEvent, CandidateForest, CandidateHash,
         CandidateRevision, CandidateState, CandidateTransaction, DifferentialValidation,
@@ -31,7 +32,10 @@ pub const CORE_SEMANTICS_VERSION: u32 = 2;
 pub const LEGACY_CORE_SEMANTICS_VERSION: u32 = 1;
 
 /// Current schema version for compiler-core workspace snapshots.
-pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 8;
+pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 9;
+
+/// Immutable Stage 4 snapshot schema migrated explicitly to v9.
+pub const LEGACY_WORKSPACE_SNAPSHOT_V8_VERSION: u32 = 8;
 
 /// Immutable Stage 3 snapshot schema migrated explicitly to v8.
 pub const LEGACY_WORKSPACE_SNAPSHOT_V7_VERSION: u32 = 7;
@@ -113,6 +117,39 @@ pub struct WorkspaceSnapshot {
     /// Immutable compiler-owned target capability contracts and target events.
     pub target_store: TargetManifestStore,
     /// Independent ScheduleIR plans, evidence, allocator, and dependency-ordered events.
+    pub schedule_store: SchedulePlanStore,
+    /// Independent typed BackendIR plans and backend events.
+    pub backend_store: BackendStore,
+    /// Deterministic WGSL artifact packages and emission events.
+    pub artifact_store: ArtifactStore,
+    /// Confidence-only hardware measurement records and events.
+    pub measurement_store: MeasurementStore,
+}
+
+/// Immutable compiler-core snapshot schema embedded in archive format version 8.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LegacyWorkspaceSnapshotV8 {
+    /// Legacy schema discriminator, which must equal eight.
+    pub schema_version: u32,
+    /// Workspace identity.
+    pub workspace: WorkspaceId,
+    /// Current SpecIR head revision.
+    pub head: RevisionId,
+    /// Immutable SpecIR revisions.
+    pub revisions: BTreeMap<RevisionId, Revision>,
+    /// SpecIR compiler allocator.
+    pub allocator: IdAllocator,
+    /// Semantics-versioned SpecIR event log.
+    pub events: Vec<VersionedWorkspaceEvent>,
+    /// Stage 2 CandidateForest.
+    pub candidate_forest: CandidateForest,
+    /// Stage 2C exact equality store.
+    pub equality_store: EqualityStore,
+    /// Stage 3 MemoryIR plan store.
+    pub memory_store: MemoryPlanStore,
+    /// Stage 4 immutable target store.
+    pub target_store: TargetManifestStore,
+    /// Stage 4 ScheduleIR store.
     pub schedule_store: SchedulePlanStore,
 }
 
@@ -847,13 +884,41 @@ pub fn migrate_snapshot_v6(
 /// Purely migrates immutable snapshot schema v7 to v8 with empty target/schedule stores.
 pub fn migrate_snapshot_v7(
     snapshot: LegacyWorkspaceSnapshotV7,
-) -> crate::AgentResult<WorkspaceSnapshot> {
+) -> crate::AgentResult<LegacyWorkspaceSnapshotV8> {
     if snapshot.schema_version != LEGACY_WORKSPACE_SNAPSHOT_V7_VERSION {
         return Err(crate::AgentError::new(
             crate::ErrorCode::PersistenceFormat,
             format!(
                 "legacy workspace snapshot version {} is unsupported; expected {}",
                 snapshot.schema_version, LEGACY_WORKSPACE_SNAPSHOT_V7_VERSION
+            ),
+        ));
+    }
+    Ok(LegacyWorkspaceSnapshotV8 {
+        schema_version: LEGACY_WORKSPACE_SNAPSHOT_V8_VERSION,
+        workspace: snapshot.workspace,
+        head: snapshot.head,
+        revisions: snapshot.revisions,
+        allocator: snapshot.allocator,
+        events: snapshot.events,
+        candidate_forest: snapshot.candidate_forest,
+        equality_store: snapshot.equality_store,
+        memory_store: snapshot.memory_store,
+        target_store: TargetManifestStore::default(),
+        schedule_store: SchedulePlanStore::default(),
+    })
+}
+
+/// Purely migrates immutable snapshot schema v8 to v9 with empty Stage 5 stores.
+pub fn migrate_snapshot_v8(
+    snapshot: LegacyWorkspaceSnapshotV8,
+) -> crate::AgentResult<WorkspaceSnapshot> {
+    if snapshot.schema_version != LEGACY_WORKSPACE_SNAPSHOT_V8_VERSION {
+        return Err(crate::AgentError::new(
+            crate::ErrorCode::PersistenceFormat,
+            format!(
+                "legacy workspace snapshot version {} is unsupported; expected {}",
+                snapshot.schema_version, LEGACY_WORKSPACE_SNAPSHOT_V8_VERSION
             ),
         ));
     }
@@ -867,8 +932,11 @@ pub fn migrate_snapshot_v7(
         candidate_forest: snapshot.candidate_forest,
         equality_store: snapshot.equality_store,
         memory_store: snapshot.memory_store,
-        target_store: TargetManifestStore::default(),
-        schedule_store: SchedulePlanStore::default(),
+        target_store: snapshot.target_store,
+        schedule_store: snapshot.schedule_store,
+        backend_store: BackendStore::default(),
+        artifact_store: ArtifactStore::default(),
+        measurement_store: MeasurementStore::default(),
     })
 }
 
@@ -909,4 +977,16 @@ pub struct ReplayReport {
     pub schedule_plans_verified: usize,
     /// Number of dependency-ordered schedule events replayed.
     pub schedule_events_replayed: usize,
+    /// Number of independent BackendIR plans verified.
+    pub backend_plans_verified: usize,
+    /// Number of dependency-ordered backend events verified.
+    pub backend_events_replayed: usize,
+    /// Number of deterministic artifact packages verified.
+    pub artifacts_verified: usize,
+    /// Number of artifact emission events verified.
+    pub artifact_events_replayed: usize,
+    /// Number of confidence-only hardware records structurally verified.
+    pub measurements_verified: usize,
+    /// Number of measurement events verified without hardware replay.
+    pub measurement_events_replayed: usize,
 }

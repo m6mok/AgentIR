@@ -1,0 +1,17 @@
+[package]
+name = "agentir-runtime-wgpu"
+description = "Optional WebGPU device execution for verified AgentIR WGSL artifacts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+agentir-core = { path = "../agentir-core" }
+agentir-backend-wgsl = { path = "../agentir-backend-wgsl" }
+pollster.workspace = true
+serde.workspace = true
+wgpu.workspace = true
+
+[lints]
+workspace = true

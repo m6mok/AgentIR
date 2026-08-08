@@ -8,3 +8,7 @@ MemoryIR is a separate typed graph attached to an immutable candidate revision. 
 # Schedule boundary
 
 ScheduleIR anchors one fully proved MemoryIR revision and may not edit its buffers, layout, alias/lifetime facts, reuse decisions, or guards. Every schedule verifier rechecks those facts under the proposed order. Schedule revisions therefore preserve `memory_hash`; unsafe reorderings are rejected atomically.
+
+# Backend preservation
+
+Stage 5 maps typed buffers to deterministic WGSL bindings without inventing alias facts. Static reuse becomes a verified read-write binding; guarded reuse retains the compiler-owned `NoOverlap` predicate and exact lazy fresh fallback plan. Device traces and measurements never enter `memory_hash`.

@@ -216,6 +216,72 @@ pub enum ErrorCode {
     ScheduleEquivalenceUnproved,
     /// Schedule events violate explicit dependency cursor order.
     ScheduleEventOrderInvalid,
+    /// Requested backend plan does not exist.
+    BackendPlanNotFound,
+    /// Requested immutable backend revision does not exist.
+    BackendRevisionNotFound,
+    /// Backend exact-state hash differs from the selected revision.
+    BackendHashMismatch,
+    /// A backend mutation was based on a stale backend head.
+    StaleBackendBase,
+    /// The selected legal ScheduleIR is outside the WGSL v1 subset.
+    UnsupportedBackendLowering,
+    /// Backend target anchor is inconsistent or unsupported.
+    BackendTargetMismatch,
+    /// Backend ScheduleIR anchor is inconsistent.
+    BackendScheduleMismatch,
+    /// Backend lowering conflicts with immutable MemoryIR facts.
+    BackendMemoryConflict,
+    /// Backend kernels do not cover scheduled nodes exactly once.
+    BackendCoverageInvalid,
+    /// Backend resource binding or parameter ABI is invalid.
+    BackendBindingInvalid,
+    /// Backend dispatch or invocation mapping is invalid.
+    BackendDispatchInvalid,
+    /// Backend vector width is unsupported by WebGPU/WGSL v1.
+    BackendVectorUnsupported,
+    /// Numeric semantics cannot be preserved by this backend profile.
+    BackendNumericContractUnsupported,
+    /// Structural verification did not prove BackendEquivalentToSchedule.
+    BackendEquivalenceUnproved,
+    /// Deterministic WGSL generation failed.
+    WgslEmissionFailed,
+    /// Emitted WGSL could not be parsed.
+    WgslParseFailed,
+    /// Emitted WGSL failed offline validation.
+    WgslValidationFailed,
+    /// Requested artifact package does not exist.
+    ArtifactNotFound,
+    /// Artifact package hash differs from exact bytes and manifest.
+    ArtifactHashMismatch,
+    /// Artifact manifest, module, ABI, or dispatch graph is inconsistent.
+    ArtifactManifestInvalid,
+    /// Structural emission verification did not prove ArtifactEquivalentToBackend.
+    ArtifactEquivalenceUnproved,
+    /// Artifact compiler build provenance does not match the expected build.
+    CompilerBuildMismatch,
+    /// No compatible WebGPU adapter/device is available.
+    DeviceUnavailable,
+    /// A discovered device does not satisfy TargetManifest.
+    DeviceCapabilityUnsupported,
+    /// Device-side resource projection exceeds a declared limit.
+    DeviceResourceExceeded,
+    /// WebGPU execution failed after validation.
+    DeviceExecutionFailed,
+    /// WebGPU output readback failed.
+    DeviceReadbackFailed,
+    /// Requested hardware benchmark task does not exist.
+    BenchmarkTaskNotFound,
+    /// Hardware benchmark task was cancelled.
+    BenchmarkCancelled,
+    /// Hardware benchmark configuration or execution exceeded a bound.
+    BenchmarkLimitExceeded,
+    /// Backend events violate explicit dependency order.
+    BackendEventOrderInvalid,
+    /// Artifact events violate explicit backend dependency order.
+    ArtifactEventOrderInvalid,
+    /// Measurement events violate artifact/device provenance order.
+    MeasurementEventOrderInvalid,
 }
 
 /// Structured compiler error suitable for agent repair loops.

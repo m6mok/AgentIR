@@ -1,5 +1,6 @@
 //! Regenerates deterministic Stage 4 archive-v8 fixtures.
 
+use agentir_core::persistence::LegacyWorkspaceSnapshotV8;
 use agentir_core::{
     Action, RevisionId, Transaction, Workspace, WorkspaceId,
     actions::{RegionArgumentSpec, RegionSpec},
@@ -13,7 +14,7 @@ use agentir_core::{
     schedule::{ScheduleAction, ScheduleTransaction},
     target::{TargetHash, TargetProfile},
 };
-use agentir_store::{WorkspaceArchiveV8, encode_workspace_archive};
+use agentir_store::{ARCHIVE_KIND, LEGACY_ARCHIVE_FORMAT_V8, WorkspaceArchiveV8};
 use serde::Serialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -29,7 +30,7 @@ struct Body<'a> {
     format: &'a str,
     format_version: u32,
     compiler_version: &'a str,
-    snapshot: &'a agentir_core::persistence::WorkspaceSnapshot,
+    snapshot: &'a agentir_core::persistence::LegacyWorkspaceSnapshotV8,
 }
 
 fn hash_body(archive: &WorkspaceArchiveV8) -> String {
@@ -49,11 +50,44 @@ fn hash_body(archive: &WorkspaceArchiveV8) -> String {
 }
 
 fn write_archive(directory: &Path, name: &str, workspace: &Workspace) {
-    fs::write(
-        directory.join(name),
-        encode_workspace_archive(workspace).unwrap(),
-    )
-    .unwrap();
+    let destination = directory.join(name);
+    let mut current = workspace.snapshot();
+    if let Ok(bytes) = fs::read(&destination) {
+        if let Ok(previous) = serde_json::from_slice::<WorkspaceArchiveV8>(&bytes) {
+            for (revision, data) in &mut current.revisions {
+                if let Some(previous) = previous.snapshot.revisions.get(revision) {
+                    data.created_at_unix_ms = previous.created_at_unix_ms;
+                }
+            }
+        }
+    }
+    assert!(current.backend_store.plans.is_empty());
+    assert!(current.artifact_store.packages.is_empty());
+    assert!(current.measurement_store.records.is_empty());
+    let snapshot = LegacyWorkspaceSnapshotV8 {
+        schema_version: 8,
+        workspace: current.workspace,
+        head: current.head,
+        revisions: current.revisions,
+        allocator: current.allocator,
+        events: current.events,
+        candidate_forest: current.candidate_forest,
+        equality_store: current.equality_store,
+        memory_store: current.memory_store,
+        target_store: current.target_store,
+        schedule_store: current.schedule_store,
+    };
+    let mut archive = WorkspaceArchiveV8 {
+        format: ARCHIVE_KIND.to_owned(),
+        format_version: LEGACY_ARCHIVE_FORMAT_V8,
+        compiler_version: env!("CARGO_PKG_VERSION").to_owned(),
+        snapshot,
+        archive_hash: String::new(),
+    };
+    archive.archive_hash = hash_body(&archive);
+    let mut bytes = serde_json::to_vec(&archive).unwrap();
+    bytes.push(b'\n');
+    fs::write(destination, bytes).unwrap();
 }
 
 fn write_corrupt(
@@ -177,8 +211,8 @@ fn main() {
     write_archive(&directory, "target-generic-v8.json", &target_only);
 
     let serial = schedule_root("schedule-v8", 2);
-    let serial_bytes = encode_workspace_archive(&serial).unwrap();
-    fs::write(directory.join("schedule-serial-v8.json"), &serial_bytes).unwrap();
+    write_archive(&directory, "schedule-serial-v8.json", &serial);
+    let serial_bytes = fs::read(directory.join("schedule-serial-v8.json")).unwrap();
 
     let mut split = serial.clone();
     apply_schedule(

@@ -265,10 +265,77 @@ pub enum ResourceKind {
     ScheduleTraceBytes,
     /// Generated ScheduleIR property/mutation case size.
     GeneratedScheduleCaseSize,
+    /// Backend plans retained by one workspace.
+    BackendPlansPerWorkspace,
+    /// Backend revisions retained by one workspace.
+    BackendRevisionsPerWorkspace,
+    /// Backend events retained by one archive.
+    BackendEvents,
+    /// Kernels retained by one backend revision.
+    BackendKernels,
+    /// Typed SSA values retained by one backend revision.
+    BackendValues,
+    /// Statements retained by one backend revision.
+    BackendStatements,
+    /// Schedule nodes covered by one kernel.
+    BackendSourceNodesPerKernel,
+    /// Storage bindings retained by one kernel.
+    BackendBindingsPerKernel,
+    /// Entries in one uniform parameter block.
+    BackendParameterEntries,
+    /// Bytes in one uniform parameter block.
+    BackendParameterBytes,
+    /// Dispatches retained by one backend revision.
+    BackendDispatches,
+    /// Compiler-owned runtime guard branches.
+    BackendGuardBranches,
+    /// Maximum nested backend expression depth.
+    BackendExpressionDepth,
+    /// Deterministic work units in one lowering.
+    BackendLoweringWorkUnits,
+    /// Backend proof obligations and evidence records.
+    BackendProofRecords,
+    /// Bytes in one canonical BackendIR encoding.
+    BackendCanonicalBytes,
+    /// Artifact packages retained by one workspace.
+    ArtifactPackages,
+    /// WGSL modules retained by one artifact.
+    ArtifactModules,
+    /// Entry points retained by one artifact.
+    ArtifactEntryPoints,
+    /// WGSL bytes retained by one module.
+    WgslBytesPerModule,
+    /// Total bytes retained by one artifact.
+    ArtifactTotalBytes,
+    /// Encoded bytes in one artifact manifest.
+    ArtifactManifestBytes,
+    /// Artifact events retained by one archive.
+    ArtifactEvents,
+    /// Offline WGSL validation work units.
+    OfflineValidationWorkUnits,
+    /// Storage buffers used by one device execution.
+    ExecutionBuffers,
+    /// Total bytes used by one device execution.
+    ExecutionBytes,
+    /// Elements processed by one device execution.
+    ExecutionElements,
+    /// Active device or benchmark tasks.
+    ActiveDeviceTasks,
+    /// Warm-up iterations in one hardware benchmark.
+    BenchmarkWarmups,
+    /// Measured iterations in one hardware benchmark.
+    BenchmarkIterations,
+    /// Completed measurement records retained by one workspace.
+    BenchmarkRecords,
+    /// Encoded bytes in retained measurement records.
+    BenchmarkRecordBytes,
+    /// Wall-time budget in milliseconds for one benchmark.
+    BenchmarkWallTimeMs,
 }
 
 /// Configurable interactive limits. These values never enter graph or archive hashes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ResourceLimits {
     /// Maximum encoded JSONL request bytes.
     pub jsonl_request_bytes: u64,
@@ -526,6 +593,72 @@ pub struct ResourceLimits {
     pub schedule_trace_bytes: u64,
     /// Maximum generated ScheduleIR property-case size.
     pub generated_schedule_case_size: u64,
+    /// Maximum backend plans in one workspace.
+    pub backend_plans_per_workspace: u64,
+    /// Maximum backend revisions in one workspace.
+    pub backend_revisions_per_workspace: u64,
+    /// Maximum backend events in one archive.
+    pub backend_events: u64,
+    /// Maximum kernels in one backend revision.
+    pub backend_kernels: u64,
+    /// Maximum BackendIR SSA values in one revision.
+    pub backend_values: u64,
+    /// Maximum BackendIR statements in one revision.
+    pub backend_statements: u64,
+    /// Maximum covered schedule nodes in one kernel.
+    pub backend_source_nodes_per_kernel: u64,
+    /// Maximum storage bindings in one kernel.
+    pub backend_bindings_per_kernel: u64,
+    /// Maximum uniform entries in one kernel.
+    pub backend_parameter_entries: u64,
+    /// Maximum uniform bytes in one kernel.
+    pub backend_parameter_bytes: u64,
+    /// Maximum dispatches in one backend revision.
+    pub backend_dispatches: u64,
+    /// Maximum guarded branches in one backend revision.
+    pub backend_guard_branches: u64,
+    /// Maximum typed BackendIR expression depth.
+    pub backend_expression_depth: u64,
+    /// Maximum deterministic lowering work units.
+    pub backend_lowering_work_units: u64,
+    /// Maximum backend obligation/evidence records.
+    pub backend_proof_records: u64,
+    /// Maximum canonical BackendIR bytes.
+    pub backend_canonical_bytes: u64,
+    /// Maximum artifacts retained by one workspace.
+    pub artifact_packages: u64,
+    /// Maximum modules in one artifact.
+    pub artifact_modules: u64,
+    /// Maximum entry points in one artifact.
+    pub artifact_entry_points: u64,
+    /// Maximum WGSL bytes in one module.
+    pub wgsl_bytes_per_module: u64,
+    /// Maximum total artifact bytes.
+    pub artifact_total_bytes: u64,
+    /// Maximum encoded artifact manifest bytes.
+    pub artifact_manifest_bytes: u64,
+    /// Maximum artifact events in one archive.
+    pub artifact_events: u64,
+    /// Maximum offline validator work units.
+    pub offline_validation_work_units: u64,
+    /// Maximum storage buffers in one device execution.
+    pub execution_buffers: u64,
+    /// Maximum storage bytes in one device execution.
+    pub execution_bytes: u64,
+    /// Maximum elements in one device execution.
+    pub execution_elements: u64,
+    /// Maximum active device/benchmark tasks.
+    pub active_device_tasks: u64,
+    /// Maximum benchmark warm-up iterations.
+    pub benchmark_warmups: u64,
+    /// Maximum measured benchmark iterations.
+    pub benchmark_iterations: u64,
+    /// Maximum completed measurement records.
+    pub benchmark_records: u64,
+    /// Maximum encoded measurement record bytes.
+    pub benchmark_record_bytes: u64,
+    /// Maximum benchmark wall time in milliseconds.
+    pub benchmark_wall_time_ms: u64,
 }
 
 impl Default for ResourceLimits {
@@ -659,6 +792,39 @@ impl Default for ResourceLimits {
             schedule_trace_events: 1_000_000,
             schedule_trace_bytes: 64 * 1024 * 1024,
             generated_schedule_case_size: 10_000,
+            backend_plans_per_workspace: 1_024,
+            backend_revisions_per_workspace: 100_000,
+            backend_events: 100_000,
+            backend_kernels: 100_000,
+            backend_values: 1_000_000,
+            backend_statements: 1_000_000,
+            backend_source_nodes_per_kernel: 100_000,
+            backend_bindings_per_kernel: 1_024,
+            backend_parameter_entries: 1_024,
+            backend_parameter_bytes: 64 * 1024,
+            backend_dispatches: 100_000,
+            backend_guard_branches: 1,
+            backend_expression_depth: 1_024,
+            backend_lowering_work_units: 10_000_000,
+            backend_proof_records: 100_000,
+            backend_canonical_bytes: 64 * 1024 * 1024,
+            artifact_packages: 10_000,
+            artifact_modules: 100_000,
+            artifact_entry_points: 100_000,
+            wgsl_bytes_per_module: 8 * 1024 * 1024,
+            artifact_total_bytes: 64 * 1024 * 1024,
+            artifact_manifest_bytes: 8 * 1024 * 1024,
+            artifact_events: 100_000,
+            offline_validation_work_units: 10_000_000,
+            execution_buffers: 1_024,
+            execution_bytes: 1024 * 1024 * 1024,
+            execution_elements: 100_000_000,
+            active_device_tasks: 16,
+            benchmark_warmups: 1_000,
+            benchmark_iterations: 10_000,
+            benchmark_records: 100_000,
+            benchmark_record_bytes: 4 * 1024 * 1024,
+            benchmark_wall_time_ms: 60_000,
         }
     }
 }
@@ -796,6 +962,39 @@ impl ResourceLimits {
             schedule_trace_events: 10_000_000,
             schedule_trace_bytes: 128 * 1024 * 1024,
             generated_schedule_case_size: 100_000,
+            backend_plans_per_workspace: 100_000,
+            backend_revisions_per_workspace: 250_000,
+            backend_events: 250_000,
+            backend_kernels: 1_000_000,
+            backend_values: 10_000_000,
+            backend_statements: 10_000_000,
+            backend_source_nodes_per_kernel: 1_000_000,
+            backend_bindings_per_kernel: 4_096,
+            backend_parameter_entries: 4_096,
+            backend_parameter_bytes: 4 * 1024 * 1024,
+            backend_dispatches: 1_000_000,
+            backend_guard_branches: 1,
+            backend_expression_depth: 4_096,
+            backend_lowering_work_units: 100_000_000,
+            backend_proof_records: 1_000_000,
+            backend_canonical_bytes: 128 * 1024 * 1024,
+            artifact_packages: 100_000,
+            artifact_modules: 1_000_000,
+            artifact_entry_points: 1_000_000,
+            wgsl_bytes_per_module: 64 * 1024 * 1024,
+            artifact_total_bytes: 128 * 1024 * 1024,
+            artifact_manifest_bytes: 64 * 1024 * 1024,
+            artifact_events: 250_000,
+            offline_validation_work_units: 100_000_000,
+            execution_buffers: 4_096,
+            execution_bytes: 8 * 1024 * 1024 * 1024,
+            execution_elements: 500_000_000,
+            active_device_tasks: 64,
+            benchmark_warmups: 10_000,
+            benchmark_iterations: 100_000,
+            benchmark_records: 250_000,
+            benchmark_record_bytes: 16 * 1024 * 1024,
+            benchmark_wall_time_ms: 600_000,
         }
     }
 
@@ -933,6 +1132,39 @@ impl ResourceLimits {
             ResourceKind::ScheduleTraceEvents => self.schedule_trace_events,
             ResourceKind::ScheduleTraceBytes => self.schedule_trace_bytes,
             ResourceKind::GeneratedScheduleCaseSize => self.generated_schedule_case_size,
+            ResourceKind::BackendPlansPerWorkspace => self.backend_plans_per_workspace,
+            ResourceKind::BackendRevisionsPerWorkspace => self.backend_revisions_per_workspace,
+            ResourceKind::BackendEvents => self.backend_events,
+            ResourceKind::BackendKernels => self.backend_kernels,
+            ResourceKind::BackendValues => self.backend_values,
+            ResourceKind::BackendStatements => self.backend_statements,
+            ResourceKind::BackendSourceNodesPerKernel => self.backend_source_nodes_per_kernel,
+            ResourceKind::BackendBindingsPerKernel => self.backend_bindings_per_kernel,
+            ResourceKind::BackendParameterEntries => self.backend_parameter_entries,
+            ResourceKind::BackendParameterBytes => self.backend_parameter_bytes,
+            ResourceKind::BackendDispatches => self.backend_dispatches,
+            ResourceKind::BackendGuardBranches => self.backend_guard_branches,
+            ResourceKind::BackendExpressionDepth => self.backend_expression_depth,
+            ResourceKind::BackendLoweringWorkUnits => self.backend_lowering_work_units,
+            ResourceKind::BackendProofRecords => self.backend_proof_records,
+            ResourceKind::BackendCanonicalBytes => self.backend_canonical_bytes,
+            ResourceKind::ArtifactPackages => self.artifact_packages,
+            ResourceKind::ArtifactModules => self.artifact_modules,
+            ResourceKind::ArtifactEntryPoints => self.artifact_entry_points,
+            ResourceKind::WgslBytesPerModule => self.wgsl_bytes_per_module,
+            ResourceKind::ArtifactTotalBytes => self.artifact_total_bytes,
+            ResourceKind::ArtifactManifestBytes => self.artifact_manifest_bytes,
+            ResourceKind::ArtifactEvents => self.artifact_events,
+            ResourceKind::OfflineValidationWorkUnits => self.offline_validation_work_units,
+            ResourceKind::ExecutionBuffers => self.execution_buffers,
+            ResourceKind::ExecutionBytes => self.execution_bytes,
+            ResourceKind::ExecutionElements => self.execution_elements,
+            ResourceKind::ActiveDeviceTasks => self.active_device_tasks,
+            ResourceKind::BenchmarkWarmups => self.benchmark_warmups,
+            ResourceKind::BenchmarkIterations => self.benchmark_iterations,
+            ResourceKind::BenchmarkRecords => self.benchmark_records,
+            ResourceKind::BenchmarkRecordBytes => self.benchmark_record_bytes,
+            ResourceKind::BenchmarkWallTimeMs => self.benchmark_wall_time_ms,
         }
     }
 }

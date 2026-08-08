@@ -10,6 +10,7 @@ Start with the root [README](../README.md), then choose the document matching th
 - [Stage 2C scope](stage-2c-scope.md) — bounded exact equality exploration and Stage 2 completion boundary.
 - [Stage 3 scope](stage-3-scope.md) — exact MemoryIR completion and the ScheduleIR boundary.
 - [Stage 4 scope](stage-4-scope.md) — exact scheduling completion and backend boundary.
+- [Stage 5 scope](stage-5-scope.md) — typed BackendIR, deterministic WGSL artifacts and optional WebGPU execution.
 - [ImplIR](implir.md) — separate implementation graph, identity lowering, verifier and hash.
 - [CandidateForest](candidate-forest.md) — candidate branches, revisions, transactions and continuations.
 - [Equivalence and EvidenceIR](equivalence-and-evidence.md) — trusted proof composition and confidence evidence.
@@ -28,6 +29,15 @@ Start with the root [README](../README.md), then choose the document matching th
 - [Schedule legality](schedule-legality.md) — split, tile, fusion, binding, vector, and unroll rules.
 - [Schedule resource simulator](schedule-resource-simulator.md) — deterministic analytical capacity checks.
 - [Scheduled memory safety](scheduled-memory-safety.md) — preservation of MemoryIR facts and guards.
+- [BackendIR](backend-ir.md) — schedule-anchored typed kernels, ABI, dispatch graph and hashes.
+- [Backend lowering](backend-lowering.md) — deterministic ScheduleIR-to-BackendIR pipeline and rejection boundary.
+- [WGSL backend](wgsl-backend.md) — supported WebGPU/WGSL v1 subset and offline validation.
+- [Artifact format](artifact-format.md) — portable deterministic package wire contract.
+- [Artifact correctness](artifact-correctness.md) — compiler-owned backend and emission proof relations.
+- [WebGPU runtime](webgpu-runtime.md) — optional device discovery, execution and structured failure.
+- [Device fingerprints](device-fingerprints.md) — runtime provenance separated from target and correctness hashes.
+- [Hardware benchmarking](hardware-benchmarking.md) — bounded confidence-only device measurements.
+- [Reproducibility manifest](reproducibility-manifest.md) — exact included/excluded artifact state.
 - [Guarded fallback](guarded-fallback.md) — restricted self-division rule and lazy execution.
 - [JSONL protocol](protocol.md) — commands, references, regions, errors and response envelopes.
 - [Persistence and replay](persistence.md) — archive format, save/load lifecycle and integrity model.

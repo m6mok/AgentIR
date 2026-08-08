@@ -59,3 +59,7 @@ Stage 2C adds a deliberately finite compiler-owned equality proof graph, not an 
 # Target and schedule hashes
 
 Target canonical v1 uses `agentir.target.manifest.v1\0`; schedule canonical v1 uses `agentir.schedule.exact.v1\0`. `target_hash` covers the immutable capability contract. `schedule_hash` covers exact schedule state and anchors including `memory_hash` and `target_hash`. Neither includes interactive resource limits, timestamps, runtime inputs, trace output, or benchmark measurements, and neither may substitute for any earlier hash contract.
+
+# Backend, build, artifact, device and measurement hashes
+
+Stage 5 adds independent domains `agentir.backend.wgsl.exact.v1\0`, `agentir.compiler.build.v1\0`, `agentir.artifact.wgsl.package.v1\0`, `agentir.device.fingerprint.v1\0`, and `agentir.measurement.hardware.v1\0`. Backend identity covers typed lowering/proofs; artifact identity covers the reproducible package and exact WGSL. Device and measurement identities are runtime provenance only. Resource limits participate in none of them.

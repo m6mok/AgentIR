@@ -1,6 +1,6 @@
 # Architecture
 
-Stage 3 adds a third immutable graph layer: frozen SpecIR states semantics, ImplIR states an exact implementation, and MemoryIR states typed physical storage for one fully proved unconditional candidate revision. `MemoryPlanStore` is workspace-owned but allocator/event/revision state is independent of CandidateForest and EqualityStore. Replay order is SpecIR → dependency-interleaved candidate/equality → memory events with explicit cross-store cursors. Core snapshot/replay remains I/O-free; only `agentir-store` reads or writes archive v7.
+AgentIR has five explicit immutable graph layers: SpecIR states semantics, ImplIR states an exact implementation, MemoryIR states typed physical storage, ScheduleIR states target-checked execution order, and BackendIR states executable typed kernels for one schedule. Artifact WGSL remains derived output, never canonical input. Core snapshot/replay remains I/O-free; only `agentir-store` reads or writes archive v9.
 
 ## Data flow
 
@@ -20,14 +20,22 @@ CandidateForest ─── atomic revisions → proof debt/validation/guard → c
 EqualityStore ───── whole-program nodes → trusted edges → bounded saturation → equality_hash
   ↓ explicit materialized exact candidate
 MemoryIR ────────── typed regions → alias/lifetime proof → exact reuse/fallback → memory_hash
+  ↓ immutable TargetManifest
+ScheduleIR ──────── domains → transforms → resource proof → schedule_hash
+  ↓ webgpu_wgsl_v1 lowering
+BackendIR ───────── typed kernels → ABI → dispatch proof → backend_hash
+  ↓ deterministic emission + offline validation
+WGSL artifact ───── manifest + exact module bytes → artifact_hash
+  ↓ optional, confidence only
+wgpu runtime ────── device fingerprint → execution/measurement
   ↓ SpecIR + ImplIR + MemoryIR
 agentir-eval ────── deterministic CPU semantic/physical oracle and memory trace
 
-agentir-core snapshot/SpecIR+candidate+equality+memory event logs
+agentir-core snapshot/all graph, artifact and measurement event logs
   ↓
 agentir-store ───── version sniff → source checksum → migrate → replay
   ↓ save/migrate
-archive v7 ─────── checksum → temp write + sync → atomic rename
+archive v9 ─────── checksum → temp write + sync → atomic rename
 ```
 
 The dependency direction is one-way: `core` knows nothing about JSONL sessions, evaluation input encoding or filesystems; `eval` and `store` depend on `core`; `protocol` composes them; `cli` only streams lines.
@@ -76,7 +84,11 @@ The core derives frames from the same verified program used by free transactions
 
 ## Persistence boundary
 
-The core snapshot contains the complete SpecIR revision DAG/allocator/events, CandidateForest/proposals/debt/evidence/events, EqualityStore/spaces/revisions/events, and MemoryPlanStore/plans/evidence/events. Loading never trusts serialized graphs directly: `agentir-store` checks the exact source codec/hash, migrates, replays SpecIR, respects explicit candidate/equality/memory dependency cursors and verifies every program, hash, proof edge, worklist, frontier, buffer, alias/lifetime fact and evidence chain. Only the complete verified workspace is published. See [persistence.md](persistence.md).
+The core snapshot contains every graph store plus target, backend, artifact and measurement histories. Loading never trusts serialized graphs directly: `agentir-store` checks the exact source codec/hash, migrates through every explicit edge, verifies dependency cursors, graphs, certificates, package bytes and independent hashes, then publishes the complete workspace. See [persistence.md](persistence.md).
 # Stage 4 scheduling layer
 
 One proved MemoryIR revision plus one immutable TargetManifest anchors an independent SchedulePlan DAG. The core derives domains and dependencies, verifies transforms and memory compatibility, simulates target resources, and emits compiler-owned evidence before publication. Target and schedule events replay after their candidate/equality/memory dependencies. Backend lowering remains outside every Stage 4 crate boundary.
+
+# Stage 5 backend and runtime boundary
+
+`agentir-core` owns BackendIR, hashes, certificates, lifecycle, events and package models without depending on Naga or wgpu. `agentir-backend-wgsl` is the trusted lowering/emission adapter and uses Naga for mandatory offline validation. `agentir-runtime-wgpu` is optional and has no correctness authority. `agentir-protocol` composes these components but never accepts source or proof payloads from clients.

@@ -5,3 +5,7 @@ TargetManifest is an immutable compiler-owned capability contract. The Stage 4 p
 The generic profile fixes execution hierarchy limits, subgroup width, supported scalar types and vector widths, abstract address spaces and alignments, resource capacities, and supported schedule operations. IDs are `tm*`, `tmr*`, and `tc*`. Every manifest is sealed at creation and replay-verifiable.
 
 `target_hash` uses the domain `agentir.target.manifest.v1\0` and is distinct from every program, implementation, memory, schedule, and archive hash. Resource-policy changes do not alter it. Target discovery, device drivers, machine binaries, and measured performance are outside Stage 4.
+
+# WebGPU profile
+
+Stage 5 adds immutable `webgpu_wgsl_v1`: WebGPU compute, WGSL v1, global storage plus uniform parameters, f32/i32/u32 ABI scalars, vector widths 1/2/4, explicit workgroups, runtime bounds checks, and no atomics, subgroups, shared-memory cache, textures, matrices, or vendor instructions. The existing `generic_gpu_v1` bytes and `target_hash` remain unchanged. Adapter discovery validates reported limits against this minimum contract but cannot mutate it.

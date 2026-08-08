@@ -1,0 +1,12 @@
+{"command":"workspace.open","request_id":"open","workspace":"w1"}
+{"command":"spec.apply","request_id":"build","workspace":"w1","base_revision":"r0","actions":[{"kind":"define_dimension","bind":"$N","name":"N","constraints":["N >= 0"]},{"kind":"create_parameter","bind":"$x","name":"x","type":"tensor<f32,[$N]>"},{"kind":"create_op","bind":"$out","opcode":"map","operands":["$x"],"region":{"arguments":[{"name":"element","type":"f32"}],"captures":[],"operations":[],"yield_value":"element"}},{"kind":"set_output","name":"out","value":"$out"}]}
+{"command":"spec.freeze","request_id":"freeze","workspace":"w1","base_revision":"r1"}
+{"command":"candidate.create","request_id":"candidate","workspace":"w1","spec_revision":"r2"}
+{"command":"equality.create","request_id":"equality","workspace":"w1","candidate":"c1","candidate_revision":"cr1"}
+{"command":"equality.query","request_id":"equality-query","workspace":"w1","equality_space":"eqs1","equality_revision":"er1"}
+{"command":"equality.materialize","request_id":"materialize","workspace":"w1","equality_space":"eqs1","equality_revision":"er1","expected_equality_hash":"5686c514f3f0a9df546f21d1f5d74183f7124933af1d1bbb6661a19527448d88","node":"en1"}
+{"command":"memory.create","request_id":"memory","workspace":"w1","candidate":"c2","candidate_revision":"cr2"}
+{"command":"target.create","request_id":"target","workspace":"w1","profile":"webgpu_wgsl_v1"}
+{"command":"schedule.create","request_id":"schedule","workspace":"w1","memory_plan":"mp1","memory_revision":"mr1","target_manifest":"tm1","target_revision":"tmr1"}
+{"command":"backend.lower","request_id":"backend","workspace":"w1","schedule_plan":"sp1","schedule_revision":"sr1","expected_schedule_hash":"76430103647b35e905919d64871137d95995a812cf77cfa32bf6afc396fa7780"}
+{"command":"artifact.emit","request_id":"artifact","workspace":"w1","backend_plan":"bp1","backend_revision":"br1","expected_backend_hash":"8699146d4b56ce4ae9b6f5a213f852a78493f0f25057ab2bd71fa4c834ad341a"}

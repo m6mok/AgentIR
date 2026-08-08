@@ -71,6 +71,15 @@ identifier!(ScheduleAxisId);
 identifier!(ScheduleOperationId);
 identifier!(ScheduleObligationId);
 identifier!(ScheduleEvidenceId);
+identifier!(BackendPlanId);
+identifier!(BackendRevisionId);
+identifier!(BackendKernelId);
+identifier!(BackendValueId);
+identifier!(BackendObligationId);
+identifier!(BackendEvidenceId);
+identifier!(ArtifactId);
+identifier!(ArtifactModuleId);
+identifier!(MeasurementId);
 
 /// Monotonic identifier allocator owned by one workspace.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

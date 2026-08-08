@@ -12,7 +12,7 @@ AgentIR is an agent-native compiler prototype. Preserve these invariants in ever
 6. Serialization and traversal order must remain deterministic.
 7. Stage 1 stays transport-independent and contains no GPU/LLVM/MLIR integration.
 8. `content_hash`, `spec_hash`, `impl_hash`, `proposal_hash`, `candidate_hash`, `equality_hash`, `memory_hash`, and `archive_hash` are distinct contracts and must never be substituted.
-9. Archive v1/v2/v3/v4/v5/v6 are immutable legacy inputs; new saves use v7 and old archives cross explicit migration steps.
+9. Archive v1/v2/v3/v4/v5/v6/v7/v8 are immutable legacy inputs; new saves use v9 and old archives cross explicit migration steps.
 10. Event compiler semantics and archive format versions are independent compatibility contracts.
 11. Resource limits never participate in any semantic, candidate, equality, memory, or archive hash contract.
 12. ImplIR is a separate typed graph anchored to one frozen `spec_hash`.
@@ -28,6 +28,10 @@ AgentIR is an agent-native compiler prototype. Preserve these invariants in ever
 22. ScheduleIR is a separate typed graph anchored to one proved MemoryIR revision and immutable TargetManifest.
 23. Target capabilities, iteration domains, dependencies, remainders, schedule guards and correctness certificates are compiler-owned.
 24. Stage 4 contains no backend IR, machine code, device execution, autotuning, ranking, cost model or search policy.
+25. BackendIR is a separate typed graph anchored to one verified ScheduleIR revision and immutable Stage 1–4 hashes.
+26. WGSL is a deterministic artifact, never canonical program input; clients cannot supply source, bindings, dispatch formulas, guards or certificates.
+27. Offline validation, device execution and hardware measurements never advance the correctness frontier.
+28. `backend_hash`, `artifact_hash`, `device_fingerprint_hash`, and `measurement_hash` are independent contracts and exclude interactive resource policy.
 
 ## Where to look before changing code
 
@@ -44,6 +48,8 @@ Use `docs/` instead of expanding this file with broad background:
 - speculative trust boundary: `docs/speculative-rewrites.md`, `docs/proof-debt.md`, `docs/translation-validation.md`, `docs/guarded-fallback.md`;
 - exact equality space and proof boundary: `docs/stage-2c-scope.md`, `docs/equality-space.md`, `docs/equality-proofs.md`;
 - Stage 3 physical boundary: `docs/stage-3-scope.md`, `docs/memory-ir.md`, `docs/bufferization.md`, `docs/alias-and-lifetimes.md`, `docs/guarded-memory-reuse.md`;
+- Stage 4 scheduling boundary: `docs/stage-4-scope.md`, `docs/schedule-ir.md`, `docs/target-manifest.md`, `docs/schedule-legality.md`;
+- Stage 5 executable boundary: `docs/stage-5-scope.md`, `docs/backend-ir.md`, `docs/backend-lowering.md`, `docs/artifact-format.md`, `docs/artifact-correctness.md`, `docs/webgpu-runtime.md`;
 - architectural trade-offs: `DECISIONS.md`.
 
 When documentation and behavior disagree, consult `docs/reference/stage-1-brief.md` first for Stage 1, then `docs/reference/agentir-spec-0.1.md`. Record intentional deviations in `DECISIONS.md`.
@@ -96,6 +102,16 @@ cargo run -p agentir-cli --bin agentir < examples/schedule_fused.jsonl
 cargo run -p agentir-cli --bin agentir < examples/schedule_vectorized.jsonl
 cargo run -p agentir-cli --bin agentir < examples/schedule_guarded_memory.jsonl
 cargo run -p agentir-cli --bin agentir < examples/equality_to_schedule.jsonl
+cargo run -p agentir-cli --bin agentir < examples/backend_saxpy_wgsl.jsonl
+cargo run -p agentir-cli --bin agentir < examples/backend_serial.jsonl
+cargo run -p agentir-cli --bin agentir < examples/backend_tiled.jsonl
+cargo run -p agentir-cli --bin agentir < examples/backend_remainder.jsonl
+cargo run -p agentir-cli --bin agentir < examples/backend_fused.jsonl
+cargo run -p agentir-cli --bin agentir < examples/backend_vectorized.jsonl
+cargo run -p agentir-cli --bin agentir < examples/backend_reuse.jsonl
+cargo run -p agentir-cli --bin agentir < examples/backend_guarded_memory.jsonl
+cargo run -p agentir-cli --bin agentir < examples/equality_to_artifact.jsonl
+cargo run -p agentir-cli --bin agentir < examples/backend_rejected_reduce.jsonl
 cargo run --release -p agentir-protocol --example baseline
 ```
 

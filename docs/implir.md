@@ -22,3 +22,7 @@ ImplIR still has no buffers, address spaces, layouts, raw pointers, schedules, t
 # Schedule boundary
 
 Stage 4 does not annotate or rewrite ImplIR. Schedule nodes refer to immutable ImplIR operations while iteration order, fusion, hierarchy binding, vectorization, and unrolling live only in ScheduleIR. Consequently schedule edits preserve `impl_hash` exactly.
+
+# Backend boundary
+
+Stage 5 BackendIR retains immutable `impl_hash` and source-operation coverage but never adds WGSL, bindings, dispatches, or device data to ImplIR. Backend lowering cannot change algorithmic/numeric semantics or recalculate `impl_hash`.

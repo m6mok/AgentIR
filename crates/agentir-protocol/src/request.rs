@@ -2,14 +2,17 @@
 
 use agentir_core::{
     actions::Action,
+    backend::{ArtifactHash, BackendHash},
+    backend_ir::HardwareBenchmarkConfig,
     candidate::{CandidateAction, ProposedImplFragment, RelationKind},
     continuation::InteractionMode,
     equality::EqualityHash,
     ids::{
-        BufferId, CandidateId, CandidateRevisionId, EqualityNodeId, EqualityRevisionId,
-        EqualitySpaceId, HoleId, ImplOperationId, MemoryGuardId, MemoryPlanId, MemoryRevisionId,
-        ProposalId, RevisionId, ScheduleAxisId, SchedulePlanId, ScheduleRevisionId,
-        TargetManifestId, TargetManifestRevisionId, WorkspaceId,
+        ArtifactId, BackendPlanId, BackendRevisionId, BufferId, CandidateId, CandidateRevisionId,
+        EqualityNodeId, EqualityRevisionId, EqualitySpaceId, HoleId, ImplOperationId,
+        MeasurementId, MemoryGuardId, MemoryPlanId, MemoryRevisionId, ProposalId, RevisionId,
+        ScheduleAxisId, SchedulePlanId, ScheduleRevisionId, TargetManifestId,
+        TargetManifestRevisionId, WorkspaceId,
     },
     impl_ir::ImplHash,
     memory::{MemoryAction, MemoryHash},
@@ -859,6 +862,229 @@ pub enum Request {
         /// Immutable schedule revision.
         schedule_revision: ScheduleRevisionId,
     },
+    /// Lowers one immutable ScheduleIR revision into compiler-owned BackendIR.
+    #[serde(rename = "backend.lower")]
+    BackendLower {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Source schedule plan.
+        schedule_plan: SchedulePlanId,
+        /// Exact immutable source revision.
+        schedule_revision: ScheduleRevisionId,
+        /// Required exact schedule hash.
+        expected_schedule_hash: ScheduleHash,
+    },
+    /// Reads one immutable BackendIR summary.
+    #[serde(rename = "backend.query")]
+    BackendQuery {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Backend plan.
+        backend_plan: BackendPlanId,
+        /// Immutable backend revision.
+        backend_revision: BackendRevisionId,
+    },
+    /// Fully verifies one BackendIR revision and proof certificate.
+    #[serde(rename = "backend.check")]
+    BackendCheck {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Backend plan.
+        backend_plan: BackendPlanId,
+        /// Immutable backend revision.
+        backend_revision: BackendRevisionId,
+    },
+    /// Returns bounded deterministic backend choices.
+    #[serde(rename = "backend.continuation")]
+    BackendContinuation {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Backend plan.
+        backend_plan: BackendPlanId,
+        /// Immutable backend revision.
+        backend_revision: BackendRevisionId,
+    },
+    /// Forks one immutable backend revision into an independent plan.
+    #[serde(rename = "backend.fork")]
+    BackendFork {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Parent backend plan.
+        backend_plan: BackendPlanId,
+        /// Parent immutable revision.
+        backend_revision: BackendRevisionId,
+        /// Required exact parent hash.
+        expected_backend_hash: BackendHash,
+    },
+    /// Seals one proved BackendIR revision as an immutable child.
+    #[serde(rename = "backend.seal")]
+    BackendSeal {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Backend plan.
+        backend_plan: BackendPlanId,
+        /// Explicit current base revision.
+        backend_revision: BackendRevisionId,
+        /// Required exact backend hash.
+        expected_backend_hash: BackendHash,
+    },
+    /// Emits one deterministic offline-validated WGSL package.
+    #[serde(rename = "artifact.emit")]
+    ArtifactEmit {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Source backend plan.
+        backend_plan: BackendPlanId,
+        /// Exact source backend revision.
+        backend_revision: BackendRevisionId,
+        /// Required exact backend hash.
+        expected_backend_hash: BackendHash,
+    },
+    /// Lists retained artifact packages.
+    #[serde(rename = "artifact.list")]
+    ArtifactList {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+    },
+    /// Reads one artifact summary.
+    #[serde(rename = "artifact.query")]
+    ArtifactQuery {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Artifact identity.
+        artifact: ArtifactId,
+    },
+    /// Verifies an artifact manifest, WGSL bytes, hash, and certificate.
+    #[serde(rename = "artifact.check")]
+    ArtifactCheck {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Artifact identity.
+        artifact: ArtifactId,
+        /// Required exact artifact hash.
+        expected_artifact_hash: ArtifactHash,
+    },
+    /// Evaluates the anchored exact schedule and returns an artifact-plan trace.
+    #[serde(rename = "artifact.reference_evaluate")]
+    ArtifactReferenceEvaluate {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Artifact identity.
+        artifact: ArtifactId,
+        /// Exact parameter values.
+        inputs: BTreeMap<String, Value>,
+        /// Optional compiler-owned MemoryIR guard outcomes.
+        #[serde(default)]
+        guard_outcomes: BTreeMap<MemoryGuardId, bool>,
+    },
+    /// Executes one verified artifact on a selected compatible WebGPU adapter.
+    #[serde(rename = "artifact.execute")]
+    ArtifactExecute {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Artifact identity.
+        artifact: ArtifactId,
+        /// Required exact artifact hash.
+        expected_artifact_hash: ArtifactHash,
+        /// Zero-based adapter selector from `device.list`.
+        adapter: u32,
+        /// Runtime scalar/tensor values.
+        inputs: BTreeMap<String, Value>,
+    },
+    /// Lists WebGPU adapters against one immutable target contract.
+    #[serde(rename = "device.list")]
+    DeviceList {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Target manifest identity.
+        target_manifest: TargetManifestId,
+        /// Immutable target revision.
+        target_revision: TargetManifestRevisionId,
+    },
+    /// Reads one discovered WebGPU adapter against an immutable target.
+    #[serde(rename = "device.query")]
+    DeviceQuery {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Target manifest identity.
+        target_manifest: TargetManifestId,
+        /// Immutable target revision.
+        target_revision: TargetManifestRevisionId,
+        /// Zero-based adapter selector.
+        adapter: u32,
+    },
+    /// Starts a bounded confidence-only hardware benchmark.
+    #[serde(rename = "benchmark.start")]
+    BenchmarkStart {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Artifact identity.
+        artifact: ArtifactId,
+        /// Required exact artifact hash.
+        expected_artifact_hash: ArtifactHash,
+        /// Zero-based adapter selector.
+        adapter: u32,
+        /// Bounded benchmark configuration.
+        config: HardwareBenchmarkConfig,
+        /// Runtime scalar/tensor values.
+        inputs: BTreeMap<String, Value>,
+    },
+    /// Reads one benchmark task state.
+    #[serde(rename = "benchmark.status")]
+    BenchmarkStatus {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Compiler-owned task handle.
+        task: String,
+    },
+    /// Cancels a benchmark task that has not completed.
+    #[serde(rename = "benchmark.cancel")]
+    BenchmarkCancel {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Compiler-owned task handle.
+        task: String,
+    },
+    /// Reads one completed immutable measurement record.
+    #[serde(rename = "benchmark.query")]
+    BenchmarkQuery {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Compiler-owned measurement identity.
+        measurement: MeasurementId,
+    },
 }
 
 const fn default_validation_cases() -> u64 {
@@ -929,7 +1155,25 @@ impl Request {
             | Self::ScheduleResourceQuery { request_id, .. }
             | Self::ScheduleAxisQuery { request_id, .. }
             | Self::ScheduleLegalityQuery { request_id, .. }
-            | Self::ScheduleContinuation { request_id, .. } => request_id,
+            | Self::ScheduleContinuation { request_id, .. }
+            | Self::BackendLower { request_id, .. }
+            | Self::BackendQuery { request_id, .. }
+            | Self::BackendCheck { request_id, .. }
+            | Self::BackendContinuation { request_id, .. }
+            | Self::BackendFork { request_id, .. }
+            | Self::BackendSeal { request_id, .. }
+            | Self::ArtifactEmit { request_id, .. }
+            | Self::ArtifactList { request_id, .. }
+            | Self::ArtifactQuery { request_id, .. }
+            | Self::ArtifactCheck { request_id, .. }
+            | Self::ArtifactReferenceEvaluate { request_id, .. }
+            | Self::ArtifactExecute { request_id, .. }
+            | Self::DeviceList { request_id, .. }
+            | Self::DeviceQuery { request_id, .. }
+            | Self::BenchmarkStart { request_id, .. }
+            | Self::BenchmarkStatus { request_id, .. }
+            | Self::BenchmarkCancel { request_id, .. }
+            | Self::BenchmarkQuery { request_id, .. } => request_id,
         }
     }
 }

@@ -19,6 +19,100 @@ use request::{QueryView, Request};
 use response::Response;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use std::time::Instant;
+
+fn runtime_inputs(
+    values: &BTreeMap<String, Value>,
+) -> AgentResult<BTreeMap<String, agentir_runtime_wgpu::RuntimeInput>> {
+    values
+        .iter()
+        .map(|(name, value)| {
+            let runtime = match value {
+                Value::Number(number) if number.is_i64() => {
+                    let value = number
+                        .as_i64()
+                        .and_then(|value| i32::try_from(value).ok())
+                        .ok_or_else(|| {
+                            AgentError::new(
+                                ErrorCode::EvaluationInputMismatch,
+                                format!("input `{name}` exceeds i32"),
+                            )
+                        })?;
+                    agentir_runtime_wgpu::RuntimeInput::I32(value)
+                }
+                Value::Number(number) => {
+                    let value = number.as_f64().ok_or_else(|| {
+                        AgentError::new(
+                            ErrorCode::EvaluationInputMismatch,
+                            format!("input `{name}` is not finite"),
+                        )
+                    })? as f32;
+                    agentir_runtime_wgpu::RuntimeInput::F32(value)
+                }
+                Value::Array(items) => {
+                    let values = items
+                        .iter()
+                        .map(|item| {
+                            item.as_f64().map(|value| value as f32).ok_or_else(|| {
+                                AgentError::new(
+                                    ErrorCode::EvaluationInputMismatch,
+                                    format!("tensor input `{name}` must contain only numbers"),
+                                )
+                            })
+                        })
+                        .collect::<AgentResult<Vec<_>>>()?;
+                    agentir_runtime_wgpu::RuntimeInput::F32Tensor(values)
+                }
+                _ => {
+                    return Err(AgentError::new(
+                        ErrorCode::EvaluationInputMismatch,
+                        format!("input `{name}` is not a supported runtime scalar or tensor"),
+                    ));
+                }
+            };
+            Ok((name.clone(), runtime))
+        })
+        .collect()
+}
+
+fn check_runtime_limits(
+    limits: &ResourceLimits,
+    package: &agentir_core::backend_ir::ArtifactPackage,
+    inputs: &BTreeMap<String, agentir_runtime_wgpu::RuntimeInput>,
+) -> AgentResult<()> {
+    let buffers = package
+        .manifest
+        .binding_layouts
+        .iter()
+        .flat_map(|layout| {
+            layout
+                .storage_bindings
+                .iter()
+                .map(|binding| &binding.buffer)
+        })
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    let elements = inputs.values().fold(0_u64, |total, input| {
+        total.saturating_add(match input {
+            agentir_runtime_wgpu::RuntimeInput::F32Tensor(values) => {
+                u64::try_from(values.len()).unwrap_or(u64::MAX)
+            }
+            agentir_runtime_wgpu::RuntimeInput::F32(_)
+            | agentir_runtime_wgpu::RuntimeInput::I32(_) => 1,
+        })
+    });
+    for (kind, actual) in [
+        (
+            ResourceKind::ExecutionBuffers,
+            u64::try_from(buffers).unwrap_or(u64::MAX),
+        ),
+        (ResourceKind::ExecutionElements, elements),
+        (ResourceKind::ExecutionBytes, elements.saturating_mul(4)),
+    ] {
+        BudgetCheck::against(limits, kind, actual, "artifact device execution")?;
+    }
+    Ok(())
+}
 
 /// Stateful in-memory request engine shared by CLI and future transports.
 #[derive(Debug, Default)]
@@ -26,6 +120,8 @@ pub struct Engine {
     workspaces: BTreeMap<WorkspaceId, Workspace>,
     next_workspace: u64,
     limits: ResourceLimits,
+    benchmark_tasks: BTreeMap<String, Value>,
+    next_benchmark_task: u64,
 }
 
 impl Engine {
@@ -935,6 +1031,434 @@ impl Engine {
             } => serde_json::to_value(
                 self.workspace(&workspace)?
                     .schedule_continuation(&schedule_plan, &schedule_revision)?,
+            )
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::BackendLower {
+                workspace,
+                schedule_plan,
+                schedule_revision,
+                expected_schedule_hash,
+                ..
+            } => serde_json::to_value(self.workspace_mut(&workspace)?.backend_lower_with(
+                &schedule_plan,
+                &schedule_revision,
+                &expected_schedule_hash,
+                agentir_backend_wgsl::lower_schedule,
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::BackendQuery {
+                workspace,
+                backend_plan,
+                backend_revision,
+                ..
+            } => serde_json::to_value(
+                self.workspace(&workspace)?
+                    .backend_query(&backend_plan, &backend_revision)?,
+            )
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::BackendCheck {
+                workspace,
+                backend_plan,
+                backend_revision,
+                ..
+            } => serde_json::to_value(
+                self.workspace(&workspace)?
+                    .backend_check(&backend_plan, &backend_revision)?,
+            )
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::BackendContinuation {
+                workspace,
+                backend_plan,
+                backend_revision,
+                ..
+            } => serde_json::to_value(
+                self.workspace(&workspace)?
+                    .backend_continuation(&backend_plan, &backend_revision)?,
+            )
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::BackendFork {
+                workspace,
+                backend_plan,
+                backend_revision,
+                expected_backend_hash,
+                ..
+            } => serde_json::to_value(self.workspace_mut(&workspace)?.backend_fork(
+                &backend_plan,
+                &backend_revision,
+                &expected_backend_hash,
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::BackendSeal {
+                workspace,
+                backend_plan,
+                backend_revision,
+                expected_backend_hash,
+                ..
+            } => serde_json::to_value(self.workspace_mut(&workspace)?.backend_seal(
+                &backend_plan,
+                &backend_revision,
+                &expected_backend_hash,
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::ArtifactEmit {
+                workspace,
+                backend_plan,
+                backend_revision,
+                expected_backend_hash,
+                ..
+            } => serde_json::to_value(self.workspace_mut(&workspace)?.artifact_emit_with(
+                &backend_plan,
+                &backend_revision,
+                &expected_backend_hash,
+                agentir_backend_wgsl::emit_artifact,
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::ArtifactList { workspace, .. } => {
+                serde_json::to_value(self.workspace(&workspace)?.artifact_list())
+                    .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
+            }
+            Request::ArtifactQuery {
+                workspace,
+                artifact,
+                ..
+            } => serde_json::to_value(self.workspace(&workspace)?.artifact_query(&artifact)?)
+                .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::ArtifactCheck {
+                workspace,
+                artifact,
+                expected_artifact_hash,
+                ..
+            } => {
+                let data = self.workspace(&workspace)?.artifact_package(&artifact)?;
+                if data.artifact_hash != expected_artifact_hash {
+                    return Err(AgentError::new(
+                        ErrorCode::ArtifactHashMismatch,
+                        "artifact.check expected hash differs from the retained package",
+                    )
+                    .with_types(
+                        expected_artifact_hash.to_string(),
+                        data.artifact_hash.to_string(),
+                    ));
+                }
+                serde_json::to_value(self.workspace(&workspace)?.artifact_check(&artifact)?)
+                    .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
+            }
+            Request::ArtifactReferenceEvaluate {
+                workspace,
+                artifact,
+                inputs,
+                guard_outcomes,
+                ..
+            } => {
+                let workspace_data = self.workspace(&workspace)?;
+                workspace_data.artifact_check(&artifact)?;
+                let (backend_plan, _) = workspace_data.artifact_source_backend(&artifact)?;
+                let (schedule_plan, schedule_revision) =
+                    workspace_data.backend_source_schedule(backend_plan)?;
+                let evaluation = agentir_eval::evaluate_schedule_with_limits(
+                    workspace_data
+                        .schedule_store()
+                        .revision(schedule_plan, schedule_revision)?,
+                    workspace_data.scheduled_memory_revision(schedule_plan)?,
+                    workspace_data.scheduled_impl_program(schedule_plan)?,
+                    &inputs,
+                    &guard_outcomes,
+                    &self.limits,
+                )?;
+                let package = workspace_data.artifact_package(&artifact)?;
+                let guard_branch = package
+                    .manifest
+                    .guard
+                    .as_ref()
+                    .map(|_| guard_outcomes.values().copied().next().unwrap_or(false));
+                let selected_orders = package.manifest.guard.as_ref().map(|guard| {
+                    if guard_branch == Some(true) {
+                        &guard.true_dispatches
+                    } else {
+                        &guard.false_dispatches
+                    }
+                });
+                let mut events = Vec::new();
+                let push_event =
+                    |events: &mut Vec<agentir_core::backend_ir::ArtifactTraceEvent>,
+                     kind: &str,
+                     detail: String| {
+                        events.push(agentir_core::backend_ir::ArtifactTraceEvent {
+                            sequence: u64::try_from(events.len()).unwrap_or(u64::MAX),
+                            kind: kind.to_owned(),
+                            detail,
+                        });
+                    };
+                if let Some(branch) = guard_branch {
+                    push_event(&mut events, "guard", format!("no_overlap={branch}"));
+                }
+                for layout in &package.manifest.binding_layouts {
+                    for binding in &layout.storage_bindings {
+                        push_event(
+                            &mut events,
+                            "binding",
+                            format!(
+                                "{}:group={}:binding={}:buffer={}:access={:?}:offset={}",
+                                layout.kernel,
+                                binding.group,
+                                binding.binding,
+                                binding.buffer,
+                                binding.access,
+                                binding.offset_elements
+                            ),
+                        );
+                    }
+                }
+                for dispatch in &package.manifest.dispatches {
+                    if selected_orders.is_some_and(|orders| !orders.contains(&dispatch.order)) {
+                        continue;
+                    }
+                    push_event(
+                        &mut events,
+                        "dispatch",
+                        format!(
+                            "{}:{}:grid={:?}:workgroup={:?}:bounds_checked={}",
+                            dispatch.order,
+                            dispatch.kernel,
+                            dispatch.workgroups,
+                            dispatch.workgroup_size,
+                            dispatch.bounds_checked
+                        ),
+                    );
+                }
+                for output in &package.manifest.outputs {
+                    push_event(
+                        &mut events,
+                        "output",
+                        format!(
+                            "{}:binding={}:buffer={}",
+                            output.name, output.binding, output.buffer
+                        ),
+                    );
+                }
+                let trace = agentir_core::backend_ir::ArtifactTrace {
+                    trace_codec_version: agentir_core::backend_ir::ARTIFACT_TRACE_CODEC_VERSION,
+                    artifact,
+                    guard_branch,
+                    events,
+                };
+                Ok(json!({"evaluation": evaluation, "trace": trace}))
+            }
+            Request::ArtifactExecute {
+                workspace,
+                artifact,
+                expected_artifact_hash,
+                adapter,
+                inputs,
+                ..
+            } => {
+                let workspace_data = self.workspace(&workspace)?;
+                workspace_data.artifact_check(&artifact)?;
+                let package = workspace_data.artifact_package(&artifact)?;
+                if package.artifact_hash != expected_artifact_hash {
+                    return Err(AgentError::new(
+                        ErrorCode::ArtifactHashMismatch,
+                        "artifact.execute expected hash differs from the retained package",
+                    ));
+                }
+                let target = workspace_data.target_manifest(
+                    &package.manifest.anchor.target_manifest,
+                    &package.manifest.anchor.target_revision,
+                )?;
+                let runtime = runtime_inputs(&inputs)?;
+                check_runtime_limits(&self.limits, package, &runtime)?;
+                let record = agentir_runtime_wgpu::execute(package, target, adapter, &runtime)?;
+                serde_json::to_value(record)
+                    .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
+            }
+            Request::DeviceList {
+                workspace,
+                target_manifest,
+                target_revision,
+                ..
+            } => serde_json::to_value(agentir_runtime_wgpu::list_devices(
+                self.workspace(&workspace)?
+                    .target_manifest(&target_manifest, &target_revision)?,
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::DeviceQuery {
+                workspace,
+                target_manifest,
+                target_revision,
+                adapter,
+                ..
+            } => {
+                let devices = agentir_runtime_wgpu::list_devices(
+                    self.workspace(&workspace)?
+                        .target_manifest(&target_manifest, &target_revision)?,
+                )?;
+                let record = devices
+                    .into_iter()
+                    .find(|record| record.index == adapter)
+                    .ok_or_else(|| {
+                        AgentError::new(
+                            ErrorCode::DeviceUnavailable,
+                            "WebGPU adapter is unavailable",
+                        )
+                    })?;
+                serde_json::to_value(record)
+                    .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
+            }
+            Request::BenchmarkStart {
+                workspace,
+                artifact,
+                expected_artifact_hash,
+                adapter,
+                config,
+                inputs,
+                ..
+            } => {
+                BudgetCheck::against(
+                    &self.limits,
+                    ResourceKind::ActiveDeviceTasks,
+                    1,
+                    "benchmark.start",
+                )?;
+                BudgetCheck::against(
+                    &self.limits,
+                    ResourceKind::BenchmarkWarmups,
+                    u64::from(config.warmups),
+                    "benchmark.start",
+                )?;
+                BudgetCheck::against(
+                    &self.limits,
+                    ResourceKind::BenchmarkIterations,
+                    u64::from(config.iterations),
+                    "benchmark.start",
+                )?;
+                if config.iterations == 0 {
+                    return Err(AgentError::new(
+                        ErrorCode::BenchmarkLimitExceeded,
+                        "benchmark iterations must be positive",
+                    ));
+                }
+                let runtime = runtime_inputs(&inputs)?;
+                let (package, target) = {
+                    let workspace_data = self.workspace(&workspace)?;
+                    workspace_data.artifact_check(&artifact)?;
+                    let package = workspace_data.artifact_package(&artifact)?.clone();
+                    if package.artifact_hash != expected_artifact_hash {
+                        return Err(AgentError::new(
+                            ErrorCode::ArtifactHashMismatch,
+                            "benchmark.start expected hash differs from the retained package",
+                        ));
+                    }
+                    let target = workspace_data
+                        .target_manifest(
+                            &package.manifest.anchor.target_manifest,
+                            &package.manifest.anchor.target_revision,
+                        )?
+                        .clone();
+                    (package, target)
+                };
+                check_runtime_limits(&self.limits, &package, &runtime)?;
+                for _ in 0..config.warmups {
+                    agentir_runtime_wgpu::execute(&package, &target, adapter, &runtime)?;
+                }
+                let started = Instant::now();
+                let mut samples = Vec::with_capacity(config.iterations as usize);
+                let mut last = None;
+                let mut guard_outcomes = BTreeMap::<String, u64>::new();
+                for _ in 0..config.iterations {
+                    let iteration = Instant::now();
+                    let result =
+                        agentir_runtime_wgpu::execute(&package, &target, adapter, &runtime)?;
+                    samples.push(u64::try_from(iteration.elapsed().as_nanos()).unwrap_or(u64::MAX));
+                    let branch = match result.guard_branch {
+                        Some(true) => "true",
+                        Some(false) => "false",
+                        None => "unguarded",
+                    };
+                    *guard_outcomes.entry(branch.to_owned()).or_default() += 1;
+                    last = Some(result);
+                    BudgetCheck::against(
+                        &self.limits,
+                        ResourceKind::BenchmarkWallTimeMs,
+                        u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                        "benchmark.start",
+                    )?;
+                }
+                samples.sort_unstable();
+                let last = last.expect("positive iteration count checked above");
+                let percentile = |numerator: usize| {
+                    let index = samples.len().saturating_mul(numerator).saturating_add(99) / 100;
+                    samples[index.saturating_sub(1).min(samples.len() - 1)]
+                };
+                let record = agentir_core::backend_ir::HardwareMeasurementRecord {
+                    format_version: agentir_core::backend_ir::MEASUREMENT_FORMAT_VERSION,
+                    artifact_hash: package.artifact_hash.clone(),
+                    target_hash: package.manifest.anchor.target_hash.clone(),
+                    compiler_build_hash: package.manifest.compiler_build_hash.clone(),
+                    device_fingerprint_hash: last.device_fingerprint_hash,
+                    device: last.device,
+                    config,
+                    min_ns: samples[0],
+                    median_ns: percentile(50),
+                    p95_ns: percentile(95),
+                    max_ns: samples[samples.len() - 1],
+                    guard_outcomes,
+                    validation_status: "offline_validated_and_device_executed".to_owned(),
+                    runtime_version: agentir_runtime_wgpu::WGPU_RUNTIME_VERSION.to_owned(),
+                    measurement_hash: agentir_core::backend::MeasurementHash::new("pending"),
+                };
+                BudgetCheck::against(
+                    &self.limits,
+                    ResourceKind::BenchmarkRecordBytes,
+                    u64::try_from(
+                        serde_json::to_vec(&record)
+                            .map_err(|error| {
+                                AgentError::new(
+                                    ErrorCode::CanonicalizationFailed,
+                                    error.to_string(),
+                                )
+                            })?
+                            .len(),
+                    )
+                    .unwrap_or(u64::MAX),
+                    "benchmark record",
+                )?;
+                let measurement = self
+                    .workspace_mut(&workspace)?
+                    .measurement_publish(record)?;
+                self.next_benchmark_task = self.next_benchmark_task.saturating_add(1);
+                let task = format!("bench{}", self.next_benchmark_task);
+                let value = json!({
+                    "task": task,
+                    "status": "completed",
+                    "measurement": measurement,
+                });
+                self.benchmark_tasks.insert(task, value.clone());
+                Ok(value)
+            }
+            Request::BenchmarkStatus { task, .. } => {
+                self.benchmark_tasks.get(&task).cloned().ok_or_else(|| {
+                    AgentError::new(
+                        ErrorCode::BenchmarkTaskNotFound,
+                        format!("benchmark task `{task}` does not exist"),
+                    )
+                })
+            }
+            Request::BenchmarkCancel { task, .. } => {
+                let Some(state) = self.benchmark_tasks.get(&task) else {
+                    return Err(AgentError::new(
+                        ErrorCode::BenchmarkTaskNotFound,
+                        format!("benchmark task `{task}` does not exist"),
+                    ));
+                };
+                Ok(json!({"task": task, "status": "already_completed", "result": state}))
+            }
+            Request::BenchmarkQuery {
+                workspace,
+                measurement,
+                ..
+            } => serde_json::to_value(
+                self.workspace(&workspace)?
+                    .measurement_query(&measurement)?,
             )
             .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
         }
