@@ -100,3 +100,6 @@ The hard profile is used only while verifying/migrating/replaying persisted stat
 At exact limit the workload is accepted. Limit plus one returns `RESOURCE_LIMIT_EXCEEDED` with the resource kind, configured limit, attempted/actual value, context and a repair. Because graph/allocator/head state is staged, budget rejection is fully atomic.
 
 These are robustness limits, not a multi-tenant security sandbox. Stage 3 still has no process isolation, authentication, locking or production server boundary.
+# Stage 4 budgets
+
+Central limits cover target manifests/revisions/events/capabilities/canonical bytes; schedule plans/revisions/events/nodes/axes/transforms/fusion/dependencies/legality facts; tile rank, remainders, bindings, vector width, unroll factor and launch dimensions; simulator coordinates/work; obligations/evidence/canonical/archive bytes; schedule trace events/bytes; and generated schedule cases. Checks use checked or saturating arithmetic and stage mutations so hard-limit rejection consumes no persistent ID. Limits never participate in `target_hash`, `schedule_hash`, or archive semantic state.

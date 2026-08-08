@@ -77,3 +77,6 @@ The core derives frames from the same verified program used by free transactions
 ## Persistence boundary
 
 The core snapshot contains the complete SpecIR revision DAG/allocator/events, CandidateForest/proposals/debt/evidence/events, EqualityStore/spaces/revisions/events, and MemoryPlanStore/plans/evidence/events. Loading never trusts serialized graphs directly: `agentir-store` checks the exact source codec/hash, migrates, replays SpecIR, respects explicit candidate/equality/memory dependency cursors and verifies every program, hash, proof edge, worklist, frontier, buffer, alias/lifetime fact and evidence chain. Only the complete verified workspace is published. See [persistence.md](persistence.md).
+# Stage 4 scheduling layer
+
+One proved MemoryIR revision plus one immutable TargetManifest anchors an independent SchedulePlan DAG. The core derives domains and dependencies, verifies transforms and memory compatibility, simulates target resources, and emits compiler-owned evidence before publication. Target and schedule events replay after their candidate/equality/memory dependencies. Backend lowering remains outside every Stage 4 crate boundary.

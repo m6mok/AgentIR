@@ -22,7 +22,8 @@ use crate::{
     ids::{
         ActionId, BufferId, CandidateId, CandidateRevisionId, EqualityNodeId, EqualityRevisionId,
         EqualitySpaceId, HoleId, IdAllocator, MemoryPlanId, MemoryRevisionId, ObligationId,
-        ProposalId, RevisionId, ValueId, WorkspaceId,
+        ProposalId, RevisionId, ScheduleAxisId, SchedulePlanId, ScheduleRevisionId,
+        TargetManifestId, TargetManifestRevisionId, ValueId, WorkspaceId,
     },
     ir::{
         BlockArgument, ConstantValue, Dimension, Opcode, Operation, Program, Region,
@@ -43,6 +44,12 @@ use crate::{
     },
     resources::{BudgetCheck, ResourceKind, ResourceLimits},
     revision::{Revision, RevisionDiff, StatusSummary, diff},
+    schedule::{
+        SCHEDULE_EVENT_SEMANTICS_VERSION, ScheduleCheckReport, ScheduleContinuation, ScheduleEvent,
+        ScheduleHash, ScheduleLegalityQuery, SchedulePlanStore, ScheduleQuery, ScheduleTransaction,
+        VersionedScheduleEvent, canonical_schedule_bytes,
+    },
+    schedule_ir::{ScheduleAxis, ScheduleResourceEstimate},
     semantic::{
         SPEC_CANONICAL_VERSION, SemanticCanonicalization, SpecHash, canonicalize_spec_with_limit,
     },
@@ -50,6 +57,10 @@ use crate::{
     spec::{
         ShapeRelation, infer_higher, infer_higher_with_facts, infer_primitive,
         infer_primitive_with_facts,
+    },
+    target::{
+        TARGET_EVENT_SEMANTICS_VERSION, TargetCheckReport, TargetEvent, TargetManifestStore,
+        TargetProfile, TargetQuery, VersionedTargetEvent, canonical_target_bytes,
     },
     transaction::CommitResult,
     types::{DimExpr, Type},
@@ -778,6 +789,8 @@ pub struct Workspace {
     candidates: CandidateForest,
     equality: EqualityStore,
     memory: MemoryPlanStore,
+    targets: TargetManifestStore,
+    schedules: SchedulePlanStore,
     limits: ResourceLimits,
 }
 
@@ -812,6 +825,8 @@ impl Workspace {
             candidates: CandidateForest::default(),
             equality: EqualityStore::default(),
             memory: MemoryPlanStore::default(),
+            targets: TargetManifestStore::default(),
+            schedules: SchedulePlanStore::default(),
             limits,
         })
     }
@@ -849,6 +864,18 @@ impl Workspace {
     #[must_use]
     pub const fn memory_store(&self) -> &MemoryPlanStore {
         &self.memory
+    }
+
+    /// Returns the immutable compiler-owned target manifest store.
+    #[must_use]
+    pub const fn target_store(&self) -> &TargetManifestStore {
+        &self.targets
+    }
+
+    /// Returns the independent persistent ScheduleIR plan store.
+    #[must_use]
+    pub const fn schedule_store(&self) -> &SchedulePlanStore {
+        &self.schedules
     }
 
     /// Returns the current head revision ID.
@@ -2019,6 +2046,656 @@ impl Workspace {
             .impl_program)
     }
 
+    /// Instantiates one immutable compiler-owned target profile.
+    pub fn target_create(&mut self, profile: TargetProfile) -> AgentResult<TargetCheckReport> {
+        BudgetCheck::against(
+            &self.limits,
+            ResourceKind::TargetManifestsPerWorkspace,
+            u64::try_from(self.targets.manifests.len())
+                .unwrap_or(u64::MAX)
+                .saturating_add(1),
+            "target.create",
+        )?;
+        BudgetCheck::against(
+            &self.limits,
+            ResourceKind::TargetEvents,
+            u64::try_from(self.targets.events.len())
+                .unwrap_or(u64::MAX)
+                .saturating_add(1),
+            "target.create",
+        )?;
+        let mut staged = self.targets.clone();
+        let report = staged.create(profile)?;
+        self.validate_target_budgets(&staged)?;
+        self.targets = staged;
+        Ok(report)
+    }
+
+    fn validate_target_budgets(&self, store: &TargetManifestStore) -> AgentResult<()> {
+        BudgetCheck::against(
+            &self.limits,
+            ResourceKind::TargetRevisionsPerWorkspace,
+            u64::try_from(store.manifests.len()).unwrap_or(u64::MAX),
+            "TargetManifestStore",
+        )?;
+        for revision in store.manifests.values() {
+            BudgetCheck::against(
+                &self.limits,
+                ResourceKind::TargetCapabilities,
+                u64::try_from(revision.manifest.capabilities.len()).unwrap_or(u64::MAX),
+                "TargetManifest capabilities",
+            )?;
+            BudgetCheck::against(
+                &self.limits,
+                ResourceKind::TargetCanonicalBytes,
+                u64::try_from(canonical_target_bytes(&revision.manifest)?.len())
+                    .unwrap_or(u64::MAX),
+                "TargetManifest canonical form",
+            )?;
+        }
+        Ok(())
+    }
+
+    fn validate_schedule_budgets(&self, store: &SchedulePlanStore) -> AgentResult<()> {
+        let revisions = store.plans.values().fold(0_u64, |sum, plan| {
+            sum.saturating_add(u64::try_from(plan.revisions.len()).unwrap_or(u64::MAX))
+        });
+        BudgetCheck::against(
+            &self.limits,
+            ResourceKind::SchedulePlansPerWorkspace,
+            u64::try_from(store.plans.len()).unwrap_or(u64::MAX),
+            "SchedulePlanStore",
+        )?;
+        BudgetCheck::against(
+            &self.limits,
+            ResourceKind::ScheduleRevisionsPerWorkspace,
+            revisions,
+            "SchedulePlanStore",
+        )?;
+        BudgetCheck::against(
+            &self.limits,
+            ResourceKind::ScheduleEvents,
+            u64::try_from(store.events.len()).unwrap_or(u64::MAX),
+            "SchedulePlanStore",
+        )?;
+        BudgetCheck::against(
+            &self.limits,
+            ResourceKind::ScheduleEvidenceRecords,
+            u64::try_from(store.evidence.len()).unwrap_or(u64::MAX),
+            "SchedulePlanStore",
+        )?;
+        for plan in store.plans.values() {
+            for revision in plan.revisions.values() {
+                let program = &revision.program;
+                let transforms = program.splits.len().saturating_add(program.tiles.len());
+                let fusion_members = program
+                    .fusion_groups
+                    .iter()
+                    .map(|group| group.members.len())
+                    .max()
+                    .unwrap_or(0);
+                let remainders = program
+                    .axes
+                    .values()
+                    .filter(|axis| !matches!(axis.tail, crate::schedule_ir::TailStrategy::Exact))
+                    .count();
+                let bindings = program
+                    .axes
+                    .values()
+                    .filter_map(|axis| axis.binding.as_ref().map(|binding| binding.level))
+                    .collect::<BTreeSet<_>>()
+                    .len();
+                let checks = [
+                    (ResourceKind::ScheduleNodesPerRevision, program.nodes.len()),
+                    (ResourceKind::ScheduleAxesPerRevision, program.axes.len()),
+                    (ResourceKind::ScheduleTransformsPerRevision, transforms),
+                    (
+                        ResourceKind::ScheduleFusionGroups,
+                        program.fusion_groups.len(),
+                    ),
+                    (ResourceKind::ScheduleFusionMembers, fusion_members),
+                    (
+                        ResourceKind::ScheduleDependencyEdges,
+                        program.dependencies.len(),
+                    ),
+                    (
+                        ResourceKind::ScheduleLegalityFacts,
+                        program.legality_facts.len(),
+                    ),
+                    (ResourceKind::ScheduleRemainderDomains, remainders),
+                    (ResourceKind::ScheduleBindingDepth, bindings),
+                    (
+                        ResourceKind::ScheduleObligations,
+                        revision.obligations.len(),
+                    ),
+                ];
+                for (kind, actual) in checks {
+                    BudgetCheck::against(
+                        &self.limits,
+                        kind,
+                        u64::try_from(actual).unwrap_or(u64::MAX),
+                        "ScheduleIR revision",
+                    )?;
+                }
+                for tile in &program.tiles {
+                    BudgetCheck::against(
+                        &self.limits,
+                        ResourceKind::ScheduleTileRank,
+                        u64::try_from(tile.axes.len()).unwrap_or(u64::MAX),
+                        "ScheduleIR tile",
+                    )?;
+                }
+                for vector in &program.vectorizations {
+                    BudgetCheck::against(
+                        &self.limits,
+                        ResourceKind::ScheduleVectorWidth,
+                        vector.width,
+                        "ScheduleIR vectorization",
+                    )?;
+                }
+                for unroll in &program.unrolls {
+                    BudgetCheck::against(
+                        &self.limits,
+                        ResourceKind::ScheduleUnrollFactor,
+                        unroll.factor,
+                        "ScheduleIR unroll",
+                    )?;
+                }
+                BudgetCheck::against(
+                    &self.limits,
+                    ResourceKind::ScheduleCanonicalBytes,
+                    u64::try_from(canonical_schedule_bytes(plan, revision)?.len())
+                        .unwrap_or(u64::MAX),
+                    "ScheduleIR canonical form",
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Lists compiler-owned target manifests in deterministic order.
+    #[must_use]
+    pub fn target_list(&self) -> Vec<TargetQuery> {
+        self.targets.list()
+    }
+
+    /// Reads one immutable target manifest summary.
+    pub fn target_query(
+        &self,
+        manifest: &TargetManifestId,
+        revision: &TargetManifestRevisionId,
+    ) -> AgentResult<TargetQuery> {
+        self.targets.query(manifest, revision)
+    }
+
+    /// Fully verifies one immutable target manifest.
+    pub fn target_check(
+        &self,
+        manifest: &TargetManifestId,
+        revision: &TargetManifestRevisionId,
+    ) -> AgentResult<TargetCheckReport> {
+        self.targets.check(manifest, revision)
+    }
+
+    fn schedule_inputs(
+        &self,
+        plan: &SchedulePlanId,
+    ) -> AgentResult<(
+        crate::memory::MemoryPlan,
+        crate::memory::MemoryRevision,
+        crate::impl_ir::ImplProgram,
+        crate::target::TargetManifest,
+    )> {
+        let anchor = self.schedules.plan(plan)?.anchor.clone();
+        let memory_plan = self.memory.plan(&anchor.memory_plan)?.clone();
+        let memory_revision = self
+            .memory
+            .revision(&anchor.memory_plan, &anchor.memory_revision)?
+            .clone();
+        let implementation = self
+            .candidates
+            .revision(&anchor.candidate, &anchor.candidate_revision)?
+            .impl_program
+            .clone();
+        let target = self
+            .targets
+            .manifest(&anchor.target_manifest, &anchor.target_revision)?
+            .clone();
+        Ok((memory_plan, memory_revision, implementation, target))
+    }
+
+    /// Creates a conservative exact serial ScheduleIR root.
+    pub fn schedule_create(
+        &mut self,
+        memory_plan: &MemoryPlanId,
+        memory_revision: &MemoryRevisionId,
+        target_manifest: &TargetManifestId,
+        target_revision: &TargetManifestRevisionId,
+    ) -> AgentResult<ScheduleCheckReport> {
+        self.memory_check(memory_plan, memory_revision)?;
+        self.target_check(target_manifest, target_revision)?;
+        let memory_plan_data = self.memory.plan(memory_plan)?.clone();
+        let memory_revision_data = self.memory.revision(memory_plan, memory_revision)?.clone();
+        let implementation = self
+            .candidates
+            .revision(
+                &memory_plan_data.anchor.candidate,
+                &memory_plan_data.anchor.candidate_revision,
+            )?
+            .impl_program
+            .clone();
+        let target = self
+            .targets
+            .manifest(target_manifest, target_revision)?
+            .clone();
+        BudgetCheck::against(
+            &self.limits,
+            ResourceKind::SchedulePlansPerWorkspace,
+            u64::try_from(self.schedules.plans.len())
+                .unwrap_or(u64::MAX)
+                .saturating_add(1),
+            "schedule.create",
+        )?;
+        let mut staged = self.schedules.clone();
+        let report = staged.create(
+            &memory_plan_data,
+            &memory_revision_data,
+            &implementation,
+            &target,
+            u64::try_from(self.candidates.events.len()).unwrap_or(u64::MAX),
+            u64::try_from(self.equality.events.len()).unwrap_or(u64::MAX),
+            u64::try_from(self.memory.events.len()).unwrap_or(u64::MAX),
+            u64::try_from(self.targets.events.len()).unwrap_or(u64::MAX),
+        )?;
+        self.validate_schedule_budgets(&staged)?;
+        self.schedules = staged;
+        Ok(report)
+    }
+
+    /// Reads one immutable ScheduleIR revision summary.
+    pub fn schedule_query(
+        &self,
+        plan: &SchedulePlanId,
+        revision: &ScheduleRevisionId,
+    ) -> AgentResult<ScheduleQuery> {
+        self.schedules.query(plan, revision)
+    }
+
+    /// Fully verifies one ScheduleIR revision against its immutable anchors.
+    pub fn schedule_check(
+        &self,
+        plan: &SchedulePlanId,
+        revision: &ScheduleRevisionId,
+    ) -> AgentResult<ScheduleCheckReport> {
+        let (memory_plan, memory_revision, implementation, target) = self.schedule_inputs(plan)?;
+        self.schedules.check(
+            plan,
+            revision,
+            &memory_plan,
+            &memory_revision,
+            &implementation,
+            &target,
+        )
+    }
+
+    /// Applies one atomic compiler-verified ScheduleIR transaction.
+    pub fn schedule_apply(
+        &mut self,
+        transaction: &ScheduleTransaction,
+    ) -> AgentResult<ScheduleCheckReport> {
+        BudgetCheck::against(
+            &self.limits,
+            ResourceKind::ActionsPerTransaction,
+            u64::try_from(transaction.actions.len()).unwrap_or(u64::MAX),
+            "schedule.apply",
+        )?;
+        let (memory_plan, memory_revision, implementation, target) =
+            self.schedule_inputs(&transaction.schedule_plan)?;
+        let mut staged = self.schedules.clone();
+        let report = staged.apply(
+            transaction,
+            &memory_plan,
+            &memory_revision,
+            &implementation,
+            &target,
+            u64::try_from(self.candidates.events.len()).unwrap_or(u64::MAX),
+            u64::try_from(self.equality.events.len()).unwrap_or(u64::MAX),
+            u64::try_from(self.memory.events.len()).unwrap_or(u64::MAX),
+            u64::try_from(self.targets.events.len()).unwrap_or(u64::MAX),
+        )?;
+        self.validate_schedule_budgets(&staged)?;
+        self.schedules = staged;
+        Ok(report)
+    }
+
+    /// Forks one immutable schedule revision into an independent plan.
+    pub fn schedule_fork(
+        &mut self,
+        plan: &SchedulePlanId,
+        revision: &ScheduleRevisionId,
+        expected_hash: &ScheduleHash,
+    ) -> AgentResult<ScheduleCheckReport> {
+        let (memory_plan, memory_revision, implementation, target) = self.schedule_inputs(plan)?;
+        let mut staged = self.schedules.clone();
+        let report = staged.fork(
+            plan,
+            revision,
+            expected_hash,
+            &memory_plan,
+            &memory_revision,
+            &implementation,
+            &target,
+            u64::try_from(self.candidates.events.len()).unwrap_or(u64::MAX),
+            u64::try_from(self.equality.events.len()).unwrap_or(u64::MAX),
+            u64::try_from(self.memory.events.len()).unwrap_or(u64::MAX),
+            u64::try_from(self.targets.events.len()).unwrap_or(u64::MAX),
+        )?;
+        self.validate_schedule_budgets(&staged)?;
+        self.schedules = staged;
+        Ok(report)
+    }
+
+    /// Seals one structurally proved resource-valid schedule.
+    pub fn schedule_seal(
+        &mut self,
+        plan: &SchedulePlanId,
+        revision: &ScheduleRevisionId,
+        expected_hash: &ScheduleHash,
+    ) -> AgentResult<ScheduleCheckReport> {
+        let (memory_plan, memory_revision, implementation, target) = self.schedule_inputs(plan)?;
+        let mut staged = self.schedules.clone();
+        let report = staged.seal(
+            plan,
+            revision,
+            expected_hash,
+            &memory_plan,
+            &memory_revision,
+            &implementation,
+            &target,
+            u64::try_from(self.candidates.events.len()).unwrap_or(u64::MAX),
+            u64::try_from(self.equality.events.len()).unwrap_or(u64::MAX),
+            u64::try_from(self.memory.events.len()).unwrap_or(u64::MAX),
+            u64::try_from(self.targets.events.len()).unwrap_or(u64::MAX),
+        )?;
+        self.validate_schedule_budgets(&staged)?;
+        self.schedules = staged;
+        Ok(report)
+    }
+
+    /// Returns one compiler-owned schedule axis without mutation.
+    pub fn schedule_axis_query(
+        &self,
+        plan: &SchedulePlanId,
+        revision: &ScheduleRevisionId,
+        axis: &ScheduleAxisId,
+    ) -> AgentResult<&ScheduleAxis> {
+        self.schedules
+            .revision(plan, revision)?
+            .program
+            .axes
+            .get(axis)
+            .ok_or_else(|| {
+                AgentError::new(
+                    ErrorCode::InvalidScheduleAxis,
+                    format!("schedule axis `{axis}` does not exist"),
+                )
+            })
+    }
+
+    /// Returns the deterministic analytical target resource estimate.
+    pub fn schedule_resource_query(
+        &self,
+        plan: &SchedulePlanId,
+        revision: &ScheduleRevisionId,
+    ) -> AgentResult<&ScheduleResourceEstimate> {
+        Ok(&self
+            .schedules
+            .revision(plan, revision)?
+            .program
+            .resource_estimate)
+    }
+
+    /// Answers whether one schedule action satisfies all hard conditions.
+    pub fn schedule_legality_query(
+        &self,
+        plan: &SchedulePlanId,
+        revision: &ScheduleRevisionId,
+        action: &crate::schedule::ScheduleAction,
+    ) -> AgentResult<ScheduleLegalityQuery> {
+        let (_, memory_revision, implementation, target) = self.schedule_inputs(plan)?;
+        self.schedules.legality_query(
+            plan,
+            revision,
+            action,
+            &memory_revision,
+            &implementation,
+            &target,
+        )
+    }
+
+    /// Returns bounded deterministic parametric schedule choices.
+    pub fn schedule_continuation(
+        &self,
+        plan: &SchedulePlanId,
+        revision: &ScheduleRevisionId,
+    ) -> AgentResult<ScheduleContinuation> {
+        let (_, _, _, target) = self.schedule_inputs(plan)?;
+        self.schedules.continuation(plan, revision, &target)
+    }
+
+    /// Returns the immutable MemoryIR revision anchored by a schedule plan.
+    pub fn scheduled_memory_revision(
+        &self,
+        plan: &SchedulePlanId,
+    ) -> AgentResult<&crate::memory::MemoryRevision> {
+        let anchor = &self.schedules.plan(plan)?.anchor;
+        self.memory
+            .revision(&anchor.memory_plan, &anchor.memory_revision)
+    }
+
+    /// Returns the immutable ImplIR program anchored by a schedule plan.
+    pub fn scheduled_impl_program(
+        &self,
+        plan: &SchedulePlanId,
+    ) -> AgentResult<&crate::impl_ir::ImplProgram> {
+        let anchor = &self.schedules.plan(plan)?.anchor;
+        Ok(&self
+            .candidates
+            .revision(&anchor.candidate, &anchor.candidate_revision)?
+            .impl_program)
+    }
+
+    fn replay_target_event(&mut self, versioned: &VersionedTargetEvent) -> AgentResult<()> {
+        if versioned.semantics_version != TARGET_EVENT_SEMANTICS_VERSION {
+            return Err(AgentError::new(
+                ErrorCode::ScheduleEventOrderInvalid,
+                "unsupported target event semantics version",
+            ));
+        }
+        let TargetEvent::Created {
+            profile,
+            target_manifest,
+            target_revision,
+            target_hash,
+        } = &versioned.event;
+        let result = self.target_create(*profile)?;
+        if result.query.target_manifest != *target_manifest
+            || result.query.target_revision != *target_revision
+            || result.query.target_hash != *target_hash
+            || self.targets.events.last() != Some(versioned)
+        {
+            return Err(AgentError::new(
+                ErrorCode::ReplayMismatch,
+                "target event replay diverged",
+            ));
+        }
+        Ok(())
+    }
+
+    fn replay_schedule_event(&mut self, versioned: &VersionedScheduleEvent) -> AgentResult<()> {
+        if versioned.semantics_version != SCHEDULE_EVENT_SEMANTICS_VERSION {
+            return Err(AgentError::new(
+                ErrorCode::ScheduleEventOrderInvalid,
+                "unsupported schedule event semantics version",
+            ));
+        }
+        let result = match &versioned.event {
+            ScheduleEvent::Created {
+                memory_plan,
+                memory_revision,
+                target_manifest,
+                target_revision,
+                schedule_plan,
+                schedule_revision,
+                schedule_hash,
+            } => {
+                self.memory_check(memory_plan, memory_revision)?;
+                self.target_check(target_manifest, target_revision)?;
+                let memory_plan_data = self.memory.plan(memory_plan)?.clone();
+                let memory_revision_data =
+                    self.memory.revision(memory_plan, memory_revision)?.clone();
+                let implementation = self
+                    .candidates
+                    .revision(
+                        &memory_plan_data.anchor.candidate,
+                        &memory_plan_data.anchor.candidate_revision,
+                    )?
+                    .impl_program
+                    .clone();
+                let target = self
+                    .targets
+                    .manifest(target_manifest, target_revision)?
+                    .clone();
+                let result = self.schedules.create(
+                    &memory_plan_data,
+                    &memory_revision_data,
+                    &implementation,
+                    &target,
+                    versioned.candidate_event_cursor,
+                    versioned.equality_event_cursor,
+                    versioned.memory_event_cursor,
+                    versioned.target_event_cursor,
+                )?;
+                if result.query.schedule_plan != *schedule_plan
+                    || result.query.schedule_revision != *schedule_revision
+                    || result.query.schedule_hash != *schedule_hash
+                {
+                    return Err(AgentError::new(
+                        ErrorCode::ReplayMismatch,
+                        "schedule creation replay diverged",
+                    ));
+                }
+                result
+            }
+            ScheduleEvent::Applied {
+                transaction,
+                schedule_revision,
+                schedule_hash,
+            } => {
+                let (memory_plan, memory_revision, implementation, target) =
+                    self.schedule_inputs(&transaction.schedule_plan)?;
+                let result = self.schedules.apply(
+                    transaction,
+                    &memory_plan,
+                    &memory_revision,
+                    &implementation,
+                    &target,
+                    versioned.candidate_event_cursor,
+                    versioned.equality_event_cursor,
+                    versioned.memory_event_cursor,
+                    versioned.target_event_cursor,
+                )?;
+                if result.query.schedule_revision != *schedule_revision
+                    || result.query.schedule_hash != *schedule_hash
+                {
+                    return Err(AgentError::new(
+                        ErrorCode::ReplayMismatch,
+                        "schedule transaction replay diverged",
+                    ));
+                }
+                result
+            }
+            ScheduleEvent::Forked {
+                parent_plan,
+                parent_revision,
+                schedule_plan,
+                schedule_revision,
+                schedule_hash,
+            } => {
+                let expected = self
+                    .schedules
+                    .revision(parent_plan, parent_revision)?
+                    .schedule_hash
+                    .clone();
+                let (memory_plan, memory_revision, implementation, target) =
+                    self.schedule_inputs(parent_plan)?;
+                let result = self.schedules.fork(
+                    parent_plan,
+                    parent_revision,
+                    &expected,
+                    &memory_plan,
+                    &memory_revision,
+                    &implementation,
+                    &target,
+                    versioned.candidate_event_cursor,
+                    versioned.equality_event_cursor,
+                    versioned.memory_event_cursor,
+                    versioned.target_event_cursor,
+                )?;
+                if result.query.schedule_plan != *schedule_plan
+                    || result.query.schedule_revision != *schedule_revision
+                    || result.query.schedule_hash != *schedule_hash
+                {
+                    return Err(AgentError::new(
+                        ErrorCode::ReplayMismatch,
+                        "schedule fork replay diverged",
+                    ));
+                }
+                result
+            }
+            ScheduleEvent::Sealed {
+                schedule_plan,
+                base_revision,
+                expected_schedule_hash,
+                schedule_revision,
+                schedule_hash,
+            } => {
+                let (memory_plan, memory_revision, implementation, target) =
+                    self.schedule_inputs(schedule_plan)?;
+                let result = self.schedules.seal(
+                    schedule_plan,
+                    base_revision,
+                    expected_schedule_hash,
+                    &memory_plan,
+                    &memory_revision,
+                    &implementation,
+                    &target,
+                    versioned.candidate_event_cursor,
+                    versioned.equality_event_cursor,
+                    versioned.memory_event_cursor,
+                    versioned.target_event_cursor,
+                )?;
+                if result.query.schedule_revision != *schedule_revision
+                    || result.query.schedule_hash != *schedule_hash
+                {
+                    return Err(AgentError::new(
+                        ErrorCode::ReplayMismatch,
+                        "schedule sealing replay diverged",
+                    ));
+                }
+                result
+            }
+        };
+        let _ = result;
+        if self.schedules.events.last() != Some(versioned) {
+            return Err(AgentError::new(
+                ErrorCode::ReplayMismatch,
+                "schedule event replay diverged",
+            ));
+        }
+        Ok(())
+    }
+
     fn replay_memory_event(&mut self, versioned: &VersionedMemoryEvent) -> AgentResult<()> {
         if versioned.semantics_version != MEMORY_EVENT_SEMANTICS_VERSION {
             return Err(AgentError::new(
@@ -2375,6 +3052,8 @@ impl Workspace {
         expected_candidates: &CandidateForest,
         expected_equality: &EqualityStore,
         expected_memory: &MemoryPlanStore,
+        expected_targets: &TargetManifestStore,
+        expected_schedules: &SchedulePlanStore,
     ) -> AgentResult<()> {
         let mut candidate_cursor = 0_usize;
         for equality_event in &expected_equality.events {
@@ -2590,7 +3269,64 @@ impl Workspace {
                 Ok((source.program.clone(), spec_hash))
             },
             &self.limits,
-        )
+        )?;
+
+        let mut target_cursor = 0_usize;
+        for event in &expected_schedules.events {
+            let required = usize::try_from(event.target_event_cursor).map_err(|_| {
+                AgentError::new(
+                    ErrorCode::ScheduleEventOrderInvalid,
+                    "schedule target-event cursor does not fit this platform",
+                )
+            })?;
+            if required < target_cursor || required > expected_targets.events.len() {
+                return Err(AgentError::new(
+                    ErrorCode::ScheduleEventOrderInvalid,
+                    "schedule target-event dependency cursor is invalid",
+                ));
+            }
+            for target_event in &expected_targets.events[target_cursor..required] {
+                self.replay_target_event(target_event)?;
+            }
+            target_cursor = required;
+            if event.candidate_event_cursor > expected_candidates.events.len() as u64
+                || event.equality_event_cursor > expected_equality.events.len() as u64
+                || event.memory_event_cursor > expected_memory.events.len() as u64
+            {
+                return Err(AgentError::new(
+                    ErrorCode::ScheduleEventOrderInvalid,
+                    "schedule dependency cursor exceeds the available event history",
+                ));
+            }
+            self.replay_schedule_event(event)?;
+        }
+        for target_event in &expected_targets.events[target_cursor..] {
+            self.replay_target_event(target_event)?;
+        }
+        if &self.targets != expected_targets || &self.schedules != expected_schedules {
+            return Err(AgentError::new(
+                ErrorCode::ReplayMismatch,
+                "replayed target or schedule store differs from snapshot",
+            ));
+        }
+        self.targets.verify_all()?;
+        self.schedules.verify_all(|anchor| {
+            let memory_plan = self.memory.plan(&anchor.memory_plan)?.clone();
+            let memory_revision = self
+                .memory
+                .revision(&anchor.memory_plan, &anchor.memory_revision)?
+                .clone();
+            let implementation = self
+                .candidates
+                .revision(&anchor.candidate, &anchor.candidate_revision)?
+                .impl_program
+                .clone();
+            let target = self
+                .targets
+                .manifest(&anchor.target_manifest, &anchor.target_revision)?
+                .clone();
+            Ok((memory_plan, memory_revision, implementation, target))
+        })
     }
 
     /// Captures all state required to resume and replay this workspace.
@@ -2606,6 +3342,8 @@ impl Workspace {
             candidate_forest: self.candidates.clone(),
             equality_store: self.equality.clone(),
             memory_store: self.memory.clone(),
+            target_store: self.targets.clone(),
+            schedule_store: self.schedules.clone(),
         }
     }
 
@@ -2663,6 +3401,30 @@ impl Workspace {
             ResourceKind::MemoryEvents,
             as_u64(snapshot.memory_store.events.len()),
             "memory snapshot replay preflight",
+        )?;
+        BudgetCheck::against(
+            &ResourceLimits::hard_safety_caps(),
+            ResourceKind::TargetEvents,
+            as_u64(snapshot.target_store.events.len()),
+            "target snapshot replay preflight",
+        )?;
+        BudgetCheck::against(
+            &ResourceLimits::hard_safety_caps(),
+            ResourceKind::ScheduleEvents,
+            as_u64(snapshot.schedule_store.events.len()),
+            "schedule snapshot replay preflight",
+        )?;
+        BudgetCheck::against(
+            &ResourceLimits::hard_safety_caps(),
+            ResourceKind::TargetManifestsPerWorkspace,
+            as_u64(snapshot.target_store.manifests.len()),
+            "target snapshot replay preflight",
+        )?;
+        BudgetCheck::against(
+            &ResourceLimits::hard_safety_caps(),
+            ResourceKind::SchedulePlansPerWorkspace,
+            as_u64(snapshot.schedule_store.plans.len()),
+            "schedule snapshot replay preflight",
         )?;
         let replay_actions = snapshot.events.iter().fold(0_u64, |total, versioned| {
             total.saturating_add(match &versioned.event {
@@ -2877,7 +3639,11 @@ impl Workspace {
             &snapshot.candidate_forest,
             &snapshot.equality_store,
             &snapshot.memory_store,
+            &snapshot.target_store,
+            &snapshot.schedule_store,
         )?;
+        replayed.validate_target_budgets(&snapshot.target_store)?;
+        replayed.validate_schedule_budgets(&snapshot.schedule_store)?;
 
         let report = ReplayReport {
             workspace: snapshot.workspace.clone(),
@@ -2893,6 +3659,10 @@ impl Workspace {
             equality_events_replayed: snapshot.equality_store.events.len(),
             memory_plans_verified: snapshot.memory_store.plans.len(),
             memory_events_replayed: snapshot.memory_store.events.len(),
+            target_manifests_verified: snapshot.target_store.manifests.len(),
+            target_events_replayed: snapshot.target_store.events.len(),
+            schedule_plans_verified: snapshot.schedule_store.plans.len(),
+            schedule_events_replayed: snapshot.schedule_store.events.len(),
         };
         replayed.revisions = snapshot.revisions;
         replayed.head = snapshot.head;
@@ -2901,6 +3671,8 @@ impl Workspace {
         replayed.candidates = snapshot.candidate_forest;
         replayed.equality = snapshot.equality_store;
         replayed.memory = snapshot.memory_store;
+        replayed.targets = snapshot.target_store;
+        replayed.schedules = snapshot.schedule_store;
         replayed.limits = ResourceLimits::default();
         Ok((replayed, report))
     }

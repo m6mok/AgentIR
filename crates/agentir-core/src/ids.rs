@@ -61,6 +61,16 @@ identifier!(AliasDomainId);
 identifier!(MemoryObligationId);
 identifier!(MemoryEvidenceId);
 identifier!(MemoryGuardId);
+identifier!(TargetManifestId);
+identifier!(TargetManifestRevisionId);
+identifier!(TargetCapabilityId);
+identifier!(SchedulePlanId);
+identifier!(ScheduleRevisionId);
+identifier!(ScheduleNodeId);
+identifier!(ScheduleAxisId);
+identifier!(ScheduleOperationId);
+identifier!(ScheduleObligationId);
+identifier!(ScheduleEvidenceId);
 
 /// Monotonic identifier allocator owned by one workspace.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

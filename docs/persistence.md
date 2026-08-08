@@ -68,3 +68,6 @@ This remains local atomic replacement, not a concurrent database: there is no pr
 ## Fixtures
 
 V1/v2/v3/v4/v5/v6 fixtures are immutable compatibility inputs. V6 fixtures cover empty/root/partial/saturated/merged/discharged/materialized and mixed candidate-semantics histories. V7 fixtures add fresh, reused, guarded, sealed and equality-materialized MemoryIR histories plus corruption at each memory integrity boundary. See `crates/agentir-store/tests/fixtures/README.md` for pinned hashes and reproducible version-specific generators.
+# Archive v8
+
+New saves use archive/snapshot v8. V1–v7 remain immutable input codecs; v7 → v8 verifies the complete legacy replay and adds empty TargetManifest and SchedulePlan stores. V8 records target events and schedule events with candidate/equality/memory/target dependency cursors, then replay-verifies manifest hashes, schedule anchors, structural certificates, resource estimates, allocator state, event order, and `schedule_hash` before publishing a workspace.

@@ -19,3 +19,6 @@ Canonical version 1 uses domain `agentir.impl.semantic.v1\0`. It alpha-normalize
 `IMPL_SEMANTICS_VERSION = 1` identifies verifier/evaluator behavior; it is independent of the canonical version, candidate semantics, SpecIR event semantics and archive format.
 
 ImplIR still has no buffers, address spaces, layouts, raw pointers, schedules, threads, tiles, targets or backend instructions.
+# Schedule boundary
+
+Stage 4 does not annotate or rewrite ImplIR. Schedule nodes refer to immutable ImplIR operations while iteration order, fusion, hierarchy binding, vectorization, and unrolling live only in ScheduleIR. Consequently schedule edits preserve `impl_hash` exactly.

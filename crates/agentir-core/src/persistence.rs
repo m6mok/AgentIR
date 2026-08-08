@@ -18,6 +18,8 @@ use crate::{
     ir::Program,
     memory::MemoryPlanStore,
     revision::{Revision, StatusSummary},
+    schedule::SchedulePlanStore,
+    target::TargetManifestStore,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -29,7 +31,10 @@ pub const CORE_SEMANTICS_VERSION: u32 = 2;
 pub const LEGACY_CORE_SEMANTICS_VERSION: u32 = 1;
 
 /// Current schema version for compiler-core workspace snapshots.
-pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 7;
+pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 8;
+
+/// Immutable Stage 3 snapshot schema migrated explicitly to v8.
+pub const LEGACY_WORKSPACE_SNAPSHOT_V7_VERSION: u32 = 7;
 
 /// Immutable Stage 2C snapshot schema migrated explicitly to v7.
 pub const LEGACY_WORKSPACE_SNAPSHOT_V6_VERSION: u32 = 6;
@@ -104,6 +109,33 @@ pub struct WorkspaceSnapshot {
     /// Independent exact equality spaces and dependency-ordered Stage 2C event log.
     pub equality_store: EqualityStore,
     /// Independent MemoryIR plans, evidence, allocator, and dependency-ordered event log.
+    pub memory_store: MemoryPlanStore,
+    /// Immutable compiler-owned target capability contracts and target events.
+    pub target_store: TargetManifestStore,
+    /// Independent ScheduleIR plans, evidence, allocator, and dependency-ordered events.
+    pub schedule_store: SchedulePlanStore,
+}
+
+/// Immutable compiler-core snapshot schema embedded in archive format version 7.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LegacyWorkspaceSnapshotV7 {
+    /// Legacy schema discriminator, which must equal seven.
+    pub schema_version: u32,
+    /// Workspace identity.
+    pub workspace: WorkspaceId,
+    /// Current SpecIR head revision.
+    pub head: RevisionId,
+    /// Immutable SpecIR revisions.
+    pub revisions: BTreeMap<RevisionId, Revision>,
+    /// SpecIR compiler allocator.
+    pub allocator: IdAllocator,
+    /// Semantics-versioned SpecIR event log.
+    pub events: Vec<VersionedWorkspaceEvent>,
+    /// Stage 2 CandidateForest.
+    pub candidate_forest: CandidateForest,
+    /// Stage 2C exact equality store.
+    pub equality_store: EqualityStore,
+    /// Stage 3 MemoryIR plan store.
     pub memory_store: MemoryPlanStore,
 }
 
@@ -789,13 +821,39 @@ pub fn migrate_snapshot_v5(
 /// Purely migrates immutable snapshot schema v6 to v7 with an empty MemoryIR store.
 pub fn migrate_snapshot_v6(
     snapshot: LegacyWorkspaceSnapshotV6,
-) -> crate::AgentResult<WorkspaceSnapshot> {
+) -> crate::AgentResult<LegacyWorkspaceSnapshotV7> {
     if snapshot.schema_version != LEGACY_WORKSPACE_SNAPSHOT_V6_VERSION {
         return Err(crate::AgentError::new(
             crate::ErrorCode::PersistenceFormat,
             format!(
                 "legacy workspace snapshot version {} is unsupported; expected {}",
                 snapshot.schema_version, LEGACY_WORKSPACE_SNAPSHOT_V6_VERSION
+            ),
+        ));
+    }
+    Ok(LegacyWorkspaceSnapshotV7 {
+        schema_version: LEGACY_WORKSPACE_SNAPSHOT_V7_VERSION,
+        workspace: snapshot.workspace,
+        head: snapshot.head,
+        revisions: snapshot.revisions,
+        allocator: snapshot.allocator,
+        events: snapshot.events,
+        candidate_forest: snapshot.candidate_forest,
+        equality_store: snapshot.equality_store,
+        memory_store: MemoryPlanStore::default(),
+    })
+}
+
+/// Purely migrates immutable snapshot schema v7 to v8 with empty target/schedule stores.
+pub fn migrate_snapshot_v7(
+    snapshot: LegacyWorkspaceSnapshotV7,
+) -> crate::AgentResult<WorkspaceSnapshot> {
+    if snapshot.schema_version != LEGACY_WORKSPACE_SNAPSHOT_V7_VERSION {
+        return Err(crate::AgentError::new(
+            crate::ErrorCode::PersistenceFormat,
+            format!(
+                "legacy workspace snapshot version {} is unsupported; expected {}",
+                snapshot.schema_version, LEGACY_WORKSPACE_SNAPSHOT_V7_VERSION
             ),
         ));
     }
@@ -808,7 +866,9 @@ pub fn migrate_snapshot_v6(
         events: snapshot.events,
         candidate_forest: snapshot.candidate_forest,
         equality_store: snapshot.equality_store,
-        memory_store: MemoryPlanStore::default(),
+        memory_store: snapshot.memory_store,
+        target_store: TargetManifestStore::default(),
+        schedule_store: SchedulePlanStore::default(),
     })
 }
 
@@ -841,4 +901,12 @@ pub struct ReplayReport {
     pub memory_plans_verified: usize,
     /// Number of dependency-ordered MemoryIR events replayed.
     pub memory_events_replayed: usize,
+    /// Number of immutable target manifests verified.
+    pub target_manifests_verified: usize,
+    /// Number of target creation events replayed.
+    pub target_events_replayed: usize,
+    /// Number of independent ScheduleIR plans verified.
+    pub schedule_plans_verified: usize,
+    /// Number of dependency-ordered schedule events replayed.
+    pub schedule_events_replayed: usize,
 }

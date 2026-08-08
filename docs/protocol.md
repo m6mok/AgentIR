@@ -179,3 +179,6 @@ Candidate failures additionally use `PROPOSAL_NOT_FOUND`, `INVALID_PROPOSAL`, `S
 Equality failures use stable codes for missing spaces/revisions/nodes, stale equality bases/hashes, unproved or guarded anchors, invalid proof edges/paths, debt endpoint mismatches and materialization failures. Clients supply only identities, bases, hashes, fuel and selected nodes; no request accepts a trusted edge, side condition or correctness certificate.
 
 Resource limits are policy, not SpecIR. Archive replay uses hard safety caps; normal protocol work uses configurable interactive defaults documented in [resource-budgets.md](resource-budgets.md).
+# Stage 4 commands
+
+`target.list`, `target.create`, `target.query`, and `target.check` expose immutable compiler profiles. `schedule.create`, `schedule.query`, `schedule.check`, `schedule.apply`, `schedule.fork`, `schedule.seal`, `schedule.evaluate`, `schedule.resource_query`, `schedule.axis_query`, `schedule.legality_query`, and `schedule.continuation` operate on exact ScheduleIR revisions. Apply requests include an explicit base plus expected schedule, memory, and target hashes. Action objects accept only transform choices; unknown proof, guard, capability, or certificate fields are rejected. The CLI still emits exactly one JSON response per input line.

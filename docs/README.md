@@ -9,6 +9,7 @@ Start with the root [README](../README.md), then choose the document matching th
 - [Stage 2B scope](stage-2b-scope.md) — bounded speculative candidates and trust boundary.
 - [Stage 2C scope](stage-2c-scope.md) — bounded exact equality exploration and Stage 2 completion boundary.
 - [Stage 3 scope](stage-3-scope.md) — exact MemoryIR completion and the ScheduleIR boundary.
+- [Stage 4 scope](stage-4-scope.md) — exact scheduling completion and backend boundary.
 - [ImplIR](implir.md) — separate implementation graph, identity lowering, verifier and hash.
 - [CandidateForest](candidate-forest.md) — candidate branches, revisions, transactions and continuations.
 - [Equivalence and EvidenceIR](equivalence-and-evidence.md) — trusted proof composition and confidence evidence.
@@ -21,6 +22,12 @@ Start with the root [README](../README.md), then choose the document matching th
 - [Verified bufferization](bufferization.md) — fresh lowering and static in-place proof.
 - [Alias and lifetimes](alias-and-lifetimes.md) — compiler-owned facts in logical operation order.
 - [Guarded memory reuse](guarded-memory-reuse.md) — restricted `NoOverlap` and lazy exact fallback.
+- [ScheduleIR](schedule-ir.md) — schedule graph, revisions, proofs, and independent hash.
+- [TargetManifest](target-manifest.md) — immutable compiler-owned target capabilities.
+- [Iteration domains](iteration-domains.md) — compiler-derived axes and exact coverage.
+- [Schedule legality](schedule-legality.md) — split, tile, fusion, binding, vector, and unroll rules.
+- [Schedule resource simulator](schedule-resource-simulator.md) — deterministic analytical capacity checks.
+- [Scheduled memory safety](scheduled-memory-safety.md) — preservation of MemoryIR facts and guards.
 - [Guarded fallback](guarded-fallback.md) — restricted self-division rule and lazy execution.
 - [JSONL protocol](protocol.md) — commands, references, regions, errors and response envelopes.
 - [Persistence and replay](persistence.md) — archive format, save/load lifecycle and integrity model.

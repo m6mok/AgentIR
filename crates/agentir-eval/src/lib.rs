@@ -6,7 +6,10 @@
 use agentir_core::{
     candidate::{CandidateForest, DifferentialValidation, GuardPredicate},
     diagnostics::{AgentError, AgentResult, ErrorCode},
-    ids::{BufferId, CandidateId, CandidateRevisionId, ImplValueId, MemoryGuardId, ValueId},
+    ids::{
+        BufferId, CandidateId, CandidateRevisionId, ImplValueId, MemoryGuardId, ScheduleAxisId,
+        ScheduleNodeId, ValueId,
+    },
     impl_ir::{ImplProgram, impl_as_program},
     ir::{ConstantValue, Opcode, Operation, Program, Region, RegionValue, ValueOrigin},
     memory::{MemoryRevision, MemoryStatus},
@@ -15,6 +18,8 @@ use agentir_core::{
         Ownership, ReuseDecision, verify_memory_program,
     },
     resources::{BudgetCheck, ResourceKind, ResourceLimits},
+    schedule::{ScheduleRevision, ScheduleStatus},
+    schedule_ir::{SCHEDULE_TRACE_CODEC_VERSION, TailStrategy},
     types::{DimExpr, ScalarType, Type},
 };
 use serde::{Deserialize, Serialize};
@@ -86,6 +91,38 @@ pub struct MemoryEvaluationResult {
     pub trace_codec_version: u32,
     /// Deterministic high-level allocation/access/reuse trace.
     pub trace: Vec<MemoryTraceEvent>,
+}
+
+/// One deterministic high-level scheduled-execution trace event.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScheduleTraceEvent {
+    /// Zero-based stable trace sequence.
+    pub sequence: u64,
+    /// Stable event kind.
+    pub kind: String,
+    /// Related ScheduleIR node, when applicable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node: Option<ScheduleNodeId>,
+    /// Related ScheduleIR axis, when applicable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub axis: Option<ScheduleAxisId>,
+    /// Deterministic detail without backend instructions or addresses.
+    pub detail: String,
+}
+
+/// Exact scheduled reference result with physical and schedule traces.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ScheduleEvaluationResult {
+    /// Named outputs and concrete dimensions from the anchored MemoryIR oracle.
+    pub evaluation: EvaluationResult,
+    /// Actual guarded MemoryIR branch outcomes.
+    pub guard_outcomes: BTreeMap<MemoryGuardId, bool>,
+    /// Schedule trace codec version.
+    pub trace_codec_version: u32,
+    /// Deterministic high-level scheduled execution trace.
+    pub trace: Vec<ScheduleTraceEvent>,
+    /// Deterministic physical MemoryIR trace used by the scheduled oracle.
+    pub memory_trace: Vec<MemoryTraceEvent>,
 }
 
 fn mismatch(message: impl Into<String>) -> AgentError {
@@ -1464,6 +1501,173 @@ pub fn evaluate_memory_with_limits(
         guard_outcomes,
         trace_codec_version: MEMORY_TRACE_CODEC_VERSION,
         trace,
+    })
+}
+
+/// Evaluates a verified ScheduleIR revision through the existing exact MemoryIR oracle.
+///
+/// The schedule trace exposes canonical high-level domains and mappings. Structural compiler
+/// validation, rather than this execution, proves `ScheduleEquivalentToMemory`.
+#[allow(clippy::items_after_statements)]
+pub fn evaluate_schedule_with_limits(
+    schedule: &ScheduleRevision,
+    memory: &MemoryRevision,
+    implementation: &ImplProgram,
+    inputs: &BTreeMap<String, JsonValue>,
+    requested_guard_outcomes: &BTreeMap<MemoryGuardId, bool>,
+    limits: &ResourceLimits,
+) -> AgentResult<ScheduleEvaluationResult> {
+    if matches!(
+        schedule.status,
+        ScheduleStatus::Draft | ScheduleStatus::WellTyped | ScheduleStatus::Rejected
+    ) {
+        return Err(AgentError::new(
+            ErrorCode::ScheduleEquivalenceUnproved,
+            "scheduled evaluation requires a proved, resource-valid, or sealed revision",
+        ));
+    }
+    if schedule.memory_hash != memory.memory_hash {
+        return Err(AgentError::new(
+            ErrorCode::ScheduleMemoryConflict,
+            "ScheduleIR and MemoryIR exact hashes differ",
+        ));
+    }
+    BudgetCheck::against(
+        limits,
+        ResourceKind::ScheduleSimulatedCoordinates,
+        schedule.program.resource_estimate.active_logical_tiles,
+        "ScheduleIR reference evaluation",
+    )?;
+    let memory_result = evaluate_memory_with_limits(
+        memory,
+        implementation,
+        inputs,
+        requested_guard_outcomes,
+        limits,
+    )?;
+    let mut trace = Vec::new();
+    fn push_schedule_trace(
+        trace: &mut Vec<ScheduleTraceEvent>,
+        kind: &str,
+        node: Option<ScheduleNodeId>,
+        axis: Option<ScheduleAxisId>,
+        detail: String,
+        limits: &ResourceLimits,
+    ) -> AgentResult<()> {
+        BudgetCheck::against(
+            limits,
+            ResourceKind::ScheduleTraceEvents,
+            u64::try_from(trace.len())
+                .unwrap_or(u64::MAX)
+                .saturating_add(1),
+            "ScheduleIR reference trace",
+        )?;
+        trace.push(ScheduleTraceEvent {
+            sequence: u64::try_from(trace.len()).unwrap_or(u64::MAX),
+            kind: kind.to_owned(),
+            node,
+            axis,
+            detail,
+        });
+        Ok(())
+    }
+    for node_id in &schedule.program.node_order {
+        let node = &schedule.program.nodes[node_id];
+        push_schedule_trace(
+            &mut trace,
+            "enter_domain",
+            Some(node_id.clone()),
+            None,
+            format!("operation {}", node.impl_operation),
+            limits,
+        )?;
+        for axis_id in &node.axes {
+            let axis = &schedule.program.axes[axis_id];
+            if !matches!(
+                axis.transform,
+                agentir_core::schedule_ir::AxisTransform::Root
+            ) {
+                push_schedule_trace(
+                    &mut trace,
+                    "tile",
+                    Some(node_id.clone()),
+                    Some(axis_id.clone()),
+                    format!("extent {:?}", axis.extent),
+                    limits,
+                )?;
+            }
+            if let Some(binding) = &axis.binding {
+                push_schedule_trace(
+                    &mut trace,
+                    "bind",
+                    Some(node_id.clone()),
+                    Some(axis_id.clone()),
+                    format!("{:?}", binding.level),
+                    limits,
+                )?;
+            }
+            if matches!(axis.tail, TailStrategy::CompilerRemainder { .. }) {
+                push_schedule_trace(
+                    &mut trace,
+                    "remainder",
+                    Some(node_id.clone()),
+                    Some(axis_id.clone()),
+                    "compiler-owned exact tail domain".to_owned(),
+                    limits,
+                )?;
+            }
+        }
+        push_schedule_trace(
+            &mut trace,
+            "execute_operation",
+            Some(node_id.clone()),
+            None,
+            node.opcode.clone(),
+            limits,
+        )?;
+        let memory_operation = &memory.program.operations[&node.memory_operation];
+        for access in &memory_operation.accesses {
+            push_schedule_trace(
+                &mut trace,
+                "memory_access",
+                Some(node_id.clone()),
+                None,
+                format!("{} {:?}", access.buffer, access.kind),
+                limits,
+            )?;
+        }
+    }
+    for (guard, outcome) in &memory_result.guard_outcomes {
+        push_schedule_trace(
+            &mut trace,
+            "guard_branch",
+            None,
+            None,
+            format!("{guard}={outcome}"),
+            limits,
+        )?;
+    }
+    for name in memory_result.evaluation.outputs.keys() {
+        push_schedule_trace(&mut trace, "output", None, None, name.clone(), limits)?;
+    }
+    let bytes = serde_json::to_vec(&trace).map_err(|error| {
+        AgentError::new(
+            ErrorCode::InvalidRequest,
+            format!("schedule trace serialization failed: {error}"),
+        )
+    })?;
+    BudgetCheck::against(
+        limits,
+        ResourceKind::ScheduleTraceBytes,
+        u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+        "ScheduleIR reference trace",
+    )?;
+    Ok(ScheduleEvaluationResult {
+        evaluation: memory_result.evaluation,
+        guard_outcomes: memory_result.guard_outcomes,
+        trace_codec_version: SCHEDULE_TRACE_CODEC_VERSION,
+        trace,
+        memory_trace: memory_result.trace,
     })
 }
 

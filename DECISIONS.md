@@ -291,3 +291,63 @@ Potential persistent references inside generic semantic attributes are rejected 
 ## ADR-057: Stage 3 stops before scheduling and targets
 
 **Decision.** Stage 3 completes exact logical-to-physical bufferization, alias/lifetime legality, reuse and reference tracing. ScheduleIR, TargetManifest, tiling, binding, vectorization, device execution, ranking, search, performance evidence and backend lowering remain Stage 4 or later.
+
+## ADR-058: ScheduleIR is a separate typed graph
+
+**Decision.** Scheduling decisions live in an independent typed graph anchored to one proved MemoryIR revision, never in SpecIR, ImplIR, or MemoryIR attributes.
+
+## ADR-059: TargetManifest is immutable
+
+**Decision.** A target revision is sealed at creation. Schedule histories anchor its exact revision and hash; capability mutation requires a new manifest.
+
+## ADR-060: Target capabilities are compiler owned
+
+**Decision.** Clients select a stable built-in profile and cannot provide capabilities, capacities, guards, or target certificates.
+
+## ADR-061: Every plan begins with a conservative serial root
+
+**Decision.** The root follows canonical MemoryIR operation order, binds logical axes serially, and preserves reduction order. It is the exact repair for unsupported transforms.
+
+## ADR-062: Iteration coverage is exact
+
+**Decision.** Compiler-derived root domains and active transform leaves must execute every logical coordinate once, without omission or duplication.
+
+## ADR-063: Remainder handling is compiler owned
+
+**Decision.** Non-divisible and symbolic split/tile operations create an exact compiler-owned remainder domain. Clients cannot supply tail predicates.
+
+## ADR-064: Fusion is deliberately restricted
+
+**Decision.** Stage 4 fuses only one dependent single-user pointwise producer/consumer pair with identical domains and no conflicting memory facts.
+
+## ADR-065: Binding uses a typed hierarchy
+
+**Decision.** Serial, grid, block/workgroup, subgroup, and vector-lane bindings are distinct typed choices checked against TargetManifest; vector lanes arise only from verified vectorization.
+
+## ADR-066: Vectorization requires structural legality
+
+**Decision.** Supported width and scalar type are insufficient alone: every affected MemoryIR buffer must also prove compatible innermost stride and alignment. Testing cannot authorize vector access.
+
+## ADR-067: Scheduling preserves MemoryIR facts
+
+**Decision.** Schedule verification rebuilds dependencies and rejects any order or transform that invalidates alias, lifetime, access, reuse, or guarded-fallback facts. Schedule edits never alter `memory_hash`.
+
+## ADR-068: Resource simulation is deterministic and analytical
+
+**Decision.** The simulator recomputes capacity usage from ScheduleIR and TargetManifest with bounded checked/saturating arithmetic. It is a legality check, not a cost model or equivalence proof.
+
+## ADR-069: Target hash is independent
+
+**Decision.** `target_hash` v1 uses domain `agentir.target.manifest.v1\0`, covers the immutable capability contract, and excludes limits, timestamps, discovery, and performance data.
+
+## ADR-070: Schedule hash is independent
+
+**Decision.** `schedule_hash` v1 uses domain `agentir.schedule.exact.v1\0`, covers exact schedule/proof/resource state and immutable anchors, and excludes limits, timestamps, runtime inputs, traces, and measurements.
+
+## ADR-071: Target and schedule events require archive v8
+
+**Decision.** Archive/snapshot v8 adds immutable target and schedule stores. Schedule events record dependency cursors through candidate, equality, memory, and target histories; replay verifies all anchors, certificates, estimates, hashes, allocators, and order before publication.
+
+## ADR-072: Stage 4 ends before backend lowering
+
+**Decision.** Stage 4 completes exact high-level scheduling, target contracts, resource simulation, and reference execution. Backend IR, machine code, device execution, target discovery, autotuning, ranking, search, and performance evidence begin in Stage 5 or later.

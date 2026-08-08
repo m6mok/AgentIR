@@ -45,3 +45,11 @@
 - **Spec hash** — domain-separated SHA-256 identity of semantic canonical form, independent of compiler IDs and construction history.
 - **Temporary binding** — `$name` usable only within one transaction.
 - **Workspace** — SpecIR revision DAG plus independent CandidateForest, EqualityStore, MemoryPlanStore and compiler-owned allocators; it may be persisted only after complete replay verification.
+# Stage 4 terms
+
+- **TargetManifest** — immutable compiler-owned capability contract identified by `target_hash`.
+- **ScheduleIR** — separate typed exact schedule graph anchored to MemoryIR and TargetManifest.
+- **iteration domain** — compiler-derived logical coordinate space for one ImplIR operation.
+- **compiler remainder** — exact compiler-owned tail domain for non-divisible or symbolic splitting.
+- **resource simulator** — deterministic analytical target-capacity checker, not a performance model.
+- **schedule_hash** — exact ScheduleIR state contract, independent from all prior hashes.

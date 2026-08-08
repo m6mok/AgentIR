@@ -205,6 +205,66 @@ pub enum ResourceKind {
     MemoryTraceBytes,
     /// Generated MemoryIR property/mutation case size.
     GeneratedMemoryCaseSize,
+    /// Target manifests retained by one workspace.
+    TargetManifestsPerWorkspace,
+    /// Immutable target revisions retained by one workspace.
+    TargetRevisionsPerWorkspace,
+    /// Replayable target events retained by one workspace/archive.
+    TargetEvents,
+    /// Capabilities declared by one compiler-owned target profile.
+    TargetCapabilities,
+    /// Bytes in one canonical TargetManifest encoding.
+    TargetCanonicalBytes,
+    /// Schedule plans retained by one workspace.
+    SchedulePlansPerWorkspace,
+    /// Immutable schedule revisions retained by one workspace.
+    ScheduleRevisionsPerWorkspace,
+    /// Replayable schedule events retained by one workspace/archive.
+    ScheduleEvents,
+    /// Schedule nodes retained by one revision.
+    ScheduleNodesPerRevision,
+    /// Schedule axes retained by one revision.
+    ScheduleAxesPerRevision,
+    /// Axis transforms retained by one revision.
+    ScheduleTransformsPerRevision,
+    /// Fusion groups retained by one revision.
+    ScheduleFusionGroups,
+    /// Operations in one fusion group.
+    ScheduleFusionMembers,
+    /// Dependency edges retained by one revision.
+    ScheduleDependencyEdges,
+    /// Compiler-owned legality facts retained by one revision.
+    ScheduleLegalityFacts,
+    /// Rank of one tile operation.
+    ScheduleTileRank,
+    /// Remainder domains retained by one revision.
+    ScheduleRemainderDomains,
+    /// Maximum binding hierarchy depth.
+    ScheduleBindingDepth,
+    /// Requested vector width.
+    ScheduleVectorWidth,
+    /// Requested unroll factor.
+    ScheduleUnrollFactor,
+    /// Launch-shape dimensions.
+    ScheduleLaunchDimensions,
+    /// Logical coordinates visited by reference schedule execution.
+    ScheduleSimulatedCoordinates,
+    /// Deterministic target-resource simulation work units.
+    ScheduleResourceWorkUnits,
+    /// Open schedule correctness obligations.
+    ScheduleObligations,
+    /// Schedule evidence records retained by one workspace.
+    ScheduleEvidenceRecords,
+    /// Bytes in one canonical exact ScheduleIR state.
+    ScheduleCanonicalBytes,
+    /// Bytes attributed to ScheduleIR in one archive.
+    ScheduleArchiveBytes,
+    /// Events retained in one deterministic schedule trace.
+    ScheduleTraceEvents,
+    /// Bytes retained in one deterministic schedule trace.
+    ScheduleTraceBytes,
+    /// Generated ScheduleIR property/mutation case size.
+    GeneratedScheduleCaseSize,
 }
 
 /// Configurable interactive limits. These values never enter graph or archive hashes.
@@ -406,6 +466,66 @@ pub struct ResourceLimits {
     pub memory_trace_bytes: u64,
     /// Maximum generated MemoryIR property-case size.
     pub generated_memory_case_size: u64,
+    /// Maximum target manifests in one workspace.
+    pub target_manifests_per_workspace: u64,
+    /// Maximum immutable target revisions in one workspace.
+    pub target_revisions_per_workspace: u64,
+    /// Maximum replayable target events.
+    pub target_events: u64,
+    /// Maximum capabilities in one target manifest.
+    pub target_capabilities: u64,
+    /// Maximum canonical TargetManifest bytes.
+    pub target_canonical_bytes: u64,
+    /// Maximum schedule plans in one workspace.
+    pub schedule_plans_per_workspace: u64,
+    /// Maximum immutable schedule revisions in one workspace.
+    pub schedule_revisions_per_workspace: u64,
+    /// Maximum replayable schedule events.
+    pub schedule_events: u64,
+    /// Maximum schedule nodes in one revision.
+    pub schedule_nodes_per_revision: u64,
+    /// Maximum schedule axes in one revision.
+    pub schedule_axes_per_revision: u64,
+    /// Maximum transforms in one revision.
+    pub schedule_transforms_per_revision: u64,
+    /// Maximum fusion groups in one revision.
+    pub schedule_fusion_groups: u64,
+    /// Maximum operations in one fusion group.
+    pub schedule_fusion_members: u64,
+    /// Maximum dependency edges in one revision.
+    pub schedule_dependency_edges: u64,
+    /// Maximum legality facts in one revision.
+    pub schedule_legality_facts: u64,
+    /// Maximum axes/factors in one tile action.
+    pub schedule_tile_rank: u64,
+    /// Maximum remainder domains in one revision.
+    pub schedule_remainder_domains: u64,
+    /// Maximum binding hierarchy depth.
+    pub schedule_binding_depth: u64,
+    /// Maximum vector width.
+    pub schedule_vector_width: u64,
+    /// Maximum unroll factor.
+    pub schedule_unroll_factor: u64,
+    /// Maximum launch dimensions.
+    pub schedule_launch_dimensions: u64,
+    /// Maximum simulated logical coordinates.
+    pub schedule_simulated_coordinates: u64,
+    /// Maximum target-resource simulation work units.
+    pub schedule_resource_work_units: u64,
+    /// Maximum open schedule obligations.
+    pub schedule_obligations: u64,
+    /// Maximum schedule evidence records.
+    pub schedule_evidence_records: u64,
+    /// Maximum canonical ScheduleIR bytes.
+    pub schedule_canonical_bytes: u64,
+    /// Maximum archive bytes attributed to ScheduleIR.
+    pub schedule_archive_bytes: u64,
+    /// Maximum events in one deterministic schedule trace.
+    pub schedule_trace_events: u64,
+    /// Maximum bytes in one deterministic schedule trace.
+    pub schedule_trace_bytes: u64,
+    /// Maximum generated ScheduleIR property-case size.
+    pub generated_schedule_case_size: u64,
 }
 
 impl Default for ResourceLimits {
@@ -509,6 +629,36 @@ impl Default for ResourceLimits {
             memory_trace_events: 1_000_000,
             memory_trace_bytes: 64 * 1024 * 1024,
             generated_memory_case_size: 10_000,
+            target_manifests_per_workspace: 1_024,
+            target_revisions_per_workspace: 100_000,
+            target_events: 100_000,
+            target_capabilities: 1_024,
+            target_canonical_bytes: 64 * 1024 * 1024,
+            schedule_plans_per_workspace: 1_024,
+            schedule_revisions_per_workspace: 100_000,
+            schedule_events: 100_000,
+            schedule_nodes_per_revision: 100_000,
+            schedule_axes_per_revision: 500_000,
+            schedule_transforms_per_revision: 500_000,
+            schedule_fusion_groups: 100_000,
+            schedule_fusion_members: 100_000,
+            schedule_dependency_edges: 500_000,
+            schedule_legality_facts: 500_000,
+            schedule_tile_rank: 1_024,
+            schedule_remainder_domains: 100_000,
+            schedule_binding_depth: 32,
+            schedule_vector_width: 1_024,
+            schedule_unroll_factor: 1_024,
+            schedule_launch_dimensions: 3,
+            schedule_simulated_coordinates: 10_000_000,
+            schedule_resource_work_units: 10_000_000,
+            schedule_obligations: 100_000,
+            schedule_evidence_records: 100_000,
+            schedule_canonical_bytes: 64 * 1024 * 1024,
+            schedule_archive_bytes: 64 * 1024 * 1024,
+            schedule_trace_events: 1_000_000,
+            schedule_trace_bytes: 64 * 1024 * 1024,
+            generated_schedule_case_size: 10_000,
         }
     }
 }
@@ -616,6 +766,36 @@ impl ResourceLimits {
             memory_trace_events: 10_000_000,
             memory_trace_bytes: 128 * 1024 * 1024,
             generated_memory_case_size: 100_000,
+            target_manifests_per_workspace: 100_000,
+            target_revisions_per_workspace: 250_000,
+            target_events: 250_000,
+            target_capabilities: 100_000,
+            target_canonical_bytes: 128 * 1024 * 1024,
+            schedule_plans_per_workspace: 100_000,
+            schedule_revisions_per_workspace: 250_000,
+            schedule_events: 250_000,
+            schedule_nodes_per_revision: 1_000_000,
+            schedule_axes_per_revision: 5_000_000,
+            schedule_transforms_per_revision: 5_000_000,
+            schedule_fusion_groups: 1_000_000,
+            schedule_fusion_members: 1_000_000,
+            schedule_dependency_edges: 5_000_000,
+            schedule_legality_facts: 5_000_000,
+            schedule_tile_rank: 4_096,
+            schedule_remainder_domains: 1_000_000,
+            schedule_binding_depth: 64,
+            schedule_vector_width: 65_536,
+            schedule_unroll_factor: 65_536,
+            schedule_launch_dimensions: 3,
+            schedule_simulated_coordinates: 100_000_000,
+            schedule_resource_work_units: 100_000_000,
+            schedule_obligations: 1_000_000,
+            schedule_evidence_records: 1_000_000,
+            schedule_canonical_bytes: 128 * 1024 * 1024,
+            schedule_archive_bytes: 128 * 1024 * 1024,
+            schedule_trace_events: 10_000_000,
+            schedule_trace_bytes: 128 * 1024 * 1024,
+            generated_schedule_case_size: 100_000,
         }
     }
 
@@ -723,6 +903,36 @@ impl ResourceLimits {
             ResourceKind::MemoryTraceEvents => self.memory_trace_events,
             ResourceKind::MemoryTraceBytes => self.memory_trace_bytes,
             ResourceKind::GeneratedMemoryCaseSize => self.generated_memory_case_size,
+            ResourceKind::TargetManifestsPerWorkspace => self.target_manifests_per_workspace,
+            ResourceKind::TargetRevisionsPerWorkspace => self.target_revisions_per_workspace,
+            ResourceKind::TargetEvents => self.target_events,
+            ResourceKind::TargetCapabilities => self.target_capabilities,
+            ResourceKind::TargetCanonicalBytes => self.target_canonical_bytes,
+            ResourceKind::SchedulePlansPerWorkspace => self.schedule_plans_per_workspace,
+            ResourceKind::ScheduleRevisionsPerWorkspace => self.schedule_revisions_per_workspace,
+            ResourceKind::ScheduleEvents => self.schedule_events,
+            ResourceKind::ScheduleNodesPerRevision => self.schedule_nodes_per_revision,
+            ResourceKind::ScheduleAxesPerRevision => self.schedule_axes_per_revision,
+            ResourceKind::ScheduleTransformsPerRevision => self.schedule_transforms_per_revision,
+            ResourceKind::ScheduleFusionGroups => self.schedule_fusion_groups,
+            ResourceKind::ScheduleFusionMembers => self.schedule_fusion_members,
+            ResourceKind::ScheduleDependencyEdges => self.schedule_dependency_edges,
+            ResourceKind::ScheduleLegalityFacts => self.schedule_legality_facts,
+            ResourceKind::ScheduleTileRank => self.schedule_tile_rank,
+            ResourceKind::ScheduleRemainderDomains => self.schedule_remainder_domains,
+            ResourceKind::ScheduleBindingDepth => self.schedule_binding_depth,
+            ResourceKind::ScheduleVectorWidth => self.schedule_vector_width,
+            ResourceKind::ScheduleUnrollFactor => self.schedule_unroll_factor,
+            ResourceKind::ScheduleLaunchDimensions => self.schedule_launch_dimensions,
+            ResourceKind::ScheduleSimulatedCoordinates => self.schedule_simulated_coordinates,
+            ResourceKind::ScheduleResourceWorkUnits => self.schedule_resource_work_units,
+            ResourceKind::ScheduleObligations => self.schedule_obligations,
+            ResourceKind::ScheduleEvidenceRecords => self.schedule_evidence_records,
+            ResourceKind::ScheduleCanonicalBytes => self.schedule_canonical_bytes,
+            ResourceKind::ScheduleArchiveBytes => self.schedule_archive_bytes,
+            ResourceKind::ScheduleTraceEvents => self.schedule_trace_events,
+            ResourceKind::ScheduleTraceBytes => self.schedule_trace_bytes,
+            ResourceKind::GeneratedScheduleCaseSize => self.generated_schedule_case_size,
         }
     }
 }

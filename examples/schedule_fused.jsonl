@@ -1,0 +1,11 @@
+{"command":"workspace.open","request_id":"open","workspace":"w1"}
+{"command":"spec.apply","request_id":"build","workspace":"w1","base_revision":"r0","actions":[{"kind":"define_dimension","bind":"$N","name":"N","constraints":["N >= 0"]},{"kind":"create_parameter","bind":"$x","name":"x","type":"tensor<f32,[$N]>"},{"kind":"create_op","bind":"$a","opcode":"map","operands":["$x"],"region":{"arguments":[{"name":"element","type":"f32"}],"captures":[],"operations":[],"yield_value":"element"}},{"kind":"create_op","bind":"$b","opcode":"map","operands":["$a"],"region":{"arguments":[{"name":"element","type":"f32"}],"captures":[],"operations":[],"yield_value":"element"}},{"kind":"set_output","name":"out","value":"$b"}]}
+{"command":"spec.freeze","request_id":"freeze","workspace":"w1","base_revision":"r1"}
+{"command":"candidate.create","request_id":"candidate","workspace":"w1","spec_revision":"r2"}
+{"command":"memory.create","request_id":"memory","workspace":"w1","candidate":"c1","candidate_revision":"cr1"}
+{"command":"target.create","request_id":"target","workspace":"w1","profile":"generic_gpu_v1"}
+{"command":"schedule.create","request_id":"schedule","workspace":"w1","memory_plan":"mp1","memory_revision":"mr1","target_manifest":"tm1","target_revision":"tmr1"}
+{"command":"schedule.legality_query","request_id":"legal-fusion","workspace":"w1","schedule_plan":"sp1","schedule_revision":"sr1","action":{"kind":"fuse_operations","producer":"sn1","consumer":"sn2"}}
+{"command":"schedule.legality_query","request_id":"rejected-fusion","workspace":"w1","schedule_plan":"sp1","schedule_revision":"sr1","action":{"kind":"fuse_operations","producer":"sn2","consumer":"sn1"}}
+{"command":"schedule.apply","request_id":"fuse","workspace":"w1","schedule_plan":"sp1","base_schedule_revision":"sr1","expected_schedule_hash":"5dff39c769e23734ed36457b4a6f0980ea5624050caa7c14a330a92e03c48ff8","expected_memory_hash":"82efc7e6792251e4b23a07e7f6d28af3e242bddd26d7558bde18537ae70f92b6","expected_target_hash":"9df67ea24cadc12612bf6448d6e89a63a93c44a46aa64ff1cdfb277d7e7ac2d5","actions":[{"kind":"fuse_operations","producer":"sn1","consumer":"sn2"}]}
+{"command":"schedule.evaluate","request_id":"evaluate","workspace":"w1","schedule_plan":"sp1","schedule_revision":"sr2","inputs":{"x":[1.0,2.0,3.0]}}

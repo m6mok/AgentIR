@@ -765,6 +765,178 @@ impl Engine {
                     .memory_continuation(&memory_plan, &memory_revision)?,
             )
             .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::TargetList { workspace, .. } => {
+                serde_json::to_value(self.workspace(&workspace)?.target_list())
+                    .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
+            }
+            Request::TargetCreate {
+                workspace, profile, ..
+            } => serde_json::to_value(self.workspace_mut(&workspace)?.target_create(profile)?)
+                .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::TargetQuery {
+                workspace,
+                target_manifest,
+                target_revision,
+                ..
+            } => serde_json::to_value(
+                self.workspace(&workspace)?
+                    .target_query(&target_manifest, &target_revision)?,
+            )
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::TargetCheck {
+                workspace,
+                target_manifest,
+                target_revision,
+                ..
+            } => serde_json::to_value(
+                self.workspace(&workspace)?
+                    .target_check(&target_manifest, &target_revision)?,
+            )
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::ScheduleCreate {
+                workspace,
+                memory_plan,
+                memory_revision,
+                target_manifest,
+                target_revision,
+                ..
+            } => serde_json::to_value(self.workspace_mut(&workspace)?.schedule_create(
+                &memory_plan,
+                &memory_revision,
+                &target_manifest,
+                &target_revision,
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::ScheduleQuery {
+                workspace,
+                schedule_plan,
+                schedule_revision,
+                ..
+            } => serde_json::to_value(
+                self.workspace(&workspace)?
+                    .schedule_query(&schedule_plan, &schedule_revision)?,
+            )
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::ScheduleCheck {
+                workspace,
+                schedule_plan,
+                schedule_revision,
+                ..
+            } => serde_json::to_value(
+                self.workspace(&workspace)?
+                    .schedule_check(&schedule_plan, &schedule_revision)?,
+            )
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::ScheduleApply {
+                workspace,
+                schedule_plan,
+                base_schedule_revision,
+                expected_schedule_hash,
+                expected_memory_hash,
+                expected_target_hash,
+                actions,
+                ..
+            } => serde_json::to_value(self.workspace_mut(&workspace)?.schedule_apply(
+                &agentir_core::schedule::ScheduleTransaction {
+                    schedule_plan,
+                    base_schedule_revision,
+                    expected_schedule_hash,
+                    expected_memory_hash,
+                    expected_target_hash,
+                    actions,
+                },
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::ScheduleFork {
+                workspace,
+                schedule_plan,
+                schedule_revision,
+                expected_schedule_hash,
+                ..
+            } => serde_json::to_value(self.workspace_mut(&workspace)?.schedule_fork(
+                &schedule_plan,
+                &schedule_revision,
+                &expected_schedule_hash,
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::ScheduleSeal {
+                workspace,
+                schedule_plan,
+                schedule_revision,
+                expected_schedule_hash,
+                ..
+            } => serde_json::to_value(self.workspace_mut(&workspace)?.schedule_seal(
+                &schedule_plan,
+                &schedule_revision,
+                &expected_schedule_hash,
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::ScheduleEvaluate {
+                workspace,
+                schedule_plan,
+                schedule_revision,
+                inputs,
+                guard_outcomes,
+                ..
+            } => {
+                let workspace_data = self.workspace(&workspace)?;
+                workspace_data.schedule_check(&schedule_plan, &schedule_revision)?;
+                serde_json::to_value(agentir_eval::evaluate_schedule_with_limits(
+                    workspace_data
+                        .schedule_store()
+                        .revision(&schedule_plan, &schedule_revision)?,
+                    workspace_data.scheduled_memory_revision(&schedule_plan)?,
+                    workspace_data.scheduled_impl_program(&schedule_plan)?,
+                    &inputs,
+                    &guard_outcomes,
+                    &self.limits,
+                )?)
+                .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
+            }
+            Request::ScheduleResourceQuery {
+                workspace,
+                schedule_plan,
+                schedule_revision,
+                ..
+            } => serde_json::to_value(
+                self.workspace(&workspace)?
+                    .schedule_resource_query(&schedule_plan, &schedule_revision)?,
+            )
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::ScheduleAxisQuery {
+                workspace,
+                schedule_plan,
+                schedule_revision,
+                axis,
+                ..
+            } => serde_json::to_value(self.workspace(&workspace)?.schedule_axis_query(
+                &schedule_plan,
+                &schedule_revision,
+                &axis,
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::ScheduleLegalityQuery {
+                workspace,
+                schedule_plan,
+                schedule_revision,
+                action,
+                ..
+            } => serde_json::to_value(self.workspace(&workspace)?.schedule_legality_query(
+                &schedule_plan,
+                &schedule_revision,
+                &action,
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::ScheduleContinuation {
+                workspace,
+                schedule_plan,
+                schedule_revision,
+                ..
+            } => serde_json::to_value(
+                self.workspace(&workspace)?
+                    .schedule_continuation(&schedule_plan, &schedule_revision)?,
+            )
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
         }
     }
 

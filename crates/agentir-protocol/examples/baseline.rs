@@ -15,14 +15,18 @@ use agentir_core::{
     ids::{
         BufferId, CandidateId, CandidateRevisionId, EqualityNodeId, EqualityRevisionId,
         EqualitySpaceId, ImplOperationId, ImplValueId, MemoryGuardId, MemoryPlanId,
-        MemoryRevisionId, ProposalId,
+        MemoryRevisionId, ProposalId, ScheduleAxisId, ScheduleNodeId, SchedulePlanId,
+        ScheduleRevisionId, TargetManifestId, TargetManifestRevisionId,
     },
     impl_ir::{canonicalize_impl_with_limit, identity_lower},
     ir::ConstantValue,
     memory::{MemoryAction, MemoryTransaction, canonical_memory_bytes_with_limit},
     resources::ResourceLimits,
+    schedule::{ScheduleAction, ScheduleTransaction, canonical_schedule_bytes},
+    schedule_ir::BindingLevel,
     semantic::canonicalize_spec,
     shapes::{ShapeConstraint, same_shape},
+    target::{TargetProfile, canonical_target_bytes},
     types::Shape,
 };
 use agentir_store::{
@@ -2098,6 +2102,532 @@ fn main() {
             ),
         );
     }
+
+    let schedule_roots = [10_usize, 100, 1_000]
+        .into_iter()
+        .map(|operation_count| {
+            let mut workspace = tensor_memory_candidate(operation_count);
+            let memory = workspace
+                .memory_create(&CandidateId::new("c1"), &CandidateRevisionId::new("cr1"))
+                .unwrap();
+            workspace
+                .target_create(TargetProfile::GenericGpuV1)
+                .unwrap();
+            let base = workspace.clone();
+            timings.insert(
+                format!("schedule_serial_creation_{operation_count}_operations"),
+                measure(
+                    || {
+                        let mut sample = base.clone();
+                        elapsed_ns(|| {
+                            black_box(
+                                sample
+                                    .schedule_create(
+                                        &memory.query.memory_plan,
+                                        &memory.query.memory_revision,
+                                        &TargetManifestId::new("tm1"),
+                                        &TargetManifestRevisionId::new("tmr1"),
+                                    )
+                                    .unwrap(),
+                            )
+                        })
+                    },
+                    json!({"operations": operation_count, "axes": operation_count}),
+                ),
+            );
+            workspace
+                .schedule_create(
+                    &memory.query.memory_plan,
+                    &memory.query.memory_revision,
+                    &TargetManifestId::new("tm1"),
+                    &TargetManifestRevisionId::new("tmr1"),
+                )
+                .unwrap();
+            (operation_count, workspace)
+        })
+        .collect::<BTreeMap<_, _>>();
+    for (operation_count, workspace) in &schedule_roots {
+        timings.insert(
+            format!("schedule_iteration_domain_construction_{operation_count}_axes"),
+            measure(
+                || {
+                    elapsed_ns(|| {
+                        black_box(
+                            workspace
+                                .schedule_check(
+                                    &SchedulePlanId::new("sp1"),
+                                    &ScheduleRevisionId::new("sr1"),
+                                )
+                                .unwrap(),
+                        )
+                    })
+                },
+                json!({"axes": operation_count}),
+            ),
+        );
+    }
+    let schedule_workspace = schedule_roots[&100].clone();
+    let schedule_plan = schedule_workspace
+        .schedule_store()
+        .plan(&SchedulePlanId::new("sp1"))
+        .unwrap();
+    let schedule_revision = schedule_plan
+        .revisions
+        .get(&ScheduleRevisionId::new("sr1"))
+        .unwrap();
+    let target = schedule_workspace
+        .target_store()
+        .manifest(
+            &TargetManifestId::new("tm1"),
+            &TargetManifestRevisionId::new("tmr1"),
+        )
+        .unwrap();
+    let target_bytes = canonical_target_bytes(target).unwrap();
+    let schedule_bytes = canonical_schedule_bytes(schedule_plan, schedule_revision).unwrap();
+    canonical_sizes.insert("target_manifest".to_owned(), target_bytes.len());
+    canonical_sizes.insert(
+        "schedule_serial_exact_state".to_owned(),
+        schedule_bytes.len(),
+    );
+    canonical_sizes.insert(
+        "schedule_axes_and_domains".to_owned(),
+        serde_json::to_vec(&(
+            &schedule_revision.program.axes,
+            &schedule_revision.program.domains,
+        ))
+        .unwrap()
+        .len(),
+    );
+    canonical_sizes.insert(
+        "schedule_dependencies".to_owned(),
+        serde_json::to_vec(&schedule_revision.program.dependencies)
+            .unwrap()
+            .len(),
+    );
+    canonical_sizes.insert(
+        "schedule_fusion_facts".to_owned(),
+        serde_json::to_vec(&schedule_revision.program.fusion_groups)
+            .unwrap()
+            .len(),
+    );
+    canonical_sizes.insert(
+        "schedule_bindings".to_owned(),
+        serde_json::to_vec(
+            &schedule_revision
+                .program
+                .axes
+                .values()
+                .filter_map(|axis| axis.binding.as_ref())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap()
+        .len(),
+    );
+    canonical_sizes.insert(
+        "schedule_resource_estimate".to_owned(),
+        serde_json::to_vec(&schedule_revision.program.resource_estimate)
+            .unwrap()
+            .len(),
+    );
+    canonical_sizes.insert(
+        "schedule_certificates".to_owned(),
+        serde_json::to_vec(&schedule_revision.certificates)
+            .unwrap()
+            .len(),
+    );
+    timings.insert(
+        "schedule_dependency_analysis_100_operations".to_owned(),
+        measure(
+            || {
+                elapsed_ns(|| {
+                    black_box(
+                        schedule_workspace
+                            .schedule_check(
+                                &SchedulePlanId::new("sp1"),
+                                &ScheduleRevisionId::new("sr1"),
+                            )
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"operations": 100}),
+        ),
+    );
+    timings.insert(
+        "schedule_verification_100_operations".to_owned(),
+        measure(
+            || {
+                elapsed_ns(|| {
+                    black_box(
+                        schedule_workspace
+                            .schedule_check(
+                                &SchedulePlanId::new("sp1"),
+                                &ScheduleRevisionId::new("sr1"),
+                            )
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"operations": 100}),
+        ),
+    );
+    timings.insert(
+        "schedule_canonicalization_100_operations".to_owned(),
+        measure(
+            || {
+                elapsed_ns(|| {
+                    black_box(canonical_schedule_bytes(schedule_plan, schedule_revision).unwrap())
+                })
+            },
+            json!({"operations": 100}),
+        ),
+    );
+    timings.insert(
+        "schedule_hash_query".to_owned(),
+        measure(
+            || elapsed_ns(|| black_box(&schedule_revision.schedule_hash)),
+            json!({"queries": 1}),
+        ),
+    );
+    let transaction_for = |action| ScheduleTransaction {
+        schedule_plan: SchedulePlanId::new("sp1"),
+        base_schedule_revision: ScheduleRevisionId::new("sr1"),
+        expected_schedule_hash: schedule_revision.schedule_hash.clone(),
+        expected_memory_hash: schedule_revision.memory_hash.clone(),
+        expected_target_hash: schedule_revision.target_hash.clone(),
+        actions: vec![action],
+    };
+    for (name, action) in [
+        (
+            "schedule_exact_split",
+            ScheduleAction::SplitAxis {
+                axis: ScheduleAxisId::new("sa1"),
+                factor: 4,
+            },
+        ),
+        (
+            "schedule_exact_tile",
+            ScheduleAction::TileAxes {
+                axes: vec![ScheduleAxisId::new("sa1")],
+                tile_sizes: vec![4],
+            },
+        ),
+        (
+            "schedule_remainder_construction",
+            ScheduleAction::SplitAxis {
+                axis: ScheduleAxisId::new("sa1"),
+                factor: 3,
+            },
+        ),
+        (
+            "schedule_legal_fusion",
+            ScheduleAction::FuseOperations {
+                producer: ScheduleNodeId::new("sn1"),
+                consumer: ScheduleNodeId::new("sn2"),
+            },
+        ),
+        (
+            "schedule_binding_legality",
+            ScheduleAction::BindAxis {
+                axis: ScheduleAxisId::new("sa1"),
+                level: BindingLevel::GridX,
+            },
+        ),
+        (
+            "schedule_unroll_proof",
+            ScheduleAction::UnrollAxis {
+                axis: ScheduleAxisId::new("sa1"),
+                factor: 4,
+            },
+        ),
+    ] {
+        let transaction = transaction_for(action);
+        timings.insert(
+            name.to_owned(),
+            measure(
+                || {
+                    let mut sample = schedule_workspace.clone();
+                    elapsed_ns(|| black_box(sample.schedule_apply(&transaction).unwrap()))
+                },
+                json!({"actions": 1}),
+            ),
+        );
+    }
+    for (name, action) in [
+        (
+            "schedule_rejected_fusion_fast_path",
+            ScheduleAction::FuseOperations {
+                producer: ScheduleNodeId::new("sn2"),
+                consumer: ScheduleNodeId::new("sn1"),
+            },
+        ),
+        (
+            "schedule_rejected_vectorization",
+            ScheduleAction::VectorizeAxis {
+                axis: ScheduleAxisId::new("sa1"),
+                width: 16,
+            },
+        ),
+    ] {
+        let transaction = transaction_for(action);
+        timings.insert(
+            name.to_owned(),
+            measure(
+                || {
+                    let mut sample = schedule_workspace.clone();
+                    elapsed_ns(|| black_box(sample.schedule_apply(&transaction).unwrap_err()))
+                },
+                json!({"actions": 1}),
+            ),
+        );
+    }
+    timings.insert(
+        "schedule_target_resource_estimation".to_owned(),
+        measure(
+            || {
+                elapsed_ns(|| {
+                    black_box(
+                        schedule_workspace
+                            .schedule_resource_query(
+                                &SchedulePlanId::new("sp1"),
+                                &ScheduleRevisionId::new("sr1"),
+                            )
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"nodes": 100}),
+        ),
+    );
+    timings.insert(
+        "schedule_fork".to_owned(),
+        measure(
+            || {
+                let mut sample = schedule_workspace.clone();
+                elapsed_ns(|| {
+                    black_box(
+                        sample
+                            .schedule_fork(
+                                &SchedulePlanId::new("sp1"),
+                                &ScheduleRevisionId::new("sr1"),
+                                &schedule_revision.schedule_hash,
+                            )
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"revisions": 1}),
+        ),
+    );
+    timings.insert(
+        "schedule_seal".to_owned(),
+        measure(
+            || {
+                let mut sample = schedule_workspace.clone();
+                elapsed_ns(|| {
+                    black_box(
+                        sample
+                            .schedule_seal(
+                                &SchedulePlanId::new("sp1"),
+                                &ScheduleRevisionId::new("sr1"),
+                                &schedule_revision.schedule_hash,
+                            )
+                            .unwrap(),
+                    )
+                })
+            },
+            json!({"revisions": 1}),
+        ),
+    );
+    let schedule_archive = agentir_store::encode_workspace_archive(&schedule_workspace).unwrap();
+    canonical_sizes.insert(
+        "archive_v8_serial_schedule".to_owned(),
+        schedule_archive.len(),
+    );
+    timings.insert(
+        "archive_v8_replay_serial_schedule".to_owned(),
+        measure(
+            || elapsed_ns(|| black_box(load_workspace_bytes(&schedule_archive).unwrap())),
+            json!({"archive_bytes": schedule_archive.len()}),
+        ),
+    );
+    let legacy_v7 = include_bytes!("../../agentir-store/tests/fixtures/minimal-v7.json");
+    timings.insert(
+        "archive_v7_to_v8_migration".to_owned(),
+        measure(
+            || elapsed_ns(|| black_box(load_workspace_bytes(legacy_v7).unwrap())),
+            json!({"archive_bytes": legacy_v7.len()}),
+        ),
+    );
+    let serial10 = &schedule_roots[&10];
+    let serial10_revision = serial10
+        .schedule_store()
+        .revision(&SchedulePlanId::new("sp1"), &ScheduleRevisionId::new("sr1"))
+        .unwrap();
+    let serial10_memory = serial10
+        .memory_store()
+        .revision(&MemoryPlanId::new("mp1"), &MemoryRevisionId::new("mr1"))
+        .unwrap();
+    let serial10_impl = serial10
+        .memory_impl_program(&MemoryPlanId::new("mp1"))
+        .unwrap();
+    let serial10_inputs = BTreeMap::from([("x".to_owned(), json!([1.0, 2.0, 3.0, 4.0]))]);
+    timings.insert(
+        "schedule_serial_reference_evaluation".to_owned(),
+        measure(
+            || {
+                elapsed_ns(|| {
+                    black_box(
+                        agentir_eval::evaluate_schedule_with_limits(
+                            serial10_revision,
+                            serial10_memory,
+                            serial10_impl,
+                            &serial10_inputs,
+                            &BTreeMap::new(),
+                            &ResourceLimits::default(),
+                        )
+                        .unwrap(),
+                    )
+                })
+            },
+            json!({"operations": 10, "tensor_elements": 4}),
+        ),
+    );
+    let mut vector_workspace = tensor_memory_candidate(10);
+    let vector_memory = vector_workspace
+        .memory_create(&CandidateId::new("c1"), &CandidateRevisionId::new("cr1"))
+        .unwrap();
+    let align = MemoryTransaction {
+        memory_plan: MemoryPlanId::new("mp1"),
+        base_memory_revision: MemoryRevisionId::new("mr1"),
+        expected_memory_hash: vector_memory.query.memory_hash.clone(),
+        expected_impl_hash: vector_memory.query.impl_hash.clone(),
+        actions: (1..=11)
+            .map(|id| MemoryAction::SetAlignment {
+                buffer: BufferId::new(format!("buf{id}")),
+                alignment: 16,
+            })
+            .collect(),
+    };
+    let aligned = vector_workspace.memory_apply(&align).unwrap();
+    vector_workspace
+        .target_create(TargetProfile::GenericGpuV1)
+        .unwrap();
+    let vector_schedule = vector_workspace
+        .schedule_create(
+            &MemoryPlanId::new("mp1"),
+            &MemoryRevisionId::new("mr2"),
+            &TargetManifestId::new("tm1"),
+            &TargetManifestRevisionId::new("tmr1"),
+        )
+        .unwrap();
+    let vector_transaction = ScheduleTransaction {
+        schedule_plan: SchedulePlanId::new("sp1"),
+        base_schedule_revision: ScheduleRevisionId::new("sr1"),
+        expected_schedule_hash: vector_schedule.query.schedule_hash.clone(),
+        expected_memory_hash: aligned.query.memory_hash,
+        expected_target_hash: vector_schedule.query.target_hash,
+        actions: vec![ScheduleAction::VectorizeAxis {
+            axis: ScheduleAxisId::new("sa1"),
+            width: 4,
+        }],
+    };
+    timings.insert(
+        "schedule_vectorization_proof".to_owned(),
+        measure(
+            || {
+                let mut sample = vector_workspace.clone();
+                elapsed_ns(|| black_box(sample.schedule_apply(&vector_transaction).unwrap()))
+            },
+            json!({"width": 4, "buffers": 11}),
+        ),
+    );
+    let mut tiled_workspace = schedule_roots[&10].clone();
+    let tiled_root = tiled_workspace
+        .schedule_query(&SchedulePlanId::new("sp1"), &ScheduleRevisionId::new("sr1"))
+        .unwrap();
+    tiled_workspace
+        .schedule_apply(&ScheduleTransaction {
+            schedule_plan: SchedulePlanId::new("sp1"),
+            base_schedule_revision: ScheduleRevisionId::new("sr1"),
+            expected_schedule_hash: tiled_root.schedule_hash,
+            expected_memory_hash: tiled_root.memory_hash,
+            expected_target_hash: tiled_root.target_hash,
+            actions: vec![ScheduleAction::TileAxes {
+                axes: vec![ScheduleAxisId::new("sa1")],
+                tile_sizes: vec![4],
+            }],
+        })
+        .unwrap();
+    let tiled_archive = agentir_store::encode_workspace_archive(&tiled_workspace).unwrap();
+    canonical_sizes.insert("archive_v8_tiled_schedule".to_owned(), tiled_archive.len());
+    timings.insert(
+        "archive_v8_replay_tiled_schedule".to_owned(),
+        measure(
+            || elapsed_ns(|| black_box(load_workspace_bytes(&tiled_archive).unwrap())),
+            json!({"archive_bytes": tiled_archive.len()}),
+        ),
+    );
+    let tiled_revision = tiled_workspace
+        .schedule_store()
+        .revision(&SchedulePlanId::new("sp1"), &ScheduleRevisionId::new("sr2"))
+        .unwrap();
+    let tiled_memory = tiled_workspace
+        .memory_store()
+        .revision(&MemoryPlanId::new("mp1"), &MemoryRevisionId::new("mr1"))
+        .unwrap();
+    let tiled_impl = tiled_workspace
+        .memory_impl_program(&MemoryPlanId::new("mp1"))
+        .unwrap();
+    for name in ["tiled", "remainder"] {
+        timings.insert(
+            format!("schedule_{name}_reference_evaluation"),
+            measure(
+                || {
+                    elapsed_ns(|| {
+                        black_box(
+                            agentir_eval::evaluate_schedule_with_limits(
+                                tiled_revision,
+                                tiled_memory,
+                                tiled_impl,
+                                &serial10_inputs,
+                                &BTreeMap::new(),
+                                &ResourceLimits::default(),
+                            )
+                            .unwrap(),
+                        )
+                    })
+                },
+                json!({"tile_size": 4, "tensor_elements": 4}),
+            ),
+        );
+    }
+    let mut fused_workspace = schedule_roots[&10].clone();
+    let fused_root = fused_workspace
+        .schedule_query(&SchedulePlanId::new("sp1"), &ScheduleRevisionId::new("sr1"))
+        .unwrap();
+    fused_workspace
+        .schedule_apply(&ScheduleTransaction {
+            schedule_plan: SchedulePlanId::new("sp1"),
+            base_schedule_revision: ScheduleRevisionId::new("sr1"),
+            expected_schedule_hash: fused_root.schedule_hash,
+            expected_memory_hash: fused_root.memory_hash,
+            expected_target_hash: fused_root.target_hash,
+            actions: vec![ScheduleAction::FuseOperations {
+                producer: ScheduleNodeId::new("sn1"),
+                consumer: ScheduleNodeId::new("sn2"),
+            }],
+        })
+        .unwrap();
+    let fused_archive = agentir_store::encode_workspace_archive(&fused_workspace).unwrap();
+    canonical_sizes.insert("archive_v8_fused_schedule".to_owned(), fused_archive.len());
+    timings.insert(
+        "archive_v8_replay_fused_schedule".to_owned(),
+        measure(
+            || elapsed_ns(|| black_box(load_workspace_bytes(&fused_archive).unwrap())),
+            json!({"archive_bytes": fused_archive.len()}),
+        ),
+    );
     let analyzed_memory = [10_usize, 100, 1_000]
         .into_iter()
         .map(|buffer_count| {
@@ -2437,6 +2967,60 @@ fn main() {
             json!({"archive_bytes": guarded_v7.len()}),
         ),
     );
+    guarded_memory
+        .target_create(TargetProfile::GenericGpuV1)
+        .unwrap();
+    guarded_memory
+        .schedule_create(
+            &MemoryPlanId::new("mp1"),
+            &MemoryRevisionId::new("mr2"),
+            &TargetManifestId::new("tm1"),
+            &TargetManifestRevisionId::new("tmr1"),
+        )
+        .unwrap();
+    let guarded_schedule = guarded_memory
+        .schedule_store()
+        .revision(&SchedulePlanId::new("sp1"), &ScheduleRevisionId::new("sr1"))
+        .unwrap();
+    let guarded_revision = guarded_memory
+        .memory_store()
+        .revision(&MemoryPlanId::new("mp1"), &MemoryRevisionId::new("mr2"))
+        .unwrap();
+    let guarded_impl = guarded_memory
+        .memory_impl_program(&MemoryPlanId::new("mp1"))
+        .unwrap();
+    for (name, outcome) in [("true", true), ("false", false)] {
+        timings.insert(
+            format!("schedule_guarded_memory_{name}_evaluation"),
+            measure(
+                || {
+                    elapsed_ns(|| {
+                        black_box(
+                            agentir_eval::evaluate_schedule_with_limits(
+                                guarded_schedule,
+                                guarded_revision,
+                                guarded_impl,
+                                &memory_inputs,
+                                &BTreeMap::from([(MemoryGuardId::new("mg1"), outcome)]),
+                                &ResourceLimits::default(),
+                            )
+                            .unwrap(),
+                        )
+                    })
+                },
+                json!({"guard_outcome": outcome, "tensor_elements": 4}),
+            ),
+        );
+    }
+    let guarded_v8 = agentir_store::encode_workspace_archive(&guarded_memory).unwrap();
+    canonical_sizes.insert("archive_v8_guarded_schedule".to_owned(), guarded_v8.len());
+    timings.insert(
+        "archive_v8_replay_guarded_schedule".to_owned(),
+        measure(
+            || elapsed_ns(|| black_box(load_workspace_bytes(&guarded_v8).unwrap())),
+            json!({"archive_bytes": guarded_v8.len()}),
+        ),
+    );
     for (name, bytes) in [
         (
             "equality_materialized",
@@ -2460,6 +3044,34 @@ fn main() {
             ),
         );
     }
+    let equality_memory_bytes =
+        include_bytes!("../../agentir-store/tests/fixtures/equality-materialized-memory-v7.json");
+    let mut equality_schedule = load_workspace_bytes(equality_memory_bytes)
+        .unwrap()
+        .workspace;
+    equality_schedule
+        .target_create(TargetProfile::GenericGpuV1)
+        .unwrap();
+    equality_schedule
+        .schedule_create(
+            &MemoryPlanId::new("mp1"),
+            &MemoryRevisionId::new("mr1"),
+            &TargetManifestId::new("tm1"),
+            &TargetManifestRevisionId::new("tmr1"),
+        )
+        .unwrap();
+    let equality_v8 = agentir_store::encode_workspace_archive(&equality_schedule).unwrap();
+    canonical_sizes.insert(
+        "archive_v8_equality_materialized_schedule".to_owned(),
+        equality_v8.len(),
+    );
+    timings.insert(
+        "archive_v8_replay_equality_materialized_schedule".to_owned(),
+        measure(
+            || elapsed_ns(|| black_box(load_workspace_bytes(&equality_v8).unwrap())),
+            json!({"archive_bytes": equality_v8.len()}),
+        ),
+    );
 
     let saxpy = load_workspace_bytes(v3_bytes).unwrap();
     let saxpy_program = &saxpy

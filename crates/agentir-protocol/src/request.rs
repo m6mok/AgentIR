@@ -8,10 +8,13 @@ use agentir_core::{
     ids::{
         BufferId, CandidateId, CandidateRevisionId, EqualityNodeId, EqualityRevisionId,
         EqualitySpaceId, HoleId, ImplOperationId, MemoryGuardId, MemoryPlanId, MemoryRevisionId,
-        ProposalId, RevisionId, WorkspaceId,
+        ProposalId, RevisionId, ScheduleAxisId, SchedulePlanId, ScheduleRevisionId,
+        TargetManifestId, TargetManifestRevisionId, WorkspaceId,
     },
     impl_ir::ImplHash,
     memory::{MemoryAction, MemoryHash},
+    schedule::{ScheduleAction, ScheduleHash},
+    target::{TargetHash, TargetProfile},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -657,6 +660,205 @@ pub enum Request {
         /// Explicit immutable memory revision.
         memory_revision: MemoryRevisionId,
     },
+    /// Lists compiler-owned immutable target manifests.
+    #[serde(rename = "target.list")]
+    TargetList {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+    },
+    /// Instantiates one compiler-owned target profile.
+    #[serde(rename = "target.create")]
+    TargetCreate {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Compiler-owned profile selector.
+        profile: TargetProfile,
+    },
+    /// Reads one immutable target manifest.
+    #[serde(rename = "target.query")]
+    TargetQuery {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Manifest identity.
+        target_manifest: TargetManifestId,
+        /// Immutable manifest revision.
+        target_revision: TargetManifestRevisionId,
+    },
+    /// Fully verifies one target manifest.
+    #[serde(rename = "target.check")]
+    TargetCheck {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Manifest identity.
+        target_manifest: TargetManifestId,
+        /// Immutable manifest revision.
+        target_revision: TargetManifestRevisionId,
+    },
+    /// Creates a conservative serial schedule from MemoryIR and a target manifest.
+    #[serde(rename = "schedule.create")]
+    ScheduleCreate {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Verified memory plan.
+        memory_plan: MemoryPlanId,
+        /// Explicit immutable memory revision.
+        memory_revision: MemoryRevisionId,
+        /// Immutable target manifest.
+        target_manifest: TargetManifestId,
+        /// Explicit immutable target revision.
+        target_revision: TargetManifestRevisionId,
+    },
+    /// Reads one immutable schedule summary.
+    #[serde(rename = "schedule.query")]
+    ScheduleQuery {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Schedule plan.
+        schedule_plan: SchedulePlanId,
+        /// Immutable schedule revision.
+        schedule_revision: ScheduleRevisionId,
+    },
+    /// Fully verifies one schedule revision.
+    #[serde(rename = "schedule.check")]
+    ScheduleCheck {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Schedule plan.
+        schedule_plan: SchedulePlanId,
+        /// Immutable schedule revision.
+        schedule_revision: ScheduleRevisionId,
+    },
+    /// Applies an atomic compiler-verified schedule transaction.
+    #[serde(rename = "schedule.apply")]
+    ScheduleApply {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Schedule plan.
+        schedule_plan: SchedulePlanId,
+        /// Explicit current base schedule revision.
+        base_schedule_revision: ScheduleRevisionId,
+        /// Required exact base schedule hash.
+        expected_schedule_hash: ScheduleHash,
+        /// Required immutable memory hash.
+        expected_memory_hash: MemoryHash,
+        /// Required immutable target hash.
+        expected_target_hash: TargetHash,
+        /// Ordered compiler-verified actions.
+        actions: Vec<ScheduleAction>,
+    },
+    /// Forks one immutable schedule revision.
+    #[serde(rename = "schedule.fork")]
+    ScheduleFork {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Parent schedule plan.
+        schedule_plan: SchedulePlanId,
+        /// Parent immutable revision.
+        schedule_revision: ScheduleRevisionId,
+        /// Required exact parent hash.
+        expected_schedule_hash: ScheduleHash,
+    },
+    /// Seals one resource-valid exact schedule.
+    #[serde(rename = "schedule.seal")]
+    ScheduleSeal {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Schedule plan.
+        schedule_plan: SchedulePlanId,
+        /// Explicit current base revision.
+        schedule_revision: ScheduleRevisionId,
+        /// Required exact base hash.
+        expected_schedule_hash: ScheduleHash,
+    },
+    /// Evaluates an exact schedule through the deterministic MemoryIR oracle.
+    #[serde(rename = "schedule.evaluate")]
+    ScheduleEvaluate {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Schedule plan.
+        schedule_plan: SchedulePlanId,
+        /// Immutable schedule revision.
+        schedule_revision: ScheduleRevisionId,
+        /// Parameter names to exact JSON values.
+        inputs: BTreeMap<String, Value>,
+        /// Optional runtime outcomes for compiler-owned MemoryIR guards.
+        #[serde(default)]
+        guard_outcomes: BTreeMap<MemoryGuardId, bool>,
+    },
+    /// Returns the deterministic analytical target resource estimate.
+    #[serde(rename = "schedule.resource_query")]
+    ScheduleResourceQuery {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Schedule plan.
+        schedule_plan: SchedulePlanId,
+        /// Immutable schedule revision.
+        schedule_revision: ScheduleRevisionId,
+    },
+    /// Reads one compiler-assigned schedule axis.
+    #[serde(rename = "schedule.axis_query")]
+    ScheduleAxisQuery {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Schedule plan.
+        schedule_plan: SchedulePlanId,
+        /// Immutable schedule revision.
+        schedule_revision: ScheduleRevisionId,
+        /// Axis to inspect.
+        axis: ScheduleAxisId,
+    },
+    /// Answers whether one schedule action satisfies all hard conditions.
+    #[serde(rename = "schedule.legality_query")]
+    ScheduleLegalityQuery {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Schedule plan.
+        schedule_plan: SchedulePlanId,
+        /// Immutable schedule revision.
+        schedule_revision: ScheduleRevisionId,
+        /// Proposed action; no proof payload is accepted.
+        action: ScheduleAction,
+    },
+    /// Returns bounded parametric schedule choices without mutation.
+    #[serde(rename = "schedule.continuation")]
+    ScheduleContinuation {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Schedule plan.
+        schedule_plan: SchedulePlanId,
+        /// Immutable schedule revision.
+        schedule_revision: ScheduleRevisionId,
+    },
 }
 
 const fn default_validation_cases() -> u64 {
@@ -712,7 +914,22 @@ impl Request {
             | Self::MemoryEvaluate { request_id, .. }
             | Self::MemoryAliasQuery { request_id, .. }
             | Self::MemoryBufferQuery { request_id, .. }
-            | Self::MemoryContinuation { request_id, .. } => request_id,
+            | Self::MemoryContinuation { request_id, .. }
+            | Self::TargetList { request_id, .. }
+            | Self::TargetCreate { request_id, .. }
+            | Self::TargetQuery { request_id, .. }
+            | Self::TargetCheck { request_id, .. }
+            | Self::ScheduleCreate { request_id, .. }
+            | Self::ScheduleQuery { request_id, .. }
+            | Self::ScheduleCheck { request_id, .. }
+            | Self::ScheduleApply { request_id, .. }
+            | Self::ScheduleFork { request_id, .. }
+            | Self::ScheduleSeal { request_id, .. }
+            | Self::ScheduleEvaluate { request_id, .. }
+            | Self::ScheduleResourceQuery { request_id, .. }
+            | Self::ScheduleAxisQuery { request_id, .. }
+            | Self::ScheduleLegalityQuery { request_id, .. }
+            | Self::ScheduleContinuation { request_id, .. } => request_id,
         }
     }
 }

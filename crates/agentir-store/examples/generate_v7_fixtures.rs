@@ -8,7 +8,7 @@ use agentir_core::{
     memory::{MemoryAction, MemoryHash, MemoryTransaction},
 };
 use agentir_store::{
-    ARCHIVE_FORMAT_VERSION, ARCHIVE_KIND, WorkspaceArchiveV7, load_workspace_bytes,
+    ARCHIVE_KIND, LEGACY_ARCHIVE_FORMAT_V7, WorkspaceArchiveV7, load_workspace_bytes,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -22,7 +22,7 @@ struct Body<'a> {
     format: &'a str,
     format_version: u32,
     compiler_version: &'a str,
-    snapshot: &'a agentir_core::persistence::WorkspaceSnapshot,
+    snapshot: &'a agentir_core::persistence::LegacyWorkspaceSnapshotV7,
 }
 
 fn sha256(bytes: &[u8]) -> String {
@@ -54,9 +54,20 @@ fn deterministic_archive(workspace: &Workspace) -> Vec<u8> {
     for (index, revision) in snapshot.revisions.values_mut().enumerate() {
         revision.created_at_unix_ms = index as u128;
     }
+    let snapshot = agentir_core::persistence::LegacyWorkspaceSnapshotV7 {
+        schema_version: LEGACY_ARCHIVE_FORMAT_V7,
+        workspace: snapshot.workspace,
+        head: snapshot.head,
+        revisions: snapshot.revisions,
+        allocator: snapshot.allocator,
+        events: snapshot.events,
+        candidate_forest: snapshot.candidate_forest,
+        equality_store: snapshot.equality_store,
+        memory_store: snapshot.memory_store,
+    };
     rehash(&mut WorkspaceArchiveV7 {
         format: ARCHIVE_KIND.to_owned(),
-        format_version: ARCHIVE_FORMAT_VERSION,
+        format_version: LEGACY_ARCHIVE_FORMAT_V7,
         compiler_version: env!("CARGO_PKG_VERSION").to_owned(),
         snapshot,
         archive_hash: String::new(),

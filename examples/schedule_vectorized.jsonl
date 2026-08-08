@@ -1,0 +1,13 @@
+{"command":"workspace.open","request_id":"open","workspace":"w1"}
+{"command":"spec.apply","request_id":"build","workspace":"w1","base_revision":"r0","actions":[{"kind":"define_dimension","bind":"$N","name":"N","constraints":["N >= 0"]},{"kind":"create_parameter","bind":"$x","name":"x","type":"tensor<f32,[$N]>"},{"kind":"create_op","bind":"$out","opcode":"map","operands":["$x"],"region":{"arguments":[{"name":"element","type":"f32"}],"captures":[],"operations":[],"yield_value":"element"}},{"kind":"set_output","name":"out","value":"$out"}]}
+{"command":"spec.freeze","request_id":"freeze","workspace":"w1","base_revision":"r1"}
+{"command":"candidate.create","request_id":"candidate","workspace":"w1","spec_revision":"r2"}
+{"command":"memory.create","request_id":"memory","workspace":"w1","candidate":"c1","candidate_revision":"cr1"}
+{"command":"memory.apply","request_id":"align","workspace":"w1","memory_plan":"mp1","base_memory_revision":"mr1","expected_memory_hash":"a6a485a88cd70612614e928d07d1c00c85303a31b8a4db15dc4b1866d3a522b3","expected_impl_hash":"20ab0da38def365c933ada89f44abcb0303167b840afc03938d476f398cdb6f7","actions":[{"kind":"set_alignment","buffer":"buf1","alignment":16},{"kind":"set_alignment","buffer":"buf2","alignment":16}]}
+{"command":"target.create","request_id":"target","workspace":"w1","profile":"generic_gpu_v1"}
+{"command":"schedule.create","request_id":"schedule","workspace":"w1","memory_plan":"mp1","memory_revision":"mr2","target_manifest":"tm1","target_revision":"tmr1"}
+{"command":"schedule.legality_query","request_id":"unsupported-vector","workspace":"w1","schedule_plan":"sp1","schedule_revision":"sr1","action":{"kind":"vectorize_axis","axis":"sa1","width":16}}
+{"command":"schedule.legality_query","request_id":"resource-rejection","workspace":"w1","schedule_plan":"sp1","schedule_revision":"sr1","action":{"kind":"set_launch_shape","grid":[1,1,1],"workgroup":[2048,1,1]}}
+{"command":"schedule.query","request_id":"unchanged","workspace":"w1","schedule_plan":"sp1","schedule_revision":"sr1"}
+{"command":"schedule.apply","request_id":"vectorize","workspace":"w1","schedule_plan":"sp1","base_schedule_revision":"sr1","expected_schedule_hash":"d25d5a4f9adb4f3343b5c12bf2923c09cf88332458fe6f0af7f76a53bcea1a71","expected_memory_hash":"517df0c367c3e7630dbca8be1c0a1286d7ad19786813edddd370723329ad1b1a","expected_target_hash":"9df67ea24cadc12612bf6448d6e89a63a93c44a46aa64ff1cdfb277d7e7ac2d5","actions":[{"kind":"vectorize_axis","axis":"sa1","width":4},{"kind":"unroll_axis","axis":"sa1","factor":2}]}
+{"command":"schedule.evaluate","request_id":"evaluate","workspace":"w1","schedule_plan":"sp1","schedule_revision":"sr2","inputs":{"x":[1.0,2.0,3.0,4.0]}}

@@ -63,15 +63,22 @@ Stage 2 is complete at the exact-only boundary. The equality space is not an e-g
 - independent `memory_hash`, memory event semantics v1, reference evaluator/trace and continuations;
 - archive/snapshot v7 with explicit immutable v6 migration and deterministic replay.
 
-Completion mapping: SpecIR → Stage 1; ImplIR/CandidateForest → Stage 2A; proof debt/guarded candidates → Stage 2B; exact equality → Stage 2C; logical-to-physical bufferization → Stage 3. ScheduleIR and TargetManifest remain Stage 4.
+Completion mapping: SpecIR → Stage 1; ImplIR/CandidateForest → Stage 2A; proof debt/guarded candidates → Stage 2B; exact equality → Stage 2C; logical-to-physical bufferization → Stage 3.
 
-## Stage 4: ScheduleIR and simulator
+## Completed Stage 4: ScheduleIR and simulator
 
-Represent tile/split/fuse/bind/vectorize choices separately from algorithm and memory. Build CPU/GPU legality and resource simulators plus measurement records.
+- separate typed ScheduleIR with conservative serial roots and immutable revision DAGs;
+- compiler-derived iteration domains, exact split/tile/remainder coverage, and restricted fusion;
+- target hierarchy binding, vectorization, unrolling, and MemoryIR compatibility proofs;
+- immutable compiler-owned TargetManifest and independent `target_hash`;
+- deterministic analytical resource simulation and reference scheduled execution;
+- independent `schedule_hash`, schedule event semantics v1, and archive/snapshot v8 replay.
+
+Completion mapping: SpecIR → Stage 1; ImplIR/CandidateForest → Stage 2A; proof debt/guarded candidates → Stage 2B; exact equality → Stage 2C; MemoryIR → Stage 3; ScheduleIR/TargetManifest/resource simulator → Stage 4; backend lowering and executable artifacts → Stage 5.
 
 ## Stage 5: first GPU backend
 
-Select one target family, lower a deliberately small kernel subset, emit reproducibility manifests, and compare generated artifacts on target hardware.
+Select one target family, lower a deliberately small kernel subset, emit reproducibility manifests, and compare generated artifacts on target hardware. Stage 4 does not pre-empt this boundary with backend IR or device execution.
 
 ## Stage 6: agent evaluation
 

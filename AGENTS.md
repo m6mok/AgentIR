@@ -25,6 +25,9 @@ AgentIR is an agent-native compiler prototype. Preserve these invariants in ever
 19. MemoryIR is a separate typed graph anchored to one fully proved unconditional candidate revision and immutable `spec_hash`/`impl_hash`.
 20. Bufferization, alias facts, logical lifetimes, reuse proofs and `NoOverlap` guards are compiler-owned; fresh allocation is the exact fallback.
 21. Stage 3 contains no raw pointers, ScheduleIR, TargetManifest, target lowering, ranking, cost model or search policy.
+22. ScheduleIR is a separate typed graph anchored to one proved MemoryIR revision and immutable TargetManifest.
+23. Target capabilities, iteration domains, dependencies, remainders, schedule guards and correctness certificates are compiler-owned.
+24. Stage 4 contains no backend IR, machine code, device execution, autotuning, ranking, cost model or search policy.
 
 ## Where to look before changing code
 
@@ -86,6 +89,13 @@ cargo run -p agentir-cli --bin agentir < examples/memory_fresh.jsonl
 cargo run -p agentir-cli --bin agentir < examples/memory_reuse.jsonl
 cargo run -p agentir-cli --bin agentir < examples/memory_guarded_reuse.jsonl
 cargo run -p agentir-cli --bin agentir < examples/equality_to_memory.jsonl
+cargo run -p agentir-cli --bin agentir < examples/schedule_serial.jsonl
+cargo run -p agentir-cli --bin agentir < examples/schedule_tiled.jsonl
+cargo run -p agentir-cli --bin agentir < examples/schedule_remainder.jsonl
+cargo run -p agentir-cli --bin agentir < examples/schedule_fused.jsonl
+cargo run -p agentir-cli --bin agentir < examples/schedule_vectorized.jsonl
+cargo run -p agentir-cli --bin agentir < examples/schedule_guarded_memory.jsonl
+cargo run -p agentir-cli --bin agentir < examples/equality_to_schedule.jsonl
 cargo run --release -p agentir-protocol --example baseline
 ```
 

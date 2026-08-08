@@ -40,3 +40,6 @@ The pre-change single-shot run at commit `5a838d8540f57d7e171c1e333cd008957c1c60
 Those values were single-shot, some include setup effects, and they are not directly comparable to median schema-v2 records. They are historical orientation, not a performance contract.
 
 The SAXPY, candidate, equality and memory evaluators are deterministic CPU semantic/physical oracles. Their numbers say nothing about GPU code generation, device throughput, kernels, transfers or launch overhead; Stage 3 contains no GPU backend.
+# Stage 4 workloads
+
+Benchmark schema v2 remains wire-compatible. Stage 4 coverage measures median/p95 serial construction at 10/100/1,000 operations and domain construction at 10/100/1,000 axes, dependency analysis, split/tile/remainder, legal and rejected fusion, binding, vector/unroll proof paths, resource simulation, verification/canonicalization/hash query, fork/seal, serial/tiled/remainder/guarded evaluation, v7 → v8 migration, and v8 replay variants. Canonical sizes are reported separately for TargetManifest, schedule state, axes/domains, dependencies, fusion, bindings, estimates, and certificates. Machine-specific output is never committed.

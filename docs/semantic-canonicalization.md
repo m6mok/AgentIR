@@ -56,3 +56,6 @@ Semantic canonicalization establishes history independence for the same ordered 
 - different `NumericContract` values.
 
 Stage 2C adds a deliberately finite compiler-owned equality proof graph, not an algebraic canonicalizer, congruence-closure e-graph or ranked search. Nodes with equal `impl_hash` merge, but the equality layer does not alter any underlying semantic codec. A well-typed proposal can still leave proof debt open until a trusted validator or matching equality path closes it. See [equality-space.md](equality-space.md) and [equivalence-and-evidence.md](equivalence-and-evidence.md).
+# Target and schedule hashes
+
+Target canonical v1 uses `agentir.target.manifest.v1\0`; schedule canonical v1 uses `agentir.schedule.exact.v1\0`. `target_hash` covers the immutable capability contract. `schedule_hash` covers exact schedule state and anchors including `memory_hash` and `target_hash`. Neither includes interactive resource limits, timestamps, runtime inputs, trace output, or benchmark measurements, and neither may substitute for any earlier hash contract.

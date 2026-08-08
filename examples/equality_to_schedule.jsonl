@@ -1,0 +1,12 @@
+{"command":"workspace.open","request_id":"open","workspace":"w1"}
+{"command":"spec.apply","request_id":"build","workspace":"w1","base_revision":"r0","actions":[{"kind":"create_constant","bind":"$a","type":"i32","value":2},{"kind":"create_constant","bind":"$b","type":"i32","value":3},{"kind":"create_constant","bind":"$c","type":"i32","value":4},{"kind":"create_constant","bind":"$d","type":"i32","value":5},{"kind":"create_op","bind":"$left","opcode":"add","operands":["$a","$b"]},{"kind":"create_op","bind":"$right","opcode":"mul","operands":["$c","$d"]},{"kind":"create_op","bind":"$total","opcode":"add","operands":["$left","$right"]},{"kind":"set_output","name":"out","value":"$total"}]}
+{"command":"spec.freeze","request_id":"freeze","workspace":"w1","base_revision":"r1"}
+{"command":"candidate.create","request_id":"candidate","workspace":"w1","spec_revision":"r2"}
+{"command":"equality.create","request_id":"equality","workspace":"w1","candidate":"c1","candidate_revision":"cr1"}
+{"command":"equality.saturate","request_id":"saturate","workspace":"w1","equality_space":"eqs1","base_equality_revision":"er1","expected_equality_hash":"208d588c2faadcf7e89019424ba8ca03fdcf4e64398b1b4140be741468386630","fuel":100}
+{"command":"equality.materialize","request_id":"materialize","workspace":"w1","equality_space":"eqs1","equality_revision":"er2","expected_equality_hash":"c233256f54a5bc07c8b3c733275e930a2ba85516a067eb91cc5fe342ad55b2b4","node":"en5"}
+{"command":"memory.create","request_id":"memory","workspace":"w1","candidate":"c2","candidate_revision":"cr5"}
+{"command":"target.create","request_id":"target","workspace":"w1","profile":"generic_gpu_v1"}
+{"command":"schedule.create","request_id":"schedule","workspace":"w1","memory_plan":"mp1","memory_revision":"mr1","target_manifest":"tm1","target_revision":"tmr1"}
+{"command":"schedule.check","request_id":"check","workspace":"w1","schedule_plan":"sp1","schedule_revision":"sr1"}
+{"command":"schedule.evaluate","request_id":"evaluate","workspace":"w1","schedule_plan":"sp1","schedule_revision":"sr1","inputs":{}}

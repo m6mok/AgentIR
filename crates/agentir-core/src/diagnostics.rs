@@ -164,6 +164,58 @@ pub enum ErrorCode {
     MemoryEventOrderInvalid,
     /// A MemoryIR-specific hard resource boundary rejected the operation.
     MemoryResourceLimit,
+    /// Requested immutable target manifest does not exist.
+    TargetManifestNotFound,
+    /// Requested target-manifest revision does not exist.
+    TargetRevisionNotFound,
+    /// Target manifest hash differs from the selected immutable revision.
+    TargetHashMismatch,
+    /// The selected compiler-owned target profile lacks a capability.
+    TargetCapabilityUnsupported,
+    /// A schedule exceeds a capacity declared by its target manifest.
+    TargetResourceExceeded,
+    /// Requested schedule plan does not exist.
+    SchedulePlanNotFound,
+    /// Requested immutable schedule revision does not exist.
+    ScheduleRevisionNotFound,
+    /// Schedule exact-state hash differs from the selected revision.
+    ScheduleHashMismatch,
+    /// A schedule mutation was based on a stale schedule head.
+    StaleScheduleBase,
+    /// A logical iteration domain is malformed or unsupported.
+    InvalidIterationDomain,
+    /// A schedule axis is missing, malformed, or incompatible.
+    InvalidScheduleAxis,
+    /// Axis splitting cannot preserve exact coverage.
+    InvalidSplit,
+    /// Tiling cannot preserve exact coverage.
+    InvalidTile,
+    /// Structural schedule coverage is incomplete.
+    IncompleteCoverage,
+    /// A logical coordinate would execute more than once.
+    DuplicateExecution,
+    /// A producer-consumer dependence would be violated.
+    DependenceViolation,
+    /// Requested operation fusion is not in the trusted exact profile.
+    IllegalFusion,
+    /// Requested hierarchy binding is inconsistent or unsupported.
+    InvalidBinding,
+    /// Requested vector width is not supported by the target.
+    VectorWidthUnsupported,
+    /// Memory layout or alignment cannot support vectorization.
+    VectorAlignmentUnsatisfied,
+    /// Requested unroll factor is invalid or exceeds the bounded profile.
+    InvalidUnroll,
+    /// A transform would change the fixed reduction order.
+    ReductionOrderViolation,
+    /// Scheduled order conflicts with MemoryIR access, alias, or lifetime facts.
+    ScheduleMemoryConflict,
+    /// A ScheduleIR-specific hard resource boundary rejected the operation.
+    ScheduleResourceLimit,
+    /// Structural verification did not prove ScheduleEquivalentToMemory.
+    ScheduleEquivalenceUnproved,
+    /// Schedule events violate explicit dependency cursor order.
+    ScheduleEventOrderInvalid,
 }
 
 /// Structured compiler error suitable for agent repair loops.

@@ -25,9 +25,12 @@ pub mod obligations;
 pub mod persistence;
 pub mod resources;
 pub mod revision;
+pub mod schedule;
+pub mod schedule_ir;
 pub mod semantic;
 pub mod shapes;
 pub mod spec;
+pub mod target;
 pub mod transaction;
 pub mod types;
 pub mod workspace;
@@ -36,6 +39,7 @@ pub use actions::{Action, Transaction};
 pub use diagnostics::{AgentError, AgentResult, ErrorCode};
 pub use ids::{
     CandidateId, CandidateRevisionId, HoleId, MemoryPlanId, MemoryRevisionId, ProposalId,
-    RevisionId, WorkspaceId,
+    RevisionId, SchedulePlanId, ScheduleRevisionId, TargetManifestId, TargetManifestRevisionId,
+    WorkspaceId,
 };
 pub use workspace::Workspace;
