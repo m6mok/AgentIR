@@ -380,6 +380,24 @@ fn main() -> Result<(), String> {
         .abandon(&limits)
         .map_err(|error| error.to_string())?;
 
+    let (mut cancelled_session, mut cancelled_executor) = start(&plan, &catalog);
+    let mut cancelled_store = SyntheticMeasurementAcquisitionStore::default();
+    cancelled_session
+        .cancel()
+        .map_err(|error| error.to_string())?;
+    cancelled_session
+        .advance(
+            &mut cancelled_store,
+            &catalog,
+            None,
+            &mut cancelled_executor,
+            u64::MAX,
+        )
+        .map_err(|error| error.to_string())?;
+    let cancelled_result = cancelled_session
+        .result()
+        .map_err(|error| error.to_string())?;
+
     let normal_result = normal_session.result().map_err(|error| error.to_string())?;
     let recovered_result = reconciled_session
         .result()
@@ -483,6 +501,7 @@ fn main() -> Result<(), String> {
         "zero_publication_then_retry":retry.result(),
         "multiple_publications":ambiguous.result(),
         "explicit_abandon":abandoned.result(),
+        "stage7c_cancellation":cancelled_result,
     });
     let mutations = json!({
         "normal_equals_reconciled":normal_result == recovered_result,
@@ -496,7 +515,7 @@ fn main() -> Result<(), String> {
         "schema_version":"agentir.stage7d.study.v1",
         "tasks":1,
         "artifacts":1,
-        "recovery_scenarios":7,
+        "recovery_scenarios":8,
         "durable_preparations":7,
         "crash_boundaries_exercised":3,
         "reconciliation_exactly_one":1,
@@ -504,6 +523,7 @@ fn main() -> Result<(), String> {
         "reconciliation_multiple":1,
         "explicit_retry_authorizations":1,
         "explicit_abandonments":1,
+        "stage7c_cancellations":1,
         "automatic_retries":0,
         "reconciliation_hardware_calls":0,
         "replay_hardware_calls":0,
