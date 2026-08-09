@@ -22,3 +22,5 @@ Example scripted start:
 ```
 
 External runs set `scripted:false`, choose `kind`, call `episode.next`, and submit against the returned hash.
+
+Stage 6B ranker commands and the stricter `evaluation.episode.rank` payload are documented in [external-ranker-protocol.md](external-ranker-protocol.md).

@@ -5,3 +5,5 @@
 The built-in `stage6a-v1` corpus covers SpecIR construction, hole repair, constraints, exact and speculative candidates, equality, fresh/static/guarded memory, serial/tiled/fused/vector schedules, illegal-schedule repair, backend lowering and unsupported lowering, artifact emission, equality-to-artifact, archive replay, and SAXPY. Small, medium, and large labels are stable corpus data. Default tasks require neither network nor a physical GPU.
 
 Corpus budgets participate in corpus identity because fairness requires the same experimental allowance. Global hard safety limits are operational and do not enter compiler identities.
+
+Stage 6B ranked tasks consume immutable production scripts but derive alternatives only from compiler continuation responses. Small/medium/large variants cover compatible holes, exact rewrites/equality, memory alternatives, tile/fusion/vector/unroll/serial schedules, backend support, rejection repair, and bounded hybrid escape without visible correct-choice labels.

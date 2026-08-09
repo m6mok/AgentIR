@@ -35,6 +35,9 @@ AgentIR is an agent-native compiler prototype. Preserve these invariants in ever
 29. Stage 6A evaluation is a separate non-correctness layer; records, metrics, tokens, replay, and performance observations never advance compiler proofs.
 30. `corpus_hash`, `policy_hash`, `observation_hash`, `episode_hash`, `evaluation_hash`, and evaluation `archive_hash` are independent from compiler hashes and workspace archive v1–v9.
 31. Free, menu, and hybrid all use the production verifier/atomic transaction path; menu forbids arbitrary escape and hybrid escape remains bounded and untrusted.
+32. Stage 6B ranking is policy-owned and has no legality, proof, success, or artifact-selection authority.
+33. Choice sets, visible feature schemas, ranking policies, traces, and selections use independent hashes and deterministic compiler ordering.
+34. Evaluation archive v1 is immutable; new evaluation saves use v2 and legacy episodes migrate explicitly as unranked.
 
 ## Where to look before changing code
 
@@ -54,6 +57,7 @@ Use `docs/` instead of expanding this file with broad background:
 - Stage 4 scheduling boundary: `docs/stage-4-scope.md`, `docs/schedule-ir.md`, `docs/target-manifest.md`, `docs/schedule-legality.md`;
 - Stage 5 executable boundary: `docs/stage-5-scope.md`, `docs/backend-ir.md`, `docs/backend-lowering.md`, `docs/artifact-format.md`, `docs/artifact-correctness.md`, `docs/webgpu-runtime.md`;
 - Stage 6A evaluation boundary: `docs/stage-6a-scope.md`, `docs/agent-policy-evaluation.md`, `docs/evaluation-replay.md`, `docs/evaluation-fairness.md`;
+- Stage 6B ranking boundary: `docs/stage-6b-scope.md`, `docs/multi-choice-continuations.md`, `docs/ranking-policy-model.md`, `docs/ranking-transcripts.md`;
 - architectural trade-offs: `DECISIONS.md`.
 
 When documentation and behavior disagree, consult `docs/reference/stage-1-brief.md` first for Stage 1, then `docs/reference/agentir-spec-0.1.md`. Record intentional deviations in `DECISIONS.md`.

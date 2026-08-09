@@ -12,6 +12,13 @@ Start with the root [README](../README.md), then choose the document matching th
 - [Stage 4 scope](stage-4-scope.md) — exact scheduling completion and backend boundary.
 - [Stage 5 scope](stage-5-scope.md) — typed BackendIR, deterministic WGSL artifacts and optional WebGPU execution.
 - [Stage 6A scope](stage-6a-scope.md) — reproducible policy evaluation without ranking or autotuning.
+- [Stage 6B scope](stage-6b-scope.md) — reproducible policy-owned ranking without tuning.
+- [Stage 6B compatibility audit](stage-6b-compatibility-audit.md) — frozen Stage 1–6A contracts and new domains.
+- [Multi-choice continuations](multi-choice-continuations.md) — stable compiler-generated choice model.
+- [Ranking policy model](ranking-policy-model.md) and [features](ranking-features.md) — fixed-point policies and visible schema.
+- [Ranking transcripts](ranking-transcripts.md), [metrics](ranking-metrics.md), and [fairness](ranking-fairness.md) — replay and comparison.
+- [Evaluation archive v2](evaluation-archive-v2.md) — explicit v1 migration and ranked records.
+- [External ranker protocol](external-ranker-protocol.md) — Stage 6B JSONL commands.
 - [Stage 6A compatibility audit](stage-6a-compatibility-audit.md) — base commit, hash domains, and frozen v8/v9 bytes.
 - [Agent policy evaluation](agent-policy-evaluation.md) — run model, scripted baselines, and trust boundary.
 - [Evaluation corpus](evaluation-corpus.md) — immutable tasks, categories, variants, and budgets.

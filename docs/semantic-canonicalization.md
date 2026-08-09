@@ -67,3 +67,5 @@ Stage 5 adds independent domains `agentir.backend.wgsl.exact.v1\0`, `agentir.com
 # Stage 6A evaluation identities
 
 Evaluation adds separate domains `agentir.evaluation.corpus.v1\0`, `agentir.evaluation.policy.v1\0`, `agentir.evaluation.observation.v1\0`, `agentir.evaluation.episode.v1\0`, `agentir.evaluation.aggregate.v1\0`, and `agentir.evaluation.archive.v1\0`. These identify experiment definitions and transcripts only and never substitute for a compiler correctness or workspace archive hash.
+
+Stage 6B adds independent choice-set, feature-schema, ranking-policy, ranking-trace and selection v1 domains, plus ranked episode v2 and evaluation archive v2. None enters content/spec/impl/candidate/equality/memory/schedule/backend/artifact identities.

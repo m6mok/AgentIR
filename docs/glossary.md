@@ -1,5 +1,10 @@
 # Glossary
 
+- **EvaluationChoiceSet** — exact ordered compiler-generated actions visible to one ranked observation.
+- **RankingTrace** — policy preferences plus deterministic tie result and explicit selected choice; never compiler proof.
+- **SelectionOutcome** — selected choice or bounded escape anchored to its production compiler outcome.
+- **FeatureSchema** — ordered versioned definition of policy-visible, non-hidden ranking features.
+
 - **Evaluation corpus**: immutable ordered Stage 6A task definitions identified by `corpus_hash`.
 - **Policy descriptor**: versioned free/menu/hybrid visible surface and deterministic configuration identified by `policy_hash`.
 - **Evaluation observation**: exact agent-visible task/compiler/budget state and bounded continuation, identified by `observation_hash`.

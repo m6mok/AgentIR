@@ -1,0 +1,2 @@
+{"command":"evaluation.run.start","request_id":"run","policy":"menu_goal_directed_v1","tasks":["saxpy-end-to-end-large"],"seeds":[0],"scripted":true}
+{"command":"evaluation.replay","request_id":"replay","run":"run1"}

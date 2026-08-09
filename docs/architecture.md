@@ -1,6 +1,6 @@
 # Architecture
 
-AgentIR has five explicit immutable compiler graph layers: SpecIR states semantics, ImplIR states an exact implementation, MemoryIR states typed physical storage, ScheduleIR states target-checked execution order, and BackendIR states executable typed kernels for one schedule. Artifact WGSL remains derived output, never canonical input. Stage 6A is a separate non-correctness evaluation layer above the production protocol. Core snapshot/replay remains I/O-free; only `agentir-store` reads or writes workspace archive v9.
+AgentIR has five explicit immutable compiler graph layers: SpecIR states semantics, ImplIR states an exact implementation, MemoryIR states typed physical storage, ScheduleIR states target-checked execution order, and BackendIR states executable typed kernels for one schedule. Artifact WGSL remains derived output, never canonical input. Stage 6A/6B is a separate non-correctness evaluation and ranking layer above the production protocol. Core snapshot/replay remains I/O-free; only `agentir-store` reads or writes workspace archive v9.
 
 ## Data flow
 
@@ -41,7 +41,7 @@ immutable corpus + policy descriptor
   ↓ exact observation / bounded decision
 agentir-policy-eval ─ production outcome → transcript → replay/aggregate
   ↓ separate format
-evaluation archive v1 (never workspace archive v9)
+evaluation archive v2 (v1 migrates explicitly; never workspace archive v9)
 ```
 
 The dependency direction is one-way: `core` knows nothing about JSONL sessions, policy evaluation, transcripts or filesystems; the reference evaluator and store depend on `core`; `protocol` composes production components; `agentir-policy-eval` invokes that production surface; both CLIs only stream lines.

@@ -1,0 +1,3 @@
+{"command":"evaluation.run.start","request_id":"first","policy":"free_reference_v1","tasks":["saxpy-end-to-end-large"],"seeds":[0],"scripted":true}
+{"command":"evaluation.run.start","request_id":"second","policy":"menu_first_valid_v1","tasks":["saxpy-end-to-end-large"],"seeds":[0],"scripted":true}
+{"command":"evaluation.ranking.compare","request_id":"compare","runs":["run1","run2"]}

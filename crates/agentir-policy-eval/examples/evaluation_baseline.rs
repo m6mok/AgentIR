@@ -1,6 +1,10 @@
-//! Dependency-light statistical Stage 6A baseline using benchmark schema v2.
+//! Dependency-light statistical Stage 6A/6B baseline using benchmark schema v2.
 
-use agentir_policy_eval::{EvaluationHarness, EvaluationTaskId};
+use agentir_policy_eval::{
+    ChoiceCategory, ChoiceOrigin, ChoicePreconditions, EvaluationHarness, EvaluationTaskId,
+    RankingLimits, build_choice_set, compiler_choice, feature_schema_v1, rank_choices,
+    scripted_ranker, scripted_ranking_decision,
+};
 use serde_json::{Value, json};
 use std::{hint::black_box, time::Instant};
 
@@ -45,7 +49,7 @@ fn main() {
         "hybrid_bounded_escape_v1",
     ];
     let tasks = [EvaluationTaskId("saxpy-end-to-end-large".to_owned())];
-    let records: Vec<Value> = policies
+    let mut records: Vec<Value> = policies
         .iter()
         .map(|policy| {
             let timing = measure(|| {
@@ -65,10 +69,47 @@ fn main() {
             })
         })
         .collect();
+    let schema = feature_schema_v1().expect("feature schema");
+    let limits = RankingLimits::default();
+    for size in [10_usize, 100, 1_000] {
+        let choices = (0..size)
+            .map(|index| {
+                compiler_choice(
+                    ChoiceOrigin::Schedule,
+                    ChoiceCategory::ScheduleTile,
+                    json!({
+                        "command":"schedule.apply",
+                        "request_id":format!("benchmark-{index}"),
+                        "actions":[{"kind":"tile_axes","axes":["sa1"],"tile_sizes":[index + 1]}]
+                    }),
+                    ChoicePreconditions::default(),
+                    "benchmark compiler choice",
+                    "unchanged_or_compiler_owned",
+                    "sa1",
+                )
+                .expect("benchmark choice")
+            })
+            .collect::<Vec<_>>();
+        let set = build_choice_set("benchmark-observation", &schema, choices, &limits)
+            .expect("choice set");
+        let policy =
+            scripted_ranker("seeded_uniform_choice_v1", &schema, 23).expect("scripted ranker");
+        let timing = measure(|| {
+            let decision = scripted_ranking_decision(&policy, &set, &limits)
+                .expect("scripted ranking decision");
+            black_box(rank_choices(&set, &policy, decision, &limits).expect("ranking trace"));
+        });
+        records.push(json!({
+            "workload":"choice_hash_feature_scripted_rank_tie_select",
+            "choice_count":size,
+            "timing":timing
+        }));
+    }
     let corpus = agentir_policy_eval::builtin_corpus().expect("built-in corpus");
     let sizes = json!({
         "corpus_tasks": corpus.tasks.len(),
         "corpus_bytes": serde_json::to_vec(&corpus).expect("corpus bytes").len(),
+        "feature_schema_bytes": serde_json::to_vec(&schema).expect("schema bytes").len(),
         "canonical_sizes_are_timings": false
     });
     println!(

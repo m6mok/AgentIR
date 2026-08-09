@@ -16,10 +16,14 @@ pub const POLICY_HASH_DOMAIN: &[u8] = b"agentir.evaluation.policy.v1\0";
 pub const OBSERVATION_HASH_DOMAIN: &[u8] = b"agentir.evaluation.observation.v1\0";
 /// Episode canonical hash domain.
 pub const EPISODE_HASH_DOMAIN: &[u8] = b"agentir.evaluation.episode.v1\0";
+/// Ranked episode transcript hash domain.
+pub const EPISODE_HASH_V2_DOMAIN: &[u8] = b"agentir.evaluation.episode.v2\0";
 /// Aggregate/evaluation canonical hash domain.
 pub const AGGREGATE_HASH_DOMAIN: &[u8] = b"agentir.evaluation.aggregate.v1\0";
 /// Separate evaluation archive hash domain.
 pub const ARCHIVE_HASH_DOMAIN: &[u8] = b"agentir.evaluation.archive.v1\0";
+/// Evaluation archive v2 hash domain.
+pub const ARCHIVE_HASH_V2_DOMAIN: &[u8] = b"agentir.evaluation.archive.v2\0";
 
 fn canonical<T: Serialize>(value: &T) -> EvaluationResult<Vec<u8>> {
     serde_json::to_vec(value).map_err(|error| {
@@ -54,13 +58,26 @@ pub(crate) fn policy_hash(policy: &PolicyDescriptor) -> EvaluationResult<String>
 pub(crate) fn observation_hash(observation: &EvaluationObservation) -> EvaluationResult<String> {
     let mut model = observation.clone();
     model.observation_hash.clear();
+    model.choice_set_hash = None;
+    model.feature_schema_hash = None;
     domain_hash(OBSERVATION_HASH_DOMAIN, &model)
 }
 
 pub(crate) fn episode_hash(episode: &EvaluationEpisode) -> EvaluationResult<String> {
     let mut model = episode.clone();
     model.episode_hash = None;
-    domain_hash(EPISODE_HASH_DOMAIN, &model)
+    let ranked = model
+        .steps
+        .iter()
+        .any(|step| step.ranking_trace.is_some() || step.selection.is_some());
+    domain_hash(
+        if ranked {
+            EPISODE_HASH_V2_DOMAIN
+        } else {
+            EPISODE_HASH_DOMAIN
+        },
+        &model,
+    )
 }
 
 pub(crate) fn evaluation_hash(run: &EvaluationRun) -> EvaluationResult<String> {
@@ -86,5 +103,12 @@ pub(crate) fn aggregate_hash(aggregate: &EvaluationAggregate) -> EvaluationResul
 pub(crate) fn archive_hash(archive: &EvaluationArchive) -> EvaluationResult<String> {
     let mut model = archive.clone();
     model.archive_hash.clear();
-    domain_hash(ARCHIVE_HASH_DOMAIN, &model)
+    domain_hash(
+        if model.manifest.version == 2 {
+            ARCHIVE_HASH_V2_DOMAIN
+        } else {
+            ARCHIVE_HASH_DOMAIN
+        },
+        &model,
+    )
 }

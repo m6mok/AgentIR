@@ -4,6 +4,8 @@ Stage 5 offline checks require no GPU. Run `cargo test --workspace` and the back
 
 Stage 6A adds an offline `agentir-policy-eval` library and `agentir-eval` JSONL CLI. Run every `eval_*.jsonl` example plus `cargo run --release -p agentir-policy-eval --example evaluation_baseline`; no provider account, network, GPU, or model call is required.
 
+Stage 6B remains offline. Run every `eval_ranked_*.jsonl` example and the `stage6b` policy-eval tests; ranking replay must report zero external/device calls and Stage 6A pinned episode hashes must remain unchanged.
+
 Stage 3 changes should additionally run the four MemoryIR JSONL examples and verify fresh/reuse/guarded outputs agree, the unsafe reuse request is rejected without preventing the following transaction, v6 fixtures retain their pinned bytes, and v7 save/replay reproduces memory IDs/hashes. `cargo test --workspace` includes core atomicity/replay and protocol branch-laziness coverage.
 
 ## Repository layout

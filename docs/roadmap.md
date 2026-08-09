@@ -95,6 +95,13 @@ Stage 5 deliberately contains no reduction lowering, shared memory/subgroups, ar
 - independent evaluation hashes, deterministic model/device-free replay, raw aggregates and fairness checks;
 - separate evaluation archive v1 and optional same-device performance anchors.
 
-## Stage 6B and later
+## Completed Stage 6B: reproducible policy ranking
 
-Learned policies, compact learned codecs, cost models, prompt optimization, autotuning, population/beam search and automatic best-artifact selection remain future work. They may consume Stage 6A data but may not weaken the compiler proof boundary.
+- stable bounded compiler-generated choice sets and identities;
+- versioned visible features, fixed-point scores and deterministic ties;
+- scripted/external rankers, explicit production selection and model-free replay;
+- ranking metrics/fairness and evaluation archive v2 with explicit v1 migration.
+
+## Stage 6C and later
+
+Learned policies, compact learned codecs, cost models, prompt optimization, autotuning, population/beam search and automatic best-artifact selection remain future work. They may consume Stage 6A/6B data but may not weaken the compiler proof boundary.

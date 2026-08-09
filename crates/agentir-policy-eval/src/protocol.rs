@@ -1,8 +1,9 @@
 //! Bounded JSONL transport for external Stage 6A agents.
 
 use crate::{
-    engine::{EvaluationHarness, external_policy, scripted_policy},
+    engine::{EvaluationHarness, RankingSubmission, external_policy, scripted_policy},
     model::{EvaluationDiagnostic, EvaluationTaskId, PolicyDecision, PolicyKind, TokenUsage},
+    ranking::{RankingDecision, aggregate_ranking_metrics, feature_schema_v1, scripted_ranker},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -11,6 +12,21 @@ use std::path::Path;
 #[derive(Debug, Deserialize)]
 #[serde(tag = "command", deny_unknown_fields)]
 enum EvaluationRequest {
+    #[serde(rename = "evaluation.ranking.policy.list")]
+    RankingPolicyList {
+        request_id: String,
+        #[serde(default)]
+        seed: u64,
+    },
+    #[serde(rename = "evaluation.ranking.policy.query")]
+    RankingPolicyQuery {
+        request_id: String,
+        policy: String,
+        #[serde(default)]
+        seed: u64,
+    },
+    #[serde(rename = "evaluation.choice_set.query")]
+    ChoiceSetQuery { request_id: String, episode: String },
     #[serde(rename = "evaluation.corpus.list")]
     CorpusList { request_id: String },
     #[serde(rename = "evaluation.task.query")]
@@ -52,6 +68,31 @@ enum EvaluationRequest {
         #[serde(default)]
         external_request_correlation_id: Option<String>,
     },
+    #[serde(rename = "evaluation.episode.rank")]
+    EpisodeRank {
+        request_id: String,
+        run: String,
+        episode: String,
+        step: String,
+        observation_hash: String,
+        choice_set_hash: String,
+        feature_schema_hash: String,
+        ranking_policy_hash: String,
+        decision: RankingDecision,
+        #[serde(default)]
+        usage: Option<TokenUsage>,
+        #[serde(default)]
+        external_request_correlation_id: Option<String>,
+    },
+    #[serde(rename = "evaluation.ranking.trace.query")]
+    RankingTraceQuery { request_id: String, episode: String },
+    #[serde(rename = "evaluation.ranking.aggregate")]
+    RankingAggregate { request_id: String, run: String },
+    #[serde(rename = "evaluation.ranking.compare")]
+    RankingCompare {
+        request_id: String,
+        runs: Vec<String>,
+    },
     #[serde(rename = "evaluation.episode.finish")]
     EpisodeFinish { request_id: String, episode: String },
     #[serde(rename = "evaluation.transcript.query")]
@@ -78,7 +119,10 @@ enum EvaluationRequest {
 impl EvaluationRequest {
     fn request_id(&self) -> &str {
         match self {
-            Self::CorpusList { request_id }
+            Self::RankingPolicyList { request_id, .. }
+            | Self::RankingPolicyQuery { request_id, .. }
+            | Self::ChoiceSetQuery { request_id, .. }
+            | Self::CorpusList { request_id }
             | Self::TaskQuery { request_id, .. }
             | Self::RunStart { request_id, .. }
             | Self::RunStatus { request_id, .. }
@@ -86,6 +130,10 @@ impl EvaluationRequest {
             | Self::EpisodeQuery { request_id, .. }
             | Self::EpisodeNext { request_id, .. }
             | Self::EpisodeSubmit { request_id, .. }
+            | Self::EpisodeRank { request_id, .. }
+            | Self::RankingTraceQuery { request_id, .. }
+            | Self::RankingAggregate { request_id, .. }
+            | Self::RankingCompare { request_id, .. }
             | Self::EpisodeFinish { request_id, .. }
             | Self::TranscriptQuery { request_id, .. }
             | Self::Aggregate { request_id, .. }
@@ -154,6 +202,18 @@ impl EvaluationProtocol {
 
     fn handle(&mut self, request: EvaluationRequest) -> Result<Value, EvaluationDiagnostic> {
         match request {
+            EvaluationRequest::RankingPolicyList { seed, .. } => {
+                serde_json::to_value(self.harness.ranking_policies(seed)?)
+                    .map_err(|error| serialization_error(&error))
+            }
+            EvaluationRequest::RankingPolicyQuery { policy, seed, .. } => {
+                serde_json::to_value(scripted_ranker(&policy, &feature_schema_v1()?, seed)?)
+                    .map_err(|error| serialization_error(&error))
+            }
+            EvaluationRequest::ChoiceSetQuery { episode, .. } => {
+                serde_json::to_value(self.harness.ranked_choice_set(&episode)?)
+                    .map_err(|error| serialization_error(&error))
+            }
             EvaluationRequest::CorpusList { .. } => Ok(json!({
                 "name": self.harness.corpus().name,
                 "version": self.harness.corpus().version,
@@ -172,7 +232,21 @@ impl EvaluationProtocol {
                 scripted,
                 ..
             } => {
-                let run = if scripted {
+                let ranking_policy = self
+                    .harness
+                    .ranking_policies(seeds.first().copied().unwrap_or(0))?
+                    .into_iter()
+                    .find(|ranker| ranker.name == policy);
+                let run = if let Some(ranker) = ranking_policy {
+                    if scripted {
+                        return Err(EvaluationDiagnostic::new(
+                            crate::model::EvaluationErrorCode::EvaluationRankingPolicyInvalid,
+                            "ranked external loop must explicitly submit each selection",
+                        ));
+                    }
+                    self.harness
+                        .start_ranked_run(&ranker.name, &tasks, &seeds)?
+                } else if scripted {
                     let _ = scripted_policy(&policy)?;
                     self.harness.run_scripted(&policy, &tasks, &seeds)?
                 } else {
@@ -245,6 +319,74 @@ impl EvaluationProtocol {
                     external_request_correlation_id,
                 )?)
                 .map_err(|error| serialization_error(&error))
+            }
+            EvaluationRequest::EpisodeRank {
+                run,
+                episode,
+                step,
+                observation_hash,
+                choice_set_hash,
+                feature_schema_hash,
+                ranking_policy_hash,
+                decision,
+                usage,
+                external_request_correlation_id,
+                ..
+            } => {
+                if !self
+                    .harness
+                    .run(&run)?
+                    .episodes
+                    .iter()
+                    .any(|candidate| candidate.id == episode)
+                {
+                    return Err(EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationEpisodeNotFound,
+                        "episode does not belong to the submitted run",
+                    ));
+                }
+                let (trace, selection) = self.harness.rank_episode(RankingSubmission {
+                    episode_id: episode,
+                    step_id: step,
+                    observation_hash,
+                    choice_set_hash,
+                    feature_schema_hash,
+                    ranking_policy_hash,
+                    decision,
+                    usage,
+                    correlation_id: external_request_correlation_id,
+                })?;
+                Ok(json!({"ranking_trace": trace, "selection": selection}))
+            }
+            EvaluationRequest::RankingTraceQuery { episode, .. } => {
+                let episode = self
+                    .harness
+                    .run_ids()
+                    .find_map(|run_id| {
+                        self.harness
+                            .run(run_id)
+                            .ok()?
+                            .episodes
+                            .iter()
+                            .find(|candidate| candidate.id == episode)
+                    })
+                    .ok_or_else(|| {
+                        EvaluationDiagnostic::new(
+                            crate::model::EvaluationErrorCode::EvaluationEpisodeNotFound,
+                            "ranking episode does not exist",
+                        )
+                    })?;
+                Ok(json!({
+                    "episode": episode.id,
+                    "traces": episode.steps.iter().filter_map(|step| step.ranking_trace.as_ref()).collect::<Vec<_>>()
+                }))
+            }
+            EvaluationRequest::RankingAggregate { run, .. } => {
+                Ok(json!(aggregate_ranking_metrics(self.harness.run(&run)?)))
+            }
+            EvaluationRequest::RankingCompare { runs, .. } => {
+                serde_json::to_value(self.harness.compare(&runs)?)
+                    .map_err(|error| serialization_error(&error))
             }
             EvaluationRequest::EpisodeFinish { episode, .. } => {
                 let observation = self.harness.next_observation(&episode);

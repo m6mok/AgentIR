@@ -475,3 +475,59 @@ Potential persistent references inside generic semantic attributes are rejected 
 ## ADR-103: Stage 6A stops before tuning and ranking
 
 **Decision.** Stage 6A contains no autotuning, learned policy/ranking, prompt optimization, cost model, beam/population search, automatic extraction, schedule mutation, or best-artifact selection. These begin no earlier than Stage 6B.
+
+## ADR-104: Multi-choice continuations are exact visible production actions
+
+**Decision.** Stage 6B expands bounded compiler continuation descriptors into an ordered `EvaluationChoiceSet`. Every choice carries a production request; a parametric domain is never represented as a manually ranked task script.
+
+## ADR-105: Choice IDs are harness assigned from compiler state
+
+**Decision.** Stable choice IDs cover compiler layer/category, typed action, visible preconditions and compiler order. Policies cannot submit IDs, legality, bases, hashes, proof effects or outcomes.
+
+## ADR-106: Ranking features use a visible versioned schema
+
+**Decision.** Feature schema v1 declares exact ordered definitions, types, visibility and normalization. Hidden state, future outcomes, task success, unavailable measurements and reference solutions are forbidden.
+
+## ADR-107: Ranking is policy owned and non-correctness
+
+**Decision.** Scores and preferences influence only explicit selection. They never legalize an action, close an obligation, create EvidenceIR, or turn a measurement into proof.
+
+## ADR-108: Scores are signed fixed-point integers
+
+**Decision.** V1 scores are checked `i64` units at scale 1,000,000 with a bounded magnitude. Platform floats, NaN and infinity are absent from sorting and identity.
+
+## ADR-109: Tie breaking is deterministic
+
+**Decision.** Higher score ranks first; equal scores resolve by compiler order and then stable choice ID. The exact rule is policy-hashed and replay-verified.
+
+## ADR-110: Selection precedes compiler mutation
+
+**Decision.** Ranking is read-only. Only an explicit member selection creates a production request, which traverses `agentir-protocol::Engine`; stale frames and non-members reject before mutation.
+
+## ADR-111: Hybrid ranked escape remains separate and bounded
+
+**Decision.** Escape is outside the compiler choice set, explicitly marked, limited by the typed Stage 6A surface, and receives no precomputed legality or proof authority.
+
+## ADR-112: Ranking hashes are independent
+
+**Decision.** Choice set, feature schema, ranking policy, ranking trace and selection use distinct v1 domains. Ranked episodes use episode v2; none substitutes for a compiler hash.
+
+## ADR-113: Evaluation archive v2 stores ranking records
+
+**Decision.** New evaluation saves use archive v2 with visible schemas, policy descriptors, exact choice sets, traces, selections and explicit per-episode ranking status. Workspace archive v1–v9 is unchanged.
+
+## ADR-114: Evaluation archive v1 migrates without invented ranking
+
+**Decision.** The pure v1→v2 edge verifies the exact v1 envelope first, adds empty ranking stores, and marks every legacy episode `unranked`.
+
+## ADR-115: Ranked comparison requires identical visible experiments
+
+**Decision.** In addition to Stage 6A anchors, comparable runs require identical ordered choice-set hashes, feature-schema identity and permitted escape surface. Incompatibility is explicit.
+
+## ADR-116: Scripted rankers are controls
+
+**Decision.** Seven deterministic baselines exercise fixed-point scores, explicit selection, ties, seed handling and hybrid escape in CI. They make no learned-policy or cost-model claim.
+
+## ADR-117: Stage 6B stops before learned ranking and tuning
+
+**Decision.** Stage 6B contains no training, neural ranking, cost-model fitting, prompt optimization, Bayesian/beam/population search, autotuning, hardware-driven mutation, or automatic fastest-artifact selection.

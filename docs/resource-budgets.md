@@ -2,6 +2,8 @@
 
 Stage 6A owns additional operational hard limits for corpora/tasks/task bytes, runs/episodes/steps, observations/menu choices/action/transcript bytes, decisions/rejections/repair cycles, deterministic and reported token counts, cumulative context, active runs, aggregates/comparisons, evaluation archive bytes, replay work units, and generated property cases. Task budgets are immutable corpus data for fair comparison; harness hard caps are operational. Neither class enters any compiler correctness hash, while fixed task budgets intentionally enter `corpus_hash`.
 
+Stage 6B additionally bounds choices per frame, bytes per choice/set, feature definitions/features/bytes, policies, score entries and magnitude, tie groups, ranking traces/transcript bytes, decisions, selections, migration work, replay work, and generated multi-choice cases. Limit failures occur before trace, selection, or archive publication and enter no compiler hash.
+
 Memory budgets cover plans/revisions/events, buffers/operations/accesses, alias facts/domains, lifetime uses, obligations, reuse attempts, guard dependencies and fallback depth, layout entries, per-buffer/total abstract bytes, canonical/archive bytes, evaluation elements, trace events/bytes, and generated cases. Projected hard-limit failures happen against a staged store before publication; resource policy never enters `memory_hash`.
 
 `ResourceLimits`, `ResourceKind`, `ResourceUsage` and `BudgetCheck` provide one structured policy across core, evaluator, store, protocol and CLI. Limits are excluded from `Program`, snapshots and every hash identity.

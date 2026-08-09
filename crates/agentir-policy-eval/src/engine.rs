@@ -15,6 +15,12 @@ use crate::{
         PolicyOrigin, PolicyVersion, RejectionClassification, RepairCycle, SemanticResult,
         TaskBudget, TaskSuccessCriterion, TokenUsage, UsageTrust,
     },
+    ranking::{
+        ChoiceCategory, ChoiceOrigin, ChoicePreconditions, EvaluationChoiceSet, FeatureSchema,
+        RankingDecision, RankingLimits, RankingPolicyDescriptor, RankingTrace, SelectionOutcome,
+        build_choice_set, compiler_choice, feature_schema_v1, rank_choices, record_selection,
+        scripted_ranker,
+    },
 };
 use agentir_core::backend::compiler_build_hash;
 use agentir_protocol::Engine as CompilerEngine;
@@ -137,6 +143,38 @@ pub fn external_policy(kind: PolicyKind, name: &str) -> EvaluationResult<PolicyD
         PolicyOrigin::External,
         matches!(kind, PolicyKind::Hybrid),
     )
+}
+
+/// Creates an evaluation policy bound to one exact Stage 6B ranking descriptor.
+pub fn ranked_policy(
+    ranker: &RankingPolicyDescriptor,
+    origin: PolicyOrigin,
+) -> EvaluationResult<PolicyDescriptor> {
+    let mut policy = descriptor(
+        ranker.base_interaction_mode,
+        &ranker.name,
+        origin,
+        ranker.allowed_escape,
+    )?;
+    policy.configuration.insert(
+        "ranking_policy_hash".to_owned(),
+        json!(ranker.ranking_policy_hash),
+    );
+    policy.configuration.insert(
+        "feature_schema_hash".to_owned(),
+        json!(ranker.feature_schema_hash),
+    );
+    policy
+        .configuration
+        .insert("ranked".to_owned(), json!(true));
+    if let Some(seed) = ranker.configuration.get("seed") {
+        policy
+            .configuration
+            .insert("ranking_seed".to_owned(), seed.clone());
+    }
+    policy.policy_hash.clear();
+    policy.policy_hash = policy_hash(&policy)?;
+    Ok(policy)
 }
 
 fn descriptor(
@@ -296,6 +334,384 @@ fn action_schema(kind: PolicyKind) -> Value {
     }
 }
 
+/// Exact bounded input for one explicit Stage 6B ranking decision.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RankingSubmission {
+    /// Episode identity.
+    pub episode_id: String,
+    /// Exact current step identity.
+    pub step_id: String,
+    /// Exact observation anchor.
+    pub observation_hash: String,
+    /// Exact compiler-generated choice-set anchor.
+    pub choice_set_hash: String,
+    /// Exact visible feature-schema anchor.
+    pub feature_schema_hash: String,
+    /// Exact policy descriptor anchor.
+    pub ranking_policy_hash: String,
+    /// Policy-owned scores or explicit visible selection.
+    pub decision: RankingDecision,
+    /// Optional untrusted usage provenance.
+    pub usage: Option<TokenUsage>,
+    /// Optional opaque external correlation identity.
+    pub correlation_id: Option<String>,
+}
+
+fn ranked_policy_hash(policy: &PolicyDescriptor) -> Option<&str> {
+    policy
+        .configuration
+        .get("ranking_policy_hash")
+        .and_then(Value::as_str)
+}
+
+fn compiler_generated_continuations(
+    previous: Option<&CompilerOutcome>,
+    next: &Value,
+    ordinal: u64,
+) -> Vec<EvaluationContinuation> {
+    let Some(result) = previous
+        .and_then(|outcome| outcome.response.get("result"))
+        .and_then(Value::as_object)
+    else {
+        return Vec::new();
+    };
+    let workspace = next
+        .get("workspace")
+        .and_then(Value::as_str)
+        .unwrap_or("w1");
+    let mut choices = Vec::new();
+
+    if let (Some(candidate), Some(revision), Some(before), Some(matches)) = (
+        result.get("candidate").and_then(Value::as_str),
+        result.get("candidate_revision").and_then(Value::as_str),
+        result
+            .get("expected_before_impl_hash")
+            .and_then(Value::as_str),
+        result.get("matches").and_then(Value::as_array),
+    ) {
+        for (index, matched) in matches.iter().enumerate() {
+            let Some(rule) = matched.get("rule").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(target) = matched.get("target").and_then(Value::as_str) else {
+                continue;
+            };
+            if matched.get("applicability").and_then(Value::as_str) != Some("applicable") {
+                continue;
+            }
+            choices.push(EvaluationContinuation {
+                choice_id: format!("compiler-candidate-{ordinal}-{index}"),
+                description: format!("exact compiler rewrite {rule} at {target}"),
+                action: json!({
+                    "command": "candidate.apply",
+                    "request_id": format!("ranked-candidate-{ordinal}-{index}"),
+                    "workspace": workspace,
+                    "candidate": candidate,
+                    "base_candidate_revision": revision,
+                    "actions": [{
+                        "kind": "apply_known_rewrite",
+                        "rule": rule,
+                        "target": target,
+                        "expected_before_impl_hash": before
+                    }]
+                }),
+            });
+        }
+    }
+
+    if let (Some(plan), Some(revision), Some(memory_hash), Some(impl_hash), Some(reuses)) = (
+        result.get("memory_plan").and_then(Value::as_str),
+        result.get("memory_revision").and_then(Value::as_str),
+        result.get("expected_memory_hash").and_then(Value::as_str),
+        result.get("expected_impl_hash").and_then(Value::as_str),
+        result.get("reuse_choices").and_then(Value::as_array),
+    ) {
+        let mut fresh_results = BTreeSet::new();
+        for reuse in reuses {
+            let (Some(input), Some(output)) = (
+                reuse.get("input").and_then(Value::as_str),
+                reuse.get("result").and_then(Value::as_str),
+            ) else {
+                continue;
+            };
+            if reuse
+                .get("fresh_fallback")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+                && fresh_results.insert(output)
+            {
+                choices.push(EvaluationContinuation {
+                    choice_id: format!("compiler-memory-fresh-{ordinal}-{output}"),
+                    description: format!("retain compiler fresh buffer for {output}"),
+                    action: json!({
+                        "command": "memory.apply",
+                        "request_id": format!("ranked-memory-fresh-{ordinal}-{output}"),
+                        "workspace": workspace,
+                        "memory_plan": plan,
+                        "base_memory_revision": revision,
+                        "expected_memory_hash": memory_hash,
+                        "expected_impl_hash": impl_hash,
+                        "actions": [{"kind":"choose_fresh_buffer","result":output}]
+                    }),
+                });
+            }
+            choices.push(EvaluationContinuation {
+                choice_id: format!("compiler-memory-reuse-{ordinal}-{input}-{output}"),
+                description: if reuse
+                    .get("statically_applicable")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    format!("compiler-proved static reuse {input} for {output}")
+                } else {
+                    format!("compiler-visible reuse attempt {input} for {output}")
+                },
+                action: json!({
+                    "command": "memory.apply",
+                    "request_id": format!("ranked-memory-reuse-{ordinal}-{input}-{output}"),
+                    "workspace": workspace,
+                    "memory_plan": plan,
+                    "base_memory_revision": revision,
+                    "expected_memory_hash": memory_hash,
+                    "expected_impl_hash": impl_hash,
+                    "actions": [{"kind":"request_in_place_reuse","input":input,"result":output}]
+                }),
+            });
+        }
+    }
+
+    if let (Some(plan), Some(revision), Some(schedule_hash), Some(memory_hash), Some(target_hash)) = (
+        result.get("schedule_plan").and_then(Value::as_str),
+        result.get("schedule_revision").and_then(Value::as_str),
+        result.get("expected_schedule_hash").and_then(Value::as_str),
+        result.get("expected_memory_hash").and_then(Value::as_str),
+        result.get("expected_target_hash").and_then(Value::as_str),
+    ) {
+        let base = json!({
+            "command": "schedule.apply",
+            "workspace": workspace,
+            "schedule_plan": plan,
+            "base_schedule_revision": revision,
+            "expected_schedule_hash": schedule_hash,
+            "expected_memory_hash": memory_hash,
+            "expected_target_hash": target_hash
+        });
+        let axes = result
+            .get("eligible_axes")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let factors = result
+            .get("factors")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        for axis in &axes {
+            for factor in &factors {
+                let mut action = base.clone();
+                action["request_id"] = json!(format!("ranked-tile-{}-{}", ordinal, choices.len()));
+                action["actions"] =
+                    json!([{"kind":"tile_axes","axes":[axis],"tile_sizes":[factor]}]);
+                choices.push(EvaluationContinuation {
+                    choice_id: format!("compiler-schedule-tile-{ordinal}-{}", choices.len()),
+                    description: format!("compiler legal tile {factor} for axis {axis}"),
+                    action,
+                });
+            }
+            for width in result
+                .get("vector_widths")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let mut action = base.clone();
+                action["request_id"] =
+                    json!(format!("ranked-vector-{}-{}", ordinal, choices.len()));
+                action["actions"] = json!([{"kind":"vectorize_axis","axis":axis,"width":width}]);
+                choices.push(EvaluationContinuation {
+                    choice_id: format!("compiler-schedule-vector-{ordinal}-{}", choices.len()),
+                    description: format!("compiler-supported vector width {width} for axis {axis}"),
+                    action,
+                });
+            }
+            for factor in result
+                .get("unroll_factors")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let mut action = base.clone();
+                action["request_id"] =
+                    json!(format!("ranked-unroll-{}-{}", ordinal, choices.len()));
+                action["actions"] = json!([{"kind":"unroll_axis","axis":axis,"factor":factor}]);
+                choices.push(EvaluationContinuation {
+                    choice_id: format!("compiler-schedule-unroll-{ordinal}-{}", choices.len()),
+                    description: format!("compiler-supported unroll {factor} for axis {axis}"),
+                    action,
+                });
+            }
+        }
+        for pair in result
+            .get("fusion_pairs")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let Some(pair) = pair.as_array() else {
+                continue;
+            };
+            if pair.len() != 2 {
+                continue;
+            }
+            let mut action = base.clone();
+            action["request_id"] = json!(format!("ranked-fusion-{}-{}", ordinal, choices.len()));
+            action["actions"] =
+                json!([{"kind":"fuse_operations","producer":pair[0],"consumer":pair[1]}]);
+            choices.push(EvaluationContinuation {
+                choice_id: format!("compiler-schedule-fusion-{ordinal}-{}", choices.len()),
+                description: "compiler-verified restricted fusion".to_owned(),
+                action,
+            });
+        }
+    }
+
+    if result.get("purpose").and_then(Value::as_str) == Some("fill_hole") {
+        let hole = result
+            .get("focus")
+            .and_then(|focus| focus.get("hole"))
+            .and_then(Value::as_str);
+        let revision = result.get("revision").and_then(Value::as_str);
+        let values = result
+            .get("slots")
+            .and_then(Value::as_array)
+            .and_then(|slots| {
+                slots
+                    .iter()
+                    .find_map(|slot| slot.pointer("/domain/values").and_then(Value::as_array))
+            });
+        if let (Some(hole), Some(revision), Some(values)) = (hole, revision, values) {
+            for value in values {
+                let Some(value) = value.as_str() else {
+                    continue;
+                };
+                choices.push(EvaluationContinuation {
+                    choice_id: format!("compiler-hole-{ordinal}-{value}"),
+                    description: format!("compiler-compatible value {value} for hole {hole}"),
+                    action: json!({
+                        "command":"spec.apply",
+                        "request_id":format!("ranked-hole-{ordinal}-{value}"),
+                        "workspace":workspace,
+                        "base_revision":revision,
+                        "actions":[{"kind":"fill_hole","hole":hole,"value":value}]
+                    }),
+                });
+            }
+        }
+    }
+    choices
+}
+
+fn choice_origin_category(action: &Value) -> (ChoiceOrigin, ChoiceCategory) {
+    let command = action.get("command").and_then(Value::as_str).unwrap_or("");
+    let kind = action
+        .pointer("/actions/0/kind")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    match (command, kind) {
+        ("spec.apply", "fill_hole") => (ChoiceOrigin::SpecIr, ChoiceCategory::FillHole),
+        ("candidate.apply", _) => (ChoiceOrigin::Candidate, ChoiceCategory::ExactRewrite),
+        ("equality.expand", _) => (ChoiceOrigin::Equality, ChoiceCategory::EqualityExpand),
+        ("equality.materialize", _) => {
+            (ChoiceOrigin::Equality, ChoiceCategory::EqualityMaterialize)
+        }
+        ("memory.apply", "choose_fresh_buffer") => {
+            (ChoiceOrigin::Memory, ChoiceCategory::MemoryFresh)
+        }
+        ("memory.apply", "request_guarded_reuse") => {
+            (ChoiceOrigin::Memory, ChoiceCategory::MemoryGuardedReuse)
+        }
+        ("memory.apply", _) => (ChoiceOrigin::Memory, ChoiceCategory::MemoryStaticReuse),
+        ("schedule.apply", "tile_axes" | "split_axis") => {
+            (ChoiceOrigin::Schedule, ChoiceCategory::ScheduleTile)
+        }
+        ("schedule.apply", "fuse_operations") => {
+            (ChoiceOrigin::Schedule, ChoiceCategory::ScheduleFusion)
+        }
+        ("schedule.apply", "vectorize_axis") => {
+            (ChoiceOrigin::Schedule, ChoiceCategory::ScheduleVectorize)
+        }
+        ("schedule.apply", "unroll_axis") => {
+            (ChoiceOrigin::Schedule, ChoiceCategory::ScheduleUnroll)
+        }
+        ("schedule.apply", "choose_serial") => {
+            (ChoiceOrigin::Schedule, ChoiceCategory::ScheduleSerial)
+        }
+        ("backend.lower" | "artifact.emit", _) => {
+            (ChoiceOrigin::Backend, ChoiceCategory::BackendLowering)
+        }
+        _ => (ChoiceOrigin::Repair, ChoiceCategory::Repair),
+    }
+}
+
+fn structural_target(action: &Value) -> String {
+    [
+        "target",
+        "axis",
+        "result",
+        "node",
+        "schedule_revision",
+        "candidate_revision",
+    ]
+    .into_iter()
+    .find_map(|field| {
+        action
+            .pointer(&format!("/actions/0/{field}"))
+            .or_else(|| action.get(field))
+            .and_then(Value::as_str)
+    })
+    .unwrap_or("frame")
+    .to_owned()
+}
+
+fn evaluation_choice_set_from_observation(
+    observation: &EvaluationObservation,
+) -> EvaluationResult<EvaluationChoiceSet> {
+    let schema = feature_schema_v1()?;
+    let choices = observation
+        .continuation_frame
+        .iter()
+        .map(|continuation| {
+            let (origin, category) = choice_origin_category(&continuation.action);
+            compiler_choice(
+                origin,
+                category,
+                continuation.action.clone(),
+                ChoicePreconditions {
+                    bases: observation.selected_revisions_and_hashes.clone(),
+                    required_capabilities: Vec::new(),
+                    hard_conditions: vec!["production verifier acceptance required".to_owned()],
+                },
+                continuation.description.clone(),
+                if matches!(
+                    category,
+                    ChoiceCategory::ExactRewrite | ChoiceCategory::EqualityMaterialize
+                ) {
+                    "advance"
+                } else {
+                    "unchanged_or_compiler_owned"
+                },
+                structural_target(&continuation.action),
+            )
+        })
+        .collect::<EvaluationResult<Vec<_>>>()?;
+    build_choice_set(
+        observation.observation_hash.clone(),
+        &schema,
+        choices,
+        &RankingLimits::default(),
+    )
+}
+
 /// Stateful in-memory Stage 6A harness.
 pub struct EvaluationHarness {
     corpus: EvaluationCorpus,
@@ -394,6 +810,169 @@ impl EvaluationHarness {
             })
     }
 
+    /// Returns the immutable Stage 6B visible feature schema.
+    pub fn ranking_feature_schema(&self) -> EvaluationResult<FeatureSchema> {
+        feature_schema_v1()
+    }
+
+    /// Returns all deterministic scripted ranking descriptors in stable order.
+    pub fn ranking_policies(&self, seed: u64) -> EvaluationResult<Vec<RankingPolicyDescriptor>> {
+        [
+            "lexicographic_choice_v1",
+            "first_progress_choice_v1",
+            "goal_directed_rule_v1",
+            "proof_frontier_first_v1",
+            "min_context_choice_v1",
+            "seeded_uniform_choice_v1",
+            "hybrid_ranked_escape_v1",
+        ]
+        .into_iter()
+        .map(|name| scripted_ranker(name, &feature_schema_v1()?, seed))
+        .collect()
+    }
+
+    /// Rebuilds the exact current compiler-generated choice set for an episode.
+    pub fn ranked_choice_set(&self, episode_id: &str) -> EvaluationResult<EvaluationChoiceSet> {
+        let observation = self.next_observation(episode_id)?;
+        if observation.choice_set_hash.is_none() {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationChoiceSetNotFound,
+                "episode policy is not bound to a ranking descriptor",
+            ));
+        }
+        let set = evaluation_choice_set_from_observation(&observation)?;
+        if observation.choice_set_hash.as_deref() != Some(set.choice_set_hash.as_str()) {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationChoiceSetMismatch,
+                "observation and rebuilt exact choice set differ",
+            ));
+        }
+        Ok(set)
+    }
+
+    /// Applies one policy-owned ranking and then explicitly dispatches its selection.
+    pub fn rank_episode(
+        &mut self,
+        submission: RankingSubmission,
+    ) -> EvaluationResult<(RankingTrace, SelectionOutcome)> {
+        let observation = self.next_observation(&submission.episode_id)?;
+        if observation.step_id != submission.step_id
+            || observation.observation_hash != submission.observation_hash
+            || observation.choice_set_hash.as_deref() != Some(&submission.choice_set_hash)
+            || observation.feature_schema_hash.as_deref() != Some(&submission.feature_schema_hash)
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationChoiceSetMismatch,
+                "rank request is stale or mismatched with the exact observation frame",
+            )
+            .repair("request evaluation.episode.next and rank its exact returned frame"));
+        }
+        let choice_set = self.ranked_choice_set(&submission.episode_id)?;
+        let (run, index) = self.locate_episode(&submission.episode_id)?;
+        let seed = run
+            .policy
+            .configuration
+            .get("ranking_seed")
+            .and_then(Value::as_u64)
+            .unwrap_or(run.episodes[index].deterministic_seed);
+        let policy = self
+            .ranking_policies(seed)?
+            .into_iter()
+            .find(|policy| policy.ranking_policy_hash == submission.ranking_policy_hash)
+            .ok_or_else(|| {
+                EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationRankingPolicyNotFound,
+                    "ranking policy hash is not registered for this deterministic seed",
+                )
+            })?;
+        if ranked_policy_hash(&run.policy) != Some(&submission.ranking_policy_hash) {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationRankingPolicyInvalid,
+                "run is not bound to the submitted ranking policy",
+            ));
+        }
+        let trace = rank_choices(
+            &choice_set,
+            &policy,
+            submission.decision,
+            &RankingLimits::default(),
+        )?;
+        let production_decision = if trace.selection_source
+            == crate::ranking::SelectionSource::HybridEscape
+        {
+            let RankingDecision::HybridEscape { action } = &trace.decision else {
+                unreachable!("hybrid escape source has hybrid escape decision")
+            };
+            PolicyDecision::Action {
+                action: action.clone(),
+                escape: true,
+            }
+        } else {
+            let selected_id = trace.selected_choice.as_ref().ok_or_else(|| {
+                EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationSelectionInvalid,
+                    "ranked visible selection is missing its choice identity",
+                )
+            })?;
+            let selected = choice_set
+                .choices
+                .iter()
+                .find(|choice| &choice.id == selected_id)
+                .ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        EvaluationErrorCode::EvaluationSelectionNotInChoiceSet,
+                        "ranked selection is outside the exact choice set",
+                    )
+                })?;
+            let continuation_index = usize::try_from(selected.compiler_order).unwrap_or(usize::MAX);
+            let menu_choice = observation
+                .continuation_frame
+                .get(continuation_index)
+                .ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        EvaluationErrorCode::EvaluationSelectionInvalid,
+                        "ranked compiler order is outside the observation frame",
+                    )
+                })?
+                .choice_id
+                .clone();
+            PolicyDecision::MenuChoice {
+                choice_id: menu_choice,
+            }
+        };
+        let outcome = self.submit(
+            &submission.episode_id,
+            &submission.step_id,
+            &submission.observation_hash,
+            production_decision,
+            submission.usage,
+            submission.correlation_id,
+        )?;
+        let selection = record_selection(&choice_set, &trace, outcome)?;
+        let (run, index) = self.locate_episode(&submission.episode_id)?;
+        let run_id = run.id.clone();
+        let run = self
+            .runs
+            .get_mut(&run_id)
+            .expect("located run remains present");
+        let episode = &mut run.episodes[index];
+        let step = episode.steps.last_mut().ok_or_else(|| {
+            EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationSelectionInvalid,
+                "production selection did not append an episode step",
+            )
+        })?;
+        step.ranking_trace = Some(trace.clone());
+        step.selection = Some(selection.clone());
+        if episode.result.is_some() {
+            episode.episode_hash = Some(episode_hash(episode)?);
+            if run.episodes.iter().all(|episode| episode.result.is_some()) {
+                run.evaluation_hash = Some(evaluation_hash(run)?);
+            }
+        }
+        Ok((trace, selection))
+    }
+
     /// Starts a lazy external or scripted run over selected tasks and seeds.
     pub fn start_run(
         &mut self,
@@ -481,6 +1060,19 @@ impl EvaluationHarness {
         Ok(run_id)
     }
 
+    /// Starts a run whose menu observations carry exact Stage 6B choice-set anchors.
+    pub fn start_ranked_run(
+        &mut self,
+        ranking_policy_name: &str,
+        task_ids: &[EvaluationTaskId],
+        seeds: &[u64],
+    ) -> EvaluationResult<String> {
+        let seed = seeds.first().copied().unwrap_or(0);
+        let ranker = scripted_ranker(ranking_policy_name, &feature_schema_v1()?, seed)?;
+        let policy = ranked_policy(&ranker, PolicyOrigin::External)?;
+        self.start_run(policy, task_ids, seeds)
+    }
+
     fn locate_episode(&self, episode_id: &str) -> EvaluationResult<(&EvaluationRun, usize)> {
         self.runs
             .values()
@@ -523,18 +1115,29 @@ impl EvaluationHarness {
                     "the task has no remaining production action",
                 )
             })?;
+        let previous = episode.steps.last().map(|step| &step.outcome);
+        let ranked = ranked_policy_hash(&run.policy).is_some();
         let continuation_frame = if matches!(run.policy.kind, PolicyKind::Menu | PolicyKind::Hybrid)
         {
-            vec![EvaluationContinuation {
-                choice_id: format!("choice-{ordinal}"),
-                description: format!(
-                    "compiler-generated {} action",
-                    next.get("command")
-                        .and_then(Value::as_str)
-                        .unwrap_or("production")
-                ),
-                action: next.clone(),
-            }]
+            let generated = if ranked {
+                compiler_generated_continuations(previous, next, ordinal)
+            } else {
+                Vec::new()
+            };
+            if generated.is_empty() {
+                vec![EvaluationContinuation {
+                    choice_id: format!("choice-{ordinal}"),
+                    description: format!(
+                        "compiler-generated {} action",
+                        next.get("command")
+                            .and_then(Value::as_str)
+                            .unwrap_or("production")
+                    ),
+                    action: next.clone(),
+                }]
+            } else {
+                generated
+            }
         } else {
             Vec::new()
         };
@@ -543,7 +1146,6 @@ impl EvaluationHarness {
             self.limits.menu_choices,
             "menu_choices",
         )?;
-        let previous = episode.steps.last().map(|step| &step.outcome);
         let used_context = episode.steps.iter().fold(0_u64, |total, step| {
             total.saturating_add(step.context.observation_bytes)
         });
@@ -570,6 +1172,8 @@ impl EvaluationHarness {
                 .map(|outcome| vec![outcome.response.clone()])
                 .unwrap_or_default(),
             continuation_frame,
+            choice_set_hash: None,
+            feature_schema_hash: None,
             remaining_budget: TaskBudget {
                 max_actions: task.budget.max_actions.saturating_sub(ordinal),
                 max_rejections: task
@@ -599,6 +1203,11 @@ impl EvaluationHarness {
         observation.context_bytes = bytes;
         observation.deterministic_tokens = Some(bytes.saturating_add(3) / 4);
         observation.observation_hash = observation_hash(&observation)?;
+        if ranked {
+            let choice_set = evaluation_choice_set_from_observation(&observation)?;
+            observation.choice_set_hash = Some(choice_set.choice_set_hash);
+            observation.feature_schema_hash = Some(choice_set.feature_schema_hash);
+        }
         Ok(observation)
     }
 
@@ -769,6 +1378,8 @@ impl EvaluationHarness {
                 reported_usage: usage,
             },
             external_request_correlation_id: correlation_id,
+            ranking_trace: None,
+            selection: None,
         });
         let last = episode.steps.last_mut().expect("step was appended");
         last.context.cumulative_context_bytes =
@@ -1006,6 +1617,37 @@ impl EvaluationHarness {
                 ));
             }
         }
+        let ranking_anchors = run_ids
+            .iter()
+            .map(|run_id| {
+                self.run(run_id).map(|run| {
+                    (
+                        run.policy.capabilities.typed_escape,
+                        run.episodes
+                            .iter()
+                            .flat_map(|episode| episode.steps.iter())
+                            .filter_map(|step| {
+                                step.ranking_trace.as_ref().map(|trace| {
+                                    (
+                                        trace.choice_set_hash.clone(),
+                                        trace.feature_schema_hash.clone(),
+                                    )
+                                })
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                })
+            })
+            .collect::<EvaluationResult<Vec<_>>>()?;
+        let has_ranking = ranking_anchors
+            .iter()
+            .any(|(_, anchors)| !anchors.is_empty());
+        if has_ranking && ranking_anchors.windows(2).any(|pair| pair[0] != pair[1]) {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationRankingComparisonInvalid,
+                "ranked runs differ in exact choice-set sequence, feature schema, or escape surface",
+            ));
+        }
         let device_sets: Vec<BTreeSet<String>> = run_ids
             .iter()
             .map(|run_id| {
@@ -1051,10 +1693,78 @@ impl EvaluationHarness {
             .iter()
             .map(|id| self.aggregate(id))
             .collect::<EvaluationResult<Vec<_>>>()?;
+        let ranking_statuses = runs
+            .iter()
+            .flat_map(|run| run.episodes.iter())
+            .map(|episode| {
+                (
+                    episode.id.clone(),
+                    if episode
+                        .steps
+                        .iter()
+                        .any(|step| step.ranking_trace.is_some())
+                    {
+                        crate::model::RankingEpisodeStatus::Ranked
+                    } else {
+                        crate::model::RankingEpisodeStatus::Unranked
+                    },
+                )
+            })
+            .collect();
+        let has_ranked = runs.iter().any(|run| {
+            run.episodes.iter().any(|episode| {
+                episode
+                    .steps
+                    .iter()
+                    .any(|step| step.ranking_trace.is_some())
+            })
+        });
+        let feature_schemas = if has_ranked {
+            vec![feature_schema_v1()?]
+        } else {
+            Vec::new()
+        };
+        let mut policy_by_hash = BTreeMap::new();
+        let mut choice_set_by_hash = BTreeMap::new();
+        for run in &runs {
+            let seed = run
+                .policy
+                .configuration
+                .get("ranking_seed")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+            for policy in self.ranking_policies(seed)? {
+                policy_by_hash.insert(policy.ranking_policy_hash.clone(), policy);
+            }
+            for step in run.episodes.iter().flat_map(|episode| &episode.steps) {
+                if let Some(trace) = &step.ranking_trace {
+                    let set = evaluation_choice_set_from_observation(&step.observation)?;
+                    if set.choice_set_hash != trace.choice_set_hash {
+                        return Err(EvaluationDiagnostic::new(
+                            EvaluationErrorCode::EvaluationChoiceSetMismatch,
+                            "recorded ranking trace differs from its observation choice set",
+                        ));
+                    }
+                    choice_set_by_hash.insert(set.choice_set_hash.clone(), set);
+                }
+            }
+        }
+        policy_by_hash.retain(|hash, _| {
+            runs.iter().any(|run| {
+                run.episodes
+                    .iter()
+                    .flat_map(|episode| &episode.steps)
+                    .any(|step| {
+                        step.ranking_trace
+                            .as_ref()
+                            .is_some_and(|trace| &trace.ranking_policy_hash == hash)
+                    })
+            })
+        });
         let mut archive = EvaluationArchive {
             manifest: EvaluationManifest {
                 format: "agentir.evaluation.archive".to_owned(),
-                version: 1,
+                version: 2,
                 corpus_version: self.corpus.version.clone(),
                 corpus_hash: self.corpus.corpus_hash.clone(),
                 compiler_build_hash: compiler_build_hash().to_string(),
@@ -1067,6 +1777,10 @@ impl EvaluationHarness {
             corpus: self.corpus.clone(),
             runs,
             aggregates,
+            feature_schemas,
+            ranking_policies: policy_by_hash.into_values().collect(),
+            choice_sets: choice_set_by_hash.into_values().collect(),
+            ranking_statuses,
             archive_hash: String::new(),
         };
         archive.archive_hash = archive_hash(&archive)?;
@@ -1125,6 +1839,11 @@ impl EvaluationHarness {
                 format!("evaluation archive decode failed: {error}"),
             )
         })?;
+        let archive = if archive.manifest.version == 1 {
+            migrate_archive_v1_to_v2(&archive)?
+        } else {
+            archive
+        };
         verify_archive(&archive)?;
         for run in &archive.runs {
             replay_recorded_run(run)?;
@@ -1260,6 +1979,25 @@ fn finalize_episode(
 }
 
 fn replay_recorded_run(run: &EvaluationRun) -> EvaluationResult<()> {
+    let schema = feature_schema_v1()?;
+    let ranking_seed = run
+        .policy
+        .configuration
+        .get("ranking_seed")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let ranking_policies = [
+        "lexicographic_choice_v1",
+        "first_progress_choice_v1",
+        "goal_directed_rule_v1",
+        "proof_frontier_first_v1",
+        "min_context_choice_v1",
+        "seeded_uniform_choice_v1",
+        "hybrid_ranked_escape_v1",
+    ]
+    .into_iter()
+    .map(|name| scripted_ranker(name, &schema, ranking_seed))
+    .collect::<EvaluationResult<Vec<_>>>()?;
     for episode in &run.episodes {
         let mut compiler = CompilerEngine::new();
         for (index, recorded) in episode.steps.iter().enumerate() {
@@ -1268,6 +2006,24 @@ fn replay_recorded_run(run: &EvaluationRun) -> EvaluationResult<()> {
                     EvaluationErrorCode::EvaluationEventOrderInvalid,
                     "episode step order is not contiguous",
                 ));
+            }
+            if let Some(trace) = &recorded.ranking_trace {
+                let choice_set = evaluation_choice_set_from_observation(&recorded.observation)?;
+                let policy = ranking_policies
+                    .iter()
+                    .find(|policy| policy.ranking_policy_hash == trace.ranking_policy_hash)
+                    .ok_or_else(|| {
+                        EvaluationDiagnostic::new(
+                            EvaluationErrorCode::EvaluationRankingPolicyNotFound,
+                            "recorded ranking policy is unavailable during replay",
+                        )
+                    })?;
+                crate::ranking::replay_ranking_trace(
+                    &choice_set,
+                    policy,
+                    trace,
+                    &RankingLimits::default(),
+                )?;
             }
             let action = match &recorded.decision {
                 PolicyDecision::MenuChoice { choice_id } => recorded
@@ -1292,6 +2048,16 @@ fn replay_recorded_run(run: &EvaluationRun) -> EvaluationResult<()> {
                     "production compiler outcome differs during replay",
                 )
                 .expected_actual(recorded.outcome.response.clone(), response));
+            }
+            if let Some(selection) = &recorded.selection {
+                if selection.compiler_outcome != recorded.outcome
+                    || selection.selection_hash != crate::ranking::selection_hash(selection)?
+                {
+                    return Err(EvaluationDiagnostic::new(
+                        EvaluationErrorCode::EvaluationRankingReplayMismatch,
+                        "recorded selection differs during replay",
+                    ));
+                }
             }
         }
         let calculated = episode_hash(episode)?;
@@ -1381,7 +2147,9 @@ fn percentile(values: &[u64], percentile: usize) -> u64 {
 
 /// Verifies every independent hash and archive structural invariant.
 pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
-    if archive.manifest.format != "agentir.evaluation.archive" || archive.manifest.version != 1 {
+    if archive.manifest.format != "agentir.evaluation.archive"
+        || !matches!(archive.manifest.version, 1 | 2)
+    {
         return Err(EvaluationDiagnostic::new(
             EvaluationErrorCode::EvaluationArchiveInvalid,
             "unsupported evaluation archive format or version",
@@ -1405,7 +2173,7 @@ pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
             ));
         }
         for episode in &run.episodes {
-            if !episode_ids.insert(&episode.id) {
+            if !episode_ids.insert(episode.id.clone()) {
                 return Err(EvaluationDiagnostic::new(
                     EvaluationErrorCode::EvaluationTranscriptInvalid,
                     "duplicated episode ID in evaluation archive",
@@ -1428,6 +2196,29 @@ pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
                         "step order, observation hash, or budget accounting mismatch",
                     ));
                 }
+                match (&step.ranking_trace, &step.selection) {
+                    (None, None) => {}
+                    (Some(trace), Some(selection)) => {
+                        if archive.manifest.version != 2
+                            || trace.ranking_trace_hash
+                                != crate::ranking::ranking_trace_hash(trace)?
+                            || selection.selection_hash
+                                != crate::ranking::selection_hash(selection)?
+                            || selection.compiler_outcome != step.outcome
+                        {
+                            return Err(EvaluationDiagnostic::new(
+                                EvaluationErrorCode::EvaluationRankingTraceInvalid,
+                                "ranking/selection record is invalid or mismatched",
+                            ));
+                        }
+                    }
+                    _ => {
+                        return Err(EvaluationDiagnostic::new(
+                            EvaluationErrorCode::EvaluationRankingTraceInvalid,
+                            "ranking trace and selection record must occur together",
+                        ));
+                    }
+                }
             }
         }
         if run.evaluation_hash.as_deref() != Some(evaluation_hash(run)?.as_str()) {
@@ -1436,6 +2227,20 @@ pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
                 "evaluation hash mismatch",
             ));
         }
+    }
+    if archive.manifest.version == 1 {
+        if !archive.feature_schemas.is_empty()
+            || !archive.ranking_policies.is_empty()
+            || !archive.choice_sets.is_empty()
+            || !archive.ranking_statuses.is_empty()
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationArchiveInvalid,
+                "evaluation archive v1 cannot contain Stage 6B fields",
+            ));
+        }
+    } else {
+        verify_archive_v2_ranking(archive, &episode_ids)?;
     }
     for aggregate in &archive.aggregates {
         if aggregate.aggregate_hash != aggregate_hash(aggregate)? {
@@ -1458,6 +2263,137 @@ pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
                 EvaluationErrorCode::EvaluationMetricInvalid,
                 "stored aggregate differs from exact episode recomputation",
             ));
+        }
+    }
+    Ok(())
+}
+
+/// Pure explicit migration from immutable evaluation archive v1 to v2.
+pub fn migrate_archive_v1_to_v2(source: &EvaluationArchive) -> EvaluationResult<EvaluationArchive> {
+    if source.manifest.version != 1 {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationArchiveMigrationInvalid,
+            "evaluation archive migration requires exact source version 1",
+        ));
+    }
+    verify_archive(source)?;
+    let mut migrated = source.clone();
+    migrated.manifest.version = 2;
+    migrated.feature_schemas.clear();
+    migrated.ranking_policies.clear();
+    migrated.choice_sets.clear();
+    migrated.ranking_statuses = migrated
+        .runs
+        .iter()
+        .flat_map(|run| run.episodes.iter())
+        .map(|episode| {
+            (
+                episode.id.clone(),
+                crate::model::RankingEpisodeStatus::Unranked,
+            )
+        })
+        .collect();
+    migrated.archive_hash.clear();
+    migrated.archive_hash = archive_hash(&migrated)?;
+    verify_archive(&migrated)?;
+    Ok(migrated)
+}
+
+fn verify_archive_v2_ranking(
+    archive: &EvaluationArchive,
+    episode_ids: &BTreeSet<String>,
+) -> EvaluationResult<()> {
+    let mut schemas = BTreeMap::new();
+    for schema in &archive.feature_schemas {
+        if schema.feature_schema_hash != crate::ranking::feature_schema_hash(schema)?
+            || schemas
+                .insert(schema.feature_schema_hash.clone(), schema)
+                .is_some()
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationFeatureSchemaMismatch,
+                "archive v2 feature schema is invalid or duplicated",
+            ));
+        }
+    }
+    let mut policies = BTreeMap::new();
+    for policy in &archive.ranking_policies {
+        if policy.ranking_policy_hash != crate::ranking::ranking_policy_hash(policy)?
+            || !schemas.contains_key(&policy.feature_schema_hash)
+            || policies
+                .insert(policy.ranking_policy_hash.clone(), policy)
+                .is_some()
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationRankingPolicyInvalid,
+                "archive v2 ranking policy is invalid or duplicated",
+            ));
+        }
+    }
+    let mut choice_sets = BTreeMap::new();
+    for choice_set in &archive.choice_sets {
+        if choice_set.choice_set_hash != crate::ranking::choice_set_hash(choice_set)?
+            || !schemas.contains_key(&choice_set.feature_schema_hash)
+            || choice_sets
+                .insert(choice_set.choice_set_hash.clone(), choice_set)
+                .is_some()
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationChoiceSetMismatch,
+                "archive v2 choice set is invalid or duplicated",
+            ));
+        }
+    }
+    if archive.ranking_statuses.len() != episode_ids.len()
+        || archive
+            .ranking_statuses
+            .keys()
+            .any(|episode| !episode_ids.contains(episode))
+    {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationArchiveMigrationInvalid,
+            "archive v2 must explicitly classify every episode as ranked or unranked",
+        ));
+    }
+    for run in &archive.runs {
+        for episode in &run.episodes {
+            let has_ranking = episode
+                .steps
+                .iter()
+                .any(|step| step.ranking_trace.is_some());
+            let expected = if has_ranking {
+                crate::model::RankingEpisodeStatus::Ranked
+            } else {
+                crate::model::RankingEpisodeStatus::Unranked
+            };
+            if archive.ranking_statuses.get(&episode.id) != Some(&expected) {
+                return Err(EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationArchiveMigrationInvalid,
+                    "episode ranking status does not match its exact transcript",
+                ));
+            }
+            for step in &episode.steps {
+                if let Some(trace) = &step.ranking_trace {
+                    let choice_set = choice_sets.get(&trace.choice_set_hash).ok_or_else(|| {
+                        EvaluationDiagnostic::new(
+                            EvaluationErrorCode::EvaluationChoiceSetNotFound,
+                            "ranking trace choice set is missing from archive v2",
+                        )
+                    })?;
+                    let policy = policies.get(&trace.ranking_policy_hash).ok_or_else(|| {
+                        EvaluationDiagnostic::new(
+                            EvaluationErrorCode::EvaluationRankingPolicyNotFound,
+                            "ranking trace policy is missing from archive v2",
+                        )
+                    })?;
+                    crate::ranking::replay_ranking_trace(
+                        choice_set,
+                        policy,
+                        trace,
+                        &crate::ranking::RankingLimits::default(),
+                    )?;
+                }
+            }
         }
     }
     Ok(())

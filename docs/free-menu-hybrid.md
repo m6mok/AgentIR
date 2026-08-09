@@ -5,3 +5,5 @@
 - `hybrid` exposes the same primary menu plus one bounded typed-action escape. An escaped action is not trusted and traverses the identical production decoder/verifier/transaction path.
 
 Continuation order is deterministic and covered by `observation_hash` and `episode_hash`. No Stage 6A menu is an optimizer ranking or automatic selection mechanism.
+
+Stage 6B may rank the exact same menu choices, but ranking remains a policy decision. Menu still forbids arbitrary actions; hybrid escape remains separately marked, bounded, untrusted, and production-verified.

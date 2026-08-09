@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+use crate::ranking::{
+    EvaluationChoiceSet, FeatureSchema, RankingPolicyDescriptor, RankingTrace, SelectionOutcome,
+};
+
 /// Stable task identity assigned by the harness.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -256,6 +260,12 @@ pub struct EvaluationObservation {
     pub diagnostics: Vec<Value>,
     /// Stable serialized contract field.
     pub continuation_frame: Vec<EvaluationContinuation>,
+    /// Exact Stage 6B choice-set identity when ranking is requested.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub choice_set_hash: Option<String>,
+    /// Exact Stage 6B visible feature-schema identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feature_schema_hash: Option<String>,
     /// Stable serialized contract field.
     pub remaining_budget: TaskBudget,
     /// Stable serialized contract field.
@@ -403,6 +413,12 @@ pub struct EpisodeStep {
     pub context: ContextMeasurement,
     /// Stable serialized contract field.
     pub external_request_correlation_id: Option<String>,
+    /// Optional Stage 6B policy-owned ranking trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ranking_trace: Option<RankingTrace>,
+    /// Optional Stage 6B explicit compiler selection outcome.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<SelectionOutcome>,
 }
 
 /// Episode lifecycle.
@@ -616,8 +632,30 @@ pub struct EvaluationArchive {
     pub runs: Vec<EvaluationRun>,
     /// Stable serialized contract field.
     pub aggregates: Vec<EvaluationAggregate>,
+    /// Stage 6B visible schemas. Empty and omitted for archive v1.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub feature_schemas: Vec<FeatureSchema>,
+    /// Stage 6B ranking descriptors. Empty and omitted for archive v1.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ranking_policies: Vec<RankingPolicyDescriptor>,
+    /// Stage 6B exact choice sets. Empty and omitted for archive v1.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub choice_sets: Vec<EvaluationChoiceSet>,
+    /// Explicit v1-migration status for every episode in archive v2.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub ranking_statuses: BTreeMap<String, RankingEpisodeStatus>,
     /// Stable serialized contract field.
     pub archive_hash: String,
+}
+
+/// Ranking presence recorded explicitly by evaluation archive v2.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RankingEpisodeStatus {
+    /// Legacy or ordinary Stage 6A episode with no invented ranking records.
+    Unranked,
+    /// Episode containing validated ranking and selection records.
+    Ranked,
 }
 
 /// Stable evaluation-layer diagnostics.
@@ -658,6 +696,40 @@ pub enum EvaluationErrorCode {
     EvaluationHashMismatch,
     /// Stable wire variant.
     EvaluationArchiveInvalid,
+    /// Stable wire variant.
+    EvaluationChoiceSetNotFound,
+    /// Stable wire variant.
+    EvaluationChoiceNotFound,
+    /// Stable wire variant.
+    EvaluationChoiceSetMismatch,
+    /// Stable wire variant.
+    EvaluationFeatureSchemaNotFound,
+    /// Stable wire variant.
+    EvaluationFeatureSchemaMismatch,
+    /// Stable wire variant.
+    EvaluationRankingPolicyNotFound,
+    /// Stable wire variant.
+    EvaluationRankingPolicyInvalid,
+    /// Stable wire variant.
+    EvaluationRankingTraceInvalid,
+    /// Stable wire variant.
+    EvaluationScoreInvalid,
+    /// Stable wire variant.
+    EvaluationScoreCountMismatch,
+    /// Stable wire variant.
+    EvaluationTieBreakInvalid,
+    /// Stable wire variant.
+    EvaluationSelectionInvalid,
+    /// Stable wire variant.
+    EvaluationSelectionNotInChoiceSet,
+    /// Stable wire variant.
+    EvaluationRankingReplayMismatch,
+    /// Stable wire variant.
+    EvaluationRankingComparisonInvalid,
+    /// Stable wire variant.
+    EvaluationRankingBudgetExceeded,
+    /// Stable wire variant.
+    EvaluationArchiveMigrationInvalid,
     /// Stable wire variant.
     EvaluationEventOrderInvalid,
     /// Stable wire variant.

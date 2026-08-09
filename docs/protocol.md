@@ -2,6 +2,8 @@
 
 Stage 6A policy evaluation uses a separate bounded JSONL frontend documented in [external-agent-protocol.md](external-agent-protocol.md). Its `evaluation.*` commands orchestrate immutable tasks and recorded production requests; they do not change this compiler command enum or archive v9 semantics. One physical input line still yields exactly one structured response.
 
+Stage 6B adds ranking policy list/query, exact choice-set query, `evaluation.episode.rank`, trace query, ranking aggregate and ranking comparison commands. Scores are checked fixed-point integers; clients cannot supply choice IDs, legality, outcomes, proof, success, or ranking hashes. See [external-ranker-protocol.md](external-ranker-protocol.md).
+
 ## MemoryIR commands
 
 Stage 3 adds `memory.create`, `memory.query`, `memory.check`, `memory.apply`, `memory.fork`, `memory.seal`, `memory.evaluate`, `memory.alias_query`, `memory.buffer_query`, and `memory.continuation`. Mutations name an explicit base revision and exact `memory_hash`; `memory.apply` also supplies the immutable `impl_hash` and a bounded list of desired compiler-verified actions. Proof payloads and guard expressions are unknown fields and are rejected.

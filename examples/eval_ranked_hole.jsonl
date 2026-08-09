@@ -1,0 +1,2 @@
+{"command":"evaluation.ranking.policy.list","request_id":"policies","seed":0}
+{"command":"evaluation.ranking.policy.query","request_id":"hole-ranker","policy":"goal_directed_rule_v1","seed":0}

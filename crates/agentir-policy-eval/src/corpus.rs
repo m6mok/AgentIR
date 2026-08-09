@@ -280,3 +280,126 @@ pub fn builtin_corpus() -> EvaluationResult<EvaluationCorpus> {
     corpus.corpus_hash = corpus_hash(&corpus)?;
     Ok(corpus)
 }
+
+/// Returns the immutable Stage 6B ranked multi-choice task corpus.
+pub fn builtin_ranked_corpus() -> EvaluationResult<EvaluationCorpus> {
+    let legacy = builtin_corpus()?;
+    let specifications = [
+        (
+            "ranked-hole-small",
+            "hole-repair-small",
+            "rank compatible hole fillings",
+            "small",
+        ),
+        (
+            "ranked-candidate-small",
+            "candidate-rewrite-small",
+            "rank exact candidate rewrites",
+            "small",
+        ),
+        (
+            "ranked-equality-medium",
+            "equality-materialize-medium",
+            "rank equality members",
+            "medium",
+        ),
+        (
+            "ranked-memory-fresh-static-medium",
+            "memory-reuse-medium",
+            "rank fresh and static reuse",
+            "medium",
+        ),
+        (
+            "ranked-memory-static-guarded-medium",
+            "memory-guarded-medium",
+            "rank static and guarded reuse",
+            "medium",
+        ),
+        (
+            "ranked-tile-medium",
+            "schedule-tiled-medium",
+            "rank legal tile sizes",
+            "medium",
+        ),
+        (
+            "ranked-fusion-medium",
+            "schedule-fused-medium",
+            "rank fusion and non-fusion",
+            "medium",
+        ),
+        (
+            "ranked-vector-large",
+            "schedule-vector-large",
+            "rank vector widths",
+            "large",
+        ),
+        (
+            "ranked-unroll-large",
+            "schedule-vector-large",
+            "rank unroll alternatives",
+            "large",
+        ),
+        (
+            "ranked-serial-grid-medium",
+            "schedule-serial-small",
+            "rank serial and grid schedules",
+            "medium",
+        ),
+        (
+            "ranked-backend-large",
+            "backend-lowering-medium",
+            "rank supported lowering paths",
+            "large",
+        ),
+        (
+            "ranked-repair-medium",
+            "schedule-repair-medium",
+            "repair a rejected ranked selection",
+            "medium",
+        ),
+        (
+            "ranked-hybrid-success-small",
+            "hole-repair-small",
+            "bounded hybrid escape succeeds",
+            "small",
+        ),
+        (
+            "ranked-hybrid-rejected-small",
+            "backend-unsupported-small",
+            "bounded hybrid escape rejects atomically",
+            "small",
+        ),
+    ];
+    let mut tasks = Vec::with_capacity(specifications.len());
+    for (id, source, objective, size) in specifications {
+        let mut task = legacy
+            .tasks
+            .iter()
+            .find(|task| task.id.0 == source)
+            .cloned()
+            .ok_or_else(|| {
+                EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationTaskNotFound,
+                    "Stage 6B source task is missing from the immutable Stage 6A corpus",
+                )
+            })?;
+        task.id = EvaluationTaskId(id.to_owned());
+        "stage6b-v1".clone_into(&mut task.corpus_version);
+        size.clone_into(&mut task.size);
+        objective.clone_into(&mut task.objective.summary);
+        task.objective.tags.push("ranked_multi_choice".to_owned());
+        task.metadata.insert(
+            "choice_origin".to_owned(),
+            "compiler_continuation".to_owned(),
+        );
+        tasks.push(task);
+    }
+    let mut corpus = EvaluationCorpus {
+        name: "stage6b-ranking".to_owned(),
+        version: "stage6b-v1".to_owned(),
+        tasks,
+        corpus_hash: String::new(),
+    };
+    corpus.corpus_hash = corpus_hash(&corpus)?;
+    Ok(corpus)
+}

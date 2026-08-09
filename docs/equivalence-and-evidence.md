@@ -32,3 +32,5 @@ A proposal record is provenance, not EvidenceIR correctness. The proof frontier 
 # Stage 6A evaluation records
 
 Episode success, accepted-action counts, token metrics, repair cycles, replay identity, policy comparisons, and optional performance observations are not correctness evidence and are not stored in compiler EvidenceIR. They never advance a proof frontier and live only in the separate evaluation artifact.
+
+Stage 6B choice scores, tie results, ranking traces and selections are likewise non-correctness evaluation records. A high score does not prove an action; only the selected action's ordinary compiler-owned certificate can advance a proof frontier.

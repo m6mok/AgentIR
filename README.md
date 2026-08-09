@@ -2,7 +2,7 @@
 
 AgentIR — экспериментальная агентно-нативная компиляционная среда для численных вычислений. В ней программа хранится не как исходный текст, а как типизированный граф. Агент меняет граф небольшими атомарными ActionIR-транзакциями, а compiler core выводит типы, проверяет формы и сохраняет каждое принятое состояние как неизменяемую ревизию.
 
-Сейчас репозиторий содержит завершённый Stage 6A reference prototype. Поверх exact Stage 1–5 compiler stack он добавляет отдельный воспроизводимый evaluation harness для честного сравнения `free`, `menu` и `hybrid` policies без расширения proof boundary.
+Сейчас репозиторий содержит Stage 6B reference prototype. Поверх exact Stage 1–5 compiler stack и Stage 6A evaluation harness он добавляет воспроизводимое policy-owned ranking bounded compiler-generated choices без расширения proof boundary.
 
 ## Что уже работает
 
@@ -115,9 +115,16 @@ cargo run -p agentir-eval -- < examples/eval_compare_policies.jsonl
 cargo run --release -p agentir-policy-eval --example evaluation_baseline
 ```
 
-## Ограничения Stage 6A
+Stage 6B quick check:
 
-Evaluation harness измеряет взаимодействие, но не выполняет autotuning, learned ranking, prompt optimization или automatic best-artifact selection. Первый backend по-прежнему ограничен одномерными f32 elementwise kernels. Device execution и hardware measurements являются confidence evidence, а evaluation success означает только выполнение task criterion. Подробности — в [Stage 6A scope](docs/stage-6a-scope.md).
+```bash
+cargo run -p agentir-eval -- < examples/eval_ranked_hole.jsonl
+cargo run -p agentir-eval -- < examples/eval_ranked_compare.jsonl
+```
+
+## Ограничения Stage 6B
+
+Evaluation harness измеряет взаимодействие и policy-owned ranking, но не выполняет learned ranking, autotuning, prompt optimization или automatic best-artifact selection. Первый backend по-прежнему ограничен одномерными f32 elementwise kernels. Device execution и hardware measurements являются confidence evidence, а evaluation success означает только выполнение task criterion. Подробности — в [Stage 6B scope](docs/stage-6b-scope.md).
 
 ## Независимые hash-контракты
 
@@ -137,12 +144,13 @@ Evaluation harness измеряет взаимодействие, но не вы
 - `measurement_hash` идентифицирует completed confidence-only benchmark record;
 - `archive_hash` проверяет конкретный versioned on-disk archive.
 - `corpus_hash`, `policy_hash`, `observation_hash`, `episode_hash`, `evaluation_hash` и evaluation `archive_hash` идентифицируют только Stage 6A экспериментальные данные.
+- `choice_set_hash`, `feature_schema_hash`, `ranking_policy_hash`, `ranking_trace_hash` и `selection_hash` идентифицируют только Stage 6B ranking data.
 
 Подробный контракт canonical form — в [docs/semantic-canonicalization.md](docs/semantic-canonicalization.md), migration pipeline — в [docs/persistence.md](docs/persistence.md).
 
 ## Roadmap
 
-Stage 6A завершает воспроизводимую сравнительную основу. Learned ranking, autotuning и автоматический выбор остаются Stage 6B или позже. См. [docs/roadmap.md](docs/roadmap.md).
+Stage 6B завершает воспроизводимую ranking основу. Learned ranking, autotuning и автоматический выбор остаются Stage 6C или позже. См. [docs/roadmap.md](docs/roadmap.md).
 
 ## Документация
 

@@ -51,3 +51,7 @@ The dependency-light baseline remains GPU-independent and adds BackendIR lowerin
 # Stage 6A workloads
 
 Benchmark schema v2 remains unchanged. `agentir-policy-eval --example evaluation_baseline` reports deterministic scripted free/menu/hybrid SAXPY completion and replay. The evaluation workload contract covers corpus canonicalization at 10/100/1,000 tasks; observation/menu construction; free/hybrid validation; step apply; rejection and repair accounting; episode hashing/replay at 10/100/1,000 steps; aggregates/comparisons; archive save/load; and mutation rejection. Canonical sizes for task, observation, menu, decision, outcome, transcript, episode, aggregate, and archive are separate from timing. Machine-specific output is never committed.
+
+# Stage 6B workloads
+
+Schema v2 remains unchanged. The evaluation baseline covers choice enumeration/canonicalization/hash at 10/100/1,000 choices, visible feature extraction/schema hashing, scripted ranking, external score validation, tie resolution, explicit selection dispatch, rejection classification, trace replay/aggregation/fairness, v1→v2 migration, v2 save/load/replay, and mutation rejection. Canonical sizes are reported separately and machine-specific output is never committed.
