@@ -1,0 +1,1 @@
+{"command":"evaluation.search.start","request_id":"search-start-1","task":"candidate-rewrite-small","corpus_hash":"a8c17a9763414007f93feecba3b302a3af67b4de5e9e7b49b6117ac9a5cfaa38","ranking_policy":"goal_directed_rule_v1","seed":0,"beam_width":2,"maximum_semantic_depth":32,"maximum_children_retained_per_node":4,"checkpoint_cadence_work_units":2}

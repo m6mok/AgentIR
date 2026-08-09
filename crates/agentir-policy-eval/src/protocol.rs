@@ -4,14 +4,79 @@ use crate::{
     engine::{EvaluationHarness, RankingSubmission, external_policy, scripted_policy},
     model::{EvaluationDiagnostic, EvaluationTaskId, PolicyDecision, PolicyKind, TokenUsage},
     ranking::{RankingDecision, aggregate_ranking_metrics, feature_schema_v1, scripted_ranker},
+    search::{
+        ObjectiveDirection, SearchLimits, SearchObjectiveComponent, SearchObjectiveComponentKind,
+        SearchObjectiveDescriptor, SearchPlan, SearchRanker, SearchSession, replay_search,
+    },
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::path::Path;
+use std::{collections::BTreeMap, path::Path};
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "command", deny_unknown_fields)]
 enum EvaluationRequest {
+    #[serde(rename = "evaluation.search.start")]
+    SearchStart {
+        request_id: String,
+        task: EvaluationTaskId,
+        corpus_hash: String,
+        ranking_policy: String,
+        #[serde(default)]
+        seed: u64,
+        beam_width: u64,
+        maximum_semantic_depth: u64,
+        maximum_children_retained_per_node: u64,
+        checkpoint_cadence_work_units: u64,
+    },
+    #[serde(rename = "evaluation.search.advance")]
+    SearchAdvance {
+        request_id: String,
+        search: String,
+        search_objective_hash: String,
+        search_plan_hash: String,
+        maximum_work_units: u64,
+    },
+    #[serde(rename = "evaluation.search.status")]
+    SearchStatus {
+        request_id: String,
+        search: String,
+        search_objective_hash: String,
+        search_plan_hash: String,
+    },
+    #[serde(rename = "evaluation.search.checkpoint")]
+    SearchCheckpoint {
+        request_id: String,
+        search: String,
+        search_objective_hash: String,
+        search_plan_hash: String,
+    },
+    #[serde(rename = "evaluation.search.resume")]
+    SearchResume {
+        request_id: String,
+        checkpoint: Box<crate::search::SearchCheckpoint>,
+    },
+    #[serde(rename = "evaluation.search.cancel")]
+    SearchCancel {
+        request_id: String,
+        search: String,
+        search_objective_hash: String,
+        search_plan_hash: String,
+    },
+    #[serde(rename = "evaluation.search.result")]
+    SearchResult {
+        request_id: String,
+        search: String,
+        search_objective_hash: String,
+        search_plan_hash: String,
+    },
+    #[serde(rename = "evaluation.search.replay")]
+    SearchReplay {
+        request_id: String,
+        search: String,
+        search_objective_hash: String,
+        search_plan_hash: String,
+    },
     #[serde(rename = "evaluation.ranking.policy.list")]
     RankingPolicyList {
         request_id: String,
@@ -119,7 +184,15 @@ enum EvaluationRequest {
 impl EvaluationRequest {
     fn request_id(&self) -> &str {
         match self {
-            Self::RankingPolicyList { request_id, .. }
+            Self::SearchStart { request_id, .. }
+            | Self::SearchAdvance { request_id, .. }
+            | Self::SearchStatus { request_id, .. }
+            | Self::SearchCheckpoint { request_id, .. }
+            | Self::SearchResume { request_id, .. }
+            | Self::SearchCancel { request_id, .. }
+            | Self::SearchResult { request_id, .. }
+            | Self::SearchReplay { request_id, .. }
+            | Self::RankingPolicyList { request_id, .. }
             | Self::RankingPolicyQuery { request_id, .. }
             | Self::ChoiceSetQuery { request_id, .. }
             | Self::CorpusList { request_id }
@@ -149,6 +222,8 @@ impl EvaluationRequest {
 #[derive(Debug)]
 pub struct EvaluationProtocol {
     harness: EvaluationHarness,
+    searches: BTreeMap<String, SearchSession>,
+    search_rankers: BTreeMap<String, SearchRanker>,
     max_request_bytes: u64,
 }
 
@@ -157,6 +232,8 @@ impl EvaluationProtocol {
     pub fn new() -> Result<Self, EvaluationDiagnostic> {
         Ok(Self {
             harness: EvaluationHarness::new()?,
+            searches: BTreeMap::new(),
+            search_rankers: BTreeMap::new(),
             max_request_bytes: 4 * 1024 * 1024,
         })
     }
@@ -202,6 +279,234 @@ impl EvaluationProtocol {
 
     fn handle(&mut self, request: EvaluationRequest) -> Result<Value, EvaluationDiagnostic> {
         match request {
+            EvaluationRequest::SearchStart {
+                task,
+                corpus_hash,
+                ranking_policy,
+                seed,
+                beam_width,
+                maximum_semantic_depth,
+                maximum_children_retained_per_node,
+                checkpoint_cadence_work_units,
+                ..
+            } => {
+                if corpus_hash != self.harness.corpus().corpus_hash {
+                    return Err(EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationSearchRootStale,
+                        "search start corpus hash is stale",
+                    ));
+                }
+                let task_definition = self.harness.task(&task)?.clone();
+                let descriptor = scripted_ranker(&ranking_policy, &feature_schema_v1()?, seed)?;
+                let ranker = SearchRanker::Scripted { descriptor };
+                let objective = SearchObjectiveDescriptor::new(
+                    self.harness.corpus(),
+                    &task_definition,
+                    vec![
+                        SearchObjectiveComponent {
+                            kind: SearchObjectiveComponentKind::TaskCriterionSuccess,
+                            direction: ObjectiveDirection::Maximize,
+                        },
+                        SearchObjectiveComponent {
+                            kind: SearchObjectiveComponentKind::CompilerTerminalSuccess,
+                            direction: ObjectiveDirection::Maximize,
+                        },
+                        SearchObjectiveComponent {
+                            kind: SearchObjectiveComponentKind::RejectionCount,
+                            direction: ObjectiveDirection::Minimize,
+                        },
+                        SearchObjectiveComponent {
+                            kind: SearchObjectiveComponentKind::TrajectoryLength,
+                            direction: ObjectiveDirection::Minimize,
+                        },
+                    ],
+                )?;
+                let plan = SearchPlan::deterministic_beam_v1(
+                    &objective,
+                    &ranker,
+                    beam_width,
+                    maximum_semantic_depth,
+                    maximum_children_retained_per_node,
+                    checkpoint_cadence_work_units,
+                )?;
+                let session = SearchSession::start(
+                    self.harness.corpus().clone(),
+                    task,
+                    objective,
+                    plan,
+                    &ranker,
+                )?;
+                let search = session.search_run_id.clone();
+                let response = json!({
+                    "search": search,
+                    "status": session.status,
+                    "initial_anchor_hash": session.objective.initial_anchor_hash,
+                    "search_objective_hash": session.objective.search_objective_hash,
+                    "search_plan_hash": session.plan.search_plan_hash,
+                    "ranking_policy_hash": session.plan.ranking_policy_hash,
+                });
+                self.search_rankers.insert(search.clone(), ranker);
+                self.searches.insert(search, session);
+                Ok(response)
+            }
+            EvaluationRequest::SearchAdvance {
+                search,
+                search_objective_hash,
+                search_plan_hash,
+                maximum_work_units,
+                ..
+            } => {
+                validate_search_request(
+                    self.searches.get(&search),
+                    &search_objective_hash,
+                    &search_plan_hash,
+                )?;
+                let ranker = self.search_rankers.get(&search).cloned().ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationSearchPlanInvalid,
+                        "search ranker is missing",
+                    )
+                })?;
+                let session = self.searches.get_mut(&search).expect("validated search");
+                let status =
+                    session.advance(maximum_work_units, &ranker, &SearchLimits::default())?;
+                Ok(json!({
+                    "search": search,
+                    "status": status,
+                    "semantic_work": session.work.semantic_expansions,
+                    "nodes": session.nodes.len(),
+                    "edges": session.edges.len(),
+                }))
+            }
+            EvaluationRequest::SearchStatus {
+                search,
+                search_objective_hash,
+                search_plan_hash,
+                ..
+            } => {
+                let session = validate_search_request(
+                    self.searches.get(&search),
+                    &search_objective_hash,
+                    &search_plan_hash,
+                )?;
+                Ok(json!({
+                    "search": search,
+                    "status": session.status,
+                    "frontier": session.frontier,
+                    "semantic_work": session.work.semantic_expansions,
+                    "terminal_candidates": session.terminal_candidates.len(),
+                }))
+            }
+            EvaluationRequest::SearchCheckpoint {
+                search,
+                search_objective_hash,
+                search_plan_hash,
+                ..
+            } => {
+                let session = validate_search_request(
+                    self.searches.get(&search),
+                    &search_objective_hash,
+                    &search_plan_hash,
+                )?;
+                serde_json::to_value(session.checkpoint(&SearchLimits::default())?)
+                    .map_err(|error| serialization_error(&error))
+            }
+            EvaluationRequest::SearchResume { checkpoint, .. } => {
+                if checkpoint.session.ranking_policy.kind
+                    == crate::ranking::RankingPolicyKind::LearnedLinear
+                {
+                    return Err(EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationSearchUnsupportedSurface,
+                        "JSONL learned-search resume requires an archive-retained model",
+                    ));
+                }
+                let ranker = SearchRanker::Scripted {
+                    descriptor: checkpoint.session.ranking_policy.clone(),
+                };
+                let session = SearchSession::resume(
+                    &checkpoint,
+                    self.harness.corpus(),
+                    &ranker,
+                    &SearchLimits::default(),
+                )?;
+                let search = session.search_run_id.clone();
+                self.search_rankers.insert(search.clone(), ranker);
+                self.searches.insert(search.clone(), session.clone());
+                Ok(json!({
+                    "search": search,
+                    "status": session.status,
+                    "semantic_work": session.work.semantic_expansions,
+                    "search_checkpoint_hash": checkpoint.search_checkpoint_hash,
+                }))
+            }
+            EvaluationRequest::SearchCancel {
+                search,
+                search_objective_hash,
+                search_plan_hash,
+                ..
+            } => {
+                validate_search_request(
+                    self.searches.get(&search),
+                    &search_objective_hash,
+                    &search_plan_hash,
+                )?;
+                let ranker = self.search_rankers.get(&search).cloned().ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationSearchPlanInvalid,
+                        "search ranker is missing",
+                    )
+                })?;
+                let session = self.searches.get_mut(&search).expect("validated search");
+                session.request_cancellation();
+                session.advance(1, &ranker, &SearchLimits::default())?;
+                Ok(json!({"search": search, "status": session.status}))
+            }
+            EvaluationRequest::SearchResult {
+                search,
+                search_objective_hash,
+                search_plan_hash,
+                ..
+            } => {
+                let session = validate_search_request(
+                    self.searches.get(&search),
+                    &search_objective_hash,
+                    &search_plan_hash,
+                )?;
+                let result = session.result.as_ref().ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationSearchIncomplete,
+                        "running search cannot publish a result",
+                    )
+                })?;
+                serde_json::to_value(result).map_err(|error| serialization_error(&error))
+            }
+            EvaluationRequest::SearchReplay {
+                search,
+                search_objective_hash,
+                search_plan_hash,
+                ..
+            } => {
+                let session = validate_search_request(
+                    self.searches.get(&search),
+                    &search_objective_hash,
+                    &search_plan_hash,
+                )?;
+                let ranker = self.search_rankers.get(&search).ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationSearchPlanInvalid,
+                        "search ranker is missing",
+                    )
+                })?;
+                replay_search(session, ranker, &SearchLimits::default())?;
+                Ok(json!({
+                    "search": search,
+                    "replayed": true,
+                    "training_calls": 0,
+                    "network_calls": 0,
+                    "provider_calls": 0,
+                    "device_calls": 0,
+                }))
+            }
             EvaluationRequest::RankingPolicyList { seed, .. } => {
                 serde_json::to_value(self.harness.ranking_policies(seed)?)
                     .map_err(|error| serialization_error(&error))
@@ -430,6 +735,28 @@ impl EvaluationProtocol {
             }
         }
     }
+}
+
+fn validate_search_request<'a>(
+    session: Option<&'a SearchSession>,
+    objective_hash: &str,
+    plan_hash: &str,
+) -> Result<&'a SearchSession, EvaluationDiagnostic> {
+    let session = session.ok_or_else(|| {
+        EvaluationDiagnostic::new(
+            crate::model::EvaluationErrorCode::EvaluationRunNotFound,
+            "evaluation search does not exist",
+        )
+    })?;
+    if session.objective.search_objective_hash != objective_hash
+        || session.plan.search_plan_hash != plan_hash
+    {
+        return Err(EvaluationDiagnostic::new(
+            crate::model::EvaluationErrorCode::EvaluationSearchCheckpointStale,
+            "search request objective or plan hash is stale",
+        ));
+    }
+    Ok(session)
 }
 
 impl Default for EvaluationProtocol {
