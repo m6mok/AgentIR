@@ -18,6 +18,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// Choice-set hash domain.
 pub const CHOICE_SET_HASH_DOMAIN: &[u8] = b"agentir.evaluation.choice_set.v1\0";
+/// Stable semantic choice-identity hash domain.
+pub const CHOICE_ID_HASH_DOMAIN: &[u8] = b"agentir.evaluation.choice_id.v1\0";
 /// Visible feature-schema hash domain.
 pub const FEATURE_SCHEMA_HASH_DOMAIN: &[u8] = b"agentir.evaluation.feature_schema.v1\0";
 /// Ranking-policy hash domain.
@@ -630,6 +632,7 @@ pub fn build_choice_set(
     for (index, choice) in choices.iter_mut().enumerate() {
         choice.compiler_order = u64::try_from(index).unwrap_or(u64::MAX);
         choice.id = stable_choice_id(choice)?;
+        validate_choice_features(choice, schema)?;
         limit(
             choice.visible_features.values.len(),
             limits.features_per_choice,
@@ -669,15 +672,54 @@ pub fn build_choice_set(
 }
 
 fn stable_choice_id(choice: &EvaluationChoice) -> EvaluationResult<EvaluationChoiceId> {
+    let action = semantic_choice_action(&choice.action);
     let identity = (
         choice.origin,
         choice.category,
-        &choice.action,
+        action,
         &choice.preconditions,
-        choice.compiler_order,
     );
-    let hash = domain_hash(CHOICE_SET_HASH_DOMAIN, &identity)?;
+    let hash = domain_hash(CHOICE_ID_HASH_DOMAIN, &identity)?;
     Ok(EvaluationChoiceId(format!("ec{}", &hash[..24])))
+}
+
+fn semantic_choice_action(action: &ChoiceAction) -> ChoiceAction {
+    match action {
+        ChoiceAction::ProductionRequest { request } => ChoiceAction::ProductionRequest {
+            request: strip_transport_metadata(request),
+        },
+    }
+}
+
+fn strip_transport_metadata(value: &Value) -> Value {
+    match value {
+        Value::Object(fields) => Value::Object(
+            fields
+                .iter()
+                .filter(|(name, _)| !is_transport_metadata(name))
+                .map(|(name, value)| (name.clone(), strip_transport_metadata(value)))
+                .collect(),
+        ),
+        Value::Array(values) => Value::Array(values.iter().map(strip_transport_metadata).collect()),
+        _ => value.clone(),
+    }
+}
+
+fn is_transport_metadata(name: &str) -> bool {
+    matches!(
+        name,
+        "request_id"
+            | "correlation_id"
+            | "external_correlation_id"
+            | "timestamp"
+            | "timestamp_ns"
+            | "latency"
+            | "latency_ns"
+            | "latency_ms"
+            | "hostname"
+            | "provider_session"
+            | "provider_session_id"
+    )
 }
 
 fn validate_schema(schema: &FeatureSchema, limits: &RankingLimits) -> EvaluationResult<()> {
@@ -689,6 +731,7 @@ fn validate_schema(schema: &FeatureSchema, limits: &RankingLimits) -> Evaluation
     )?;
     if schema.version != FeatureSchemaVersion(1)
         || schema.feature_schema_hash != feature_schema_hash(schema)?
+        || schema != &feature_schema_v1()?
     {
         return Err(diagnostic(
             EvaluationErrorCode::EvaluationFeatureSchemaMismatch,
@@ -705,6 +748,75 @@ fn validate_schema(schema: &FeatureSchema, limits: &RankingLimits) -> Evaluation
             EvaluationErrorCode::EvaluationFeatureSchemaMismatch,
             "visible feature names must be unique",
         ));
+    }
+    Ok(())
+}
+
+fn validate_choice_features(
+    choice: &EvaluationChoice,
+    schema: &FeatureSchema,
+) -> EvaluationResult<()> {
+    if choice.visible_features.values.len() != schema.definitions.len() {
+        return Err(diagnostic(
+            EvaluationErrorCode::EvaluationFeatureSchemaMismatch,
+            "choice features do not exactly match the visible schema",
+        )
+        .expected_actual(
+            json!(schema.definitions.len()),
+            json!(choice.visible_features.values.len()),
+        ));
+    }
+    for definition in &schema.definitions {
+        let value = choice
+            .visible_features
+            .values
+            .get(&definition.name)
+            .ok_or_else(|| {
+                diagnostic(
+                    EvaluationErrorCode::EvaluationFeatureSchemaMismatch,
+                    "choice is missing a required visible feature",
+                )
+                .expected_actual(json!(definition.name), Value::Null)
+            })?;
+        let type_matches = matches!(
+            (definition.feature_type, value),
+            (FeatureType::Integer, FeatureValue::Integer(_))
+                | (FeatureType::Boolean, FeatureValue::Boolean(_))
+                | (FeatureType::Text, FeatureValue::Text(_))
+                | (FeatureType::TextList, FeatureValue::TextList(_))
+        );
+        if !type_matches {
+            return Err(diagnostic(
+                EvaluationErrorCode::EvaluationFeatureSchemaMismatch,
+                "visible feature value has the wrong primitive type",
+            )
+            .expected_actual(json!(definition.feature_type), json!(value)));
+        }
+        let normalized = match (definition.normalization.as_str(), value) {
+            ("non_negative_i64" | "canonical_json_bytes", FeatureValue::Integer(value)) => {
+                *value >= 0
+            }
+            ("negative_one_if_not_tensor", FeatureValue::Integer(value)) => *value >= -1,
+            ("sorted_unique", FeatureValue::TextList(values)) => {
+                values.windows(2).all(|pair| pair[0] < pair[1])
+            }
+            (
+                "signed_i64"
+                | "stable_enum"
+                | "compiler_locator"
+                | "boolean"
+                | "visible_canonical_json",
+                _,
+            ) => true,
+            _ => false,
+        };
+        if !normalized {
+            return Err(diagnostic(
+                EvaluationErrorCode::EvaluationFeatureSchemaMismatch,
+                "visible feature violates its declared normalization",
+            )
+            .expected_actual(json!(definition.normalization), json!(value)));
+        }
     }
     Ok(())
 }

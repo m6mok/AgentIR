@@ -62,7 +62,21 @@ fn choice_identity_order_hash_and_schema_are_deterministic() {
     )
     .unwrap();
     assert_ne!(first.choice_set_hash, reordered.choice_set_hash);
-    assert_ne!(first.choices[0].id, reordered.choices[1].id);
+    assert_eq!(first.choices[0].id, reordered.choices[1].id);
+    assert_eq!(first.choices[1].id, reordered.choices[0].id);
+
+    let transport_mutated = build_choice_set(
+        "observation",
+        &schema,
+        vec![
+            choice("schedule.apply", "different-request", "sa1"),
+            choice("schedule.apply", "different-request-2", "sa2"),
+        ],
+        &limits,
+    )
+    .unwrap();
+    assert_eq!(first.choices[0].id, transport_mutated.choices[0].id);
+    assert_eq!(first.choices[1].id, transport_mutated.choices[1].id);
 
     let mut reordered_schema = schema.clone();
     reordered_schema.definitions.swap(0, 1);
@@ -71,6 +85,126 @@ fn choice_identity_order_hash_and_schema_are_deterministic() {
         first.feature_schema_hash,
         feature_schema_hash(&reordered_schema).unwrap()
     );
+}
+
+#[test]
+fn transport_metadata_does_not_change_semantic_choice_identity() {
+    let schema = feature_schema_v1().unwrap();
+    let limits = RankingLimits::default();
+    let first = compiler_choice(
+        ChoiceOrigin::Schedule,
+        ChoiceCategory::ScheduleTile,
+        json!({
+            "command":"schedule.apply",
+            "request_id":"first",
+            "correlation_id":"provider-a",
+            "timestamp_ns":1,
+            "latency_ms":10,
+            "hostname":"host-a",
+            "provider_session_id":"secret-a",
+            "actions":[{"kind":"tile_axes","axes":["sa1"],"tile_sizes":[4]}]
+        }),
+        ChoicePreconditions::default(),
+        "tile",
+        "advance",
+        "sa1",
+    )
+    .unwrap();
+    let second = compiler_choice(
+        ChoiceOrigin::Schedule,
+        ChoiceCategory::ScheduleTile,
+        json!({
+            "command":"schedule.apply",
+            "request_id":"second",
+            "correlation_id":"provider-b",
+            "timestamp_ns":2,
+            "latency_ms":20,
+            "hostname":"host-b",
+            "provider_session_id":"secret-b",
+            "actions":[{"kind":"tile_axes","axes":["sa1"],"tile_sizes":[4]}]
+        }),
+        ChoicePreconditions::default(),
+        "tile",
+        "advance",
+        "sa1",
+    )
+    .unwrap();
+    let first = build_choice_set("observation", &schema, vec![first], &limits).unwrap();
+    let second = build_choice_set("observation", &schema, vec![second], &limits).unwrap();
+    assert_eq!(first.choices[0].id, second.choices[0].id);
+
+    let production_mutated = build_choice_set(
+        "observation",
+        &schema,
+        vec![choice("schedule.apply", "third", "sa2")],
+        &limits,
+    )
+    .unwrap();
+    assert_ne!(first.choices[0].id, production_mutated.choices[0].id);
+}
+
+#[test]
+fn visible_feature_vectors_are_exact_typed_and_normalized() {
+    let schema = feature_schema_v1().unwrap();
+    let limits = RankingLimits::default();
+    let valid = choice("schedule.apply", "feature-valid", "sa1");
+
+    let mut missing = valid.clone();
+    missing.visible_features.values.remove("structural_target");
+    assert_eq!(
+        build_choice_set("observation", &schema, vec![missing], &limits)
+            .unwrap_err()
+            .code,
+        EvaluationErrorCode::EvaluationFeatureSchemaMismatch
+    );
+
+    let mut wrong_type = valid.clone();
+    wrong_type.visible_features.values.insert(
+        "operand_arity".to_owned(),
+        agentir_policy_eval::FeatureValue::Text("zero".to_owned()),
+    );
+    assert_eq!(
+        build_choice_set("observation", &schema, vec![wrong_type], &limits)
+            .unwrap_err()
+            .code,
+        EvaluationErrorCode::EvaluationFeatureSchemaMismatch
+    );
+
+    let mut negative = valid.clone();
+    negative.visible_features.values.insert(
+        "static_extent_count".to_owned(),
+        agentir_policy_eval::FeatureValue::Integer(-1),
+    );
+    assert_eq!(
+        build_choice_set("observation", &schema, vec![negative], &limits)
+            .unwrap_err()
+            .code,
+        EvaluationErrorCode::EvaluationFeatureSchemaMismatch
+    );
+
+    let mut capabilities = valid;
+    capabilities.visible_features.values.insert(
+        "target_capabilities".to_owned(),
+        agentir_policy_eval::FeatureValue::TextList(vec![
+            "z".to_owned(),
+            "a".to_owned(),
+            "a".to_owned(),
+        ]),
+    );
+    assert_eq!(
+        build_choice_set("observation", &schema, vec![capabilities], &limits)
+            .unwrap_err()
+            .code,
+        EvaluationErrorCode::EvaluationFeatureSchemaMismatch
+    );
+}
+
+#[test]
+fn archive_metric_floats_round_trip_without_ulp_drift() {
+    let metric = 140_f64 / 142_f64;
+    let bytes = serde_json::to_vec(&metric).unwrap();
+    let decoded: f64 = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(metric.to_bits(), decoded.to_bits());
 }
 
 #[test]

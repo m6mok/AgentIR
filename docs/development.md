@@ -6,6 +6,8 @@ Stage 6A adds an offline `agentir-policy-eval` library and `agentir-eval` JSONL 
 
 Stage 6B remains offline. Run every `eval_ranked_*.jsonl` example and the `stage6b` policy-eval tests; ranking replay must report zero external/device calls and Stage 6A pinned episode hashes must remain unchanged.
 
+The expanded local Stage 6B.1 study is generated with `cargo run --release -p agentir-policy-eval --example stage6b_study -- --output target/stage6b-study/run-1`. Repeat with a second directory, then run `cargo run --release -p agentir-policy-eval --example stage6b_compare -- target/stage6b-study/run-1 target/stage6b-study/run-2`. The comparator requires byte-identical `semantic.json`; timing samples are retained separately as expected machine noise. All outputs stay under ignored `target/` and are never correctness evidence.
+
 Stage 3 changes should additionally run the four MemoryIR JSONL examples and verify fresh/reuse/guarded outputs agree, the unsafe reuse request is rejected without preventing the following transaction, v6 fixtures retain their pinned bytes, and v7 save/replay reproduces memory IDs/hashes. `cargo test --workspace` includes core atomicity/replay and protocol branch-laziness coverage.
 
 ## Repository layout

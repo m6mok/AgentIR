@@ -30,13 +30,28 @@ fn measure(mut workload: impl FnMut()) -> Value {
         samples.push(u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX));
     }
     samples.sort_unstable();
+    let mean = samples.iter().map(|value| *value as f64).sum::<f64>() / samples.len() as f64;
+    let variance = samples
+        .iter()
+        .map(|value| {
+            let delta = *value as f64 - mean;
+            delta * delta
+        })
+        .sum::<f64>()
+        / samples.len() as f64;
     json!({
         "unit": "ns",
-        "samples": SAMPLES,
+        "warmup_count": WARMUPS,
+        "measured_sample_count": SAMPLES,
+        "raw_sample_count": SAMPLES,
         "min": samples[0],
         "median": percentile(&samples, 50),
+        "p90": percentile(&samples, 90),
         "p95": percentile(&samples, 95),
-        "max": samples[samples.len() - 1]
+        "p99": percentile(&samples, 99),
+        "max": samples[samples.len() - 1],
+        "mean": mean,
+        "standard_deviation": variance.sqrt()
     })
 }
 
