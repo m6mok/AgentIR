@@ -57,3 +57,7 @@ Benchmark schema v2 remains unchanged. `agentir-policy-eval --example evaluation
 Schema v2 remains unchanged. The evaluation baseline covers choice enumeration/canonicalization/hash at 10/100/1,000 choices, visible feature extraction/schema hashing, scripted ranking, external score validation, tie resolution, explicit selection dispatch, rejection classification, trace replay/aggregation/fairness, v1→v2 migration, v2 save/load/replay, and mutation rejection. Canonical sizes are reported separately and machine-specific output is never committed.
 
 `stage6b_study` extends the local, uncommitted dataset with raw samples and min/median/p90/p95/p99/max/mean/standard deviation; exact input digests; accepted/policy/compiler/budget rejection classes; fixed-seed production episodes; archive mutations; and a generated analysis. `stage6b_compare` treats `semantic.json` differences as failures while classifying compatible timing differences as expected machine noise. Representative combinations are bounded and every skip carries a stable reason code.
+
+# Stage 6C workloads
+
+Schema v2 remains unchanged. `stage6c_study` measures dataset extraction/leakage validation/splitting, visible feature encoding, integer training, model serialization/hash, fixed-point inference, score/tie validation, production dispatch, replay, evaluation archive v3 verification, and failure fast paths. Raw min/median/p90/p95/p99/max/mean/stddev samples stay under `target/stage6c-study/`; `stage6c_compare` requires byte-identical semantic files and archive bytes while excluding timing.

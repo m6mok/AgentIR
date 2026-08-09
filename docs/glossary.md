@@ -67,6 +67,11 @@
 - **Spec hash** — domain-separated SHA-256 identity of semantic canonical form, independent of compiler IDs and construction history.
 - **Temporary binding** — `$name` usable only within one transaction.
 - **Workspace** — SpecIR revision DAG plus independent CandidateForest, EqualityStore, MemoryPlanStore and compiler-owned allocators; it may be persisted only after complete replay verification.
+- **Ranking dataset** — immutable Stage 6C visible ranking inputs plus separately stored historical labels, split by semantic group.
+- **Learned model artifact** — deterministic fixed-point evaluation artifact anchored to dataset, split, configuration, schema and codec; it has no correctness authority.
+- **Inference record** — exact input/model/policy/choice-set anchors and one fixed-point score per visible choice; work counters are observational.
+- **Continuation cursor** — opaque versioned compiler-owned token for resuming an exact bounded enumeration at unchanged anchors.
+- **Typed repair** — bounded compiler-owned descriptor anchored to an exact diagnostic/base; it still traverses the production verifier and does not promise acceptance.
 # Stage 4 terms
 
 - **TargetManifest** — immutable compiler-owned capability contract identified by `target_hash`.

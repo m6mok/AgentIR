@@ -41,10 +41,10 @@ immutable corpus + policy descriptor
   ↓ exact observation / bounded decision
 agentir-policy-eval ─ production outcome → transcript → replay/aggregate
   ↓ separate format
-evaluation archive v2 (v1 migrates explicitly; never workspace archive v9)
+evaluation archive v3 (v1→v2→v3 migration; never workspace archive v9)
 ```
 
-The dependency direction is one-way: `core` knows nothing about JSONL sessions, policy evaluation, transcripts or filesystems; the reference evaluator and store depend on `core`; `protocol` composes production components; `agentir-policy-eval` invokes that production surface; both CLIs only stream lines.
+The dependency direction is one-way: `core` knows nothing about JSONL sessions, policy evaluation, learned models, transcripts or filesystems; the reference evaluator and store depend on `core`; `protocol` composes production components; `agentir-policy-eval` invokes that production surface and owns offline learned ranking; both CLIs only stream lines.
 
 ## Candidate boundary
 

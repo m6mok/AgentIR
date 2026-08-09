@@ -37,7 +37,10 @@ AgentIR is an agent-native compiler prototype. Preserve these invariants in ever
 31. Free, menu, and hybrid all use the production verifier/atomic transaction path; menu forbids arbitrary escape and hybrid escape remains bounded and untrusted.
 32. Stage 6B ranking is policy-owned and has no legality, proof, success, or artifact-selection authority.
 33. Choice sets, visible feature schemas, ranking policies, traces, and selections use independent hashes and deterministic compiler ordering.
-34. Evaluation archive v1 is immutable; new evaluation saves use v2 and legacy episodes migrate explicitly as unranked.
+34. Evaluation archive v1/v2 are immutable legacy inputs; new evaluation saves use v3 and migrate only v1→v2→v3 without invented ranking or learning records.
+35. Stage 6C datasets, labels, models, training runs, inference scores, work counters and benchmarks remain non-correctness evaluation data.
+36. Learned inference sees only the exact Stage 6B visible frame; labels, future outcomes, reference solutions, provider/session data and split membership are forbidden inputs.
+37. Learned selection uses existing score validation, tie resolution and the production verifier/atomic transaction path; failed inference consumes no compiler IDs or state.
 
 ## Where to look before changing code
 
@@ -123,6 +126,11 @@ cargo run -p agentir-cli --bin agentir < examples/backend_rejected_reduce.jsonl
 cargo run --release -p agentir-protocol --example baseline
 cargo run -p agentir-eval -- < examples/eval_free_saxpy.jsonl
 cargo run --release -p agentir-policy-eval --example evaluation_baseline
+cargo test -p agentir-policy-eval --test stage6c
+cargo test -p agentir-policy-eval --test contract_registry
+cargo run --release -p agentir-policy-eval --example stage6c_study -- --output target/stage6c-study/run-1
+cargo run --release -p agentir-policy-eval --example stage6c_study -- --output target/stage6c-study/run-2
+cargo run --release -p agentir-policy-eval --example stage6c_compare -- target/stage6c-study/run-1 target/stage6c-study/run-2
 ```
 
 The final SAXPY response must contain `[12.0,24.0,36.0,48.0]`.

@@ -4,6 +4,8 @@ Stage 6A owns additional operational hard limits for corpora/tasks/task bytes, r
 
 Stage 6B additionally bounds choices per frame, bytes per choice/set, feature definitions/features/bytes, policies, score entries and magnitude, tie groups, ranking traces/transcript bytes, decisions, selections, migration work, replay work, and generated multi-choice cases. Limit failures occur before trace, selection, or archive publication and enter no compiler hash.
 
+Stage 6C additionally bounds continuation totals/pages/work, typed repairs/actions, dataset examples/bytes, encoded choices/features, split groups, epochs, updates, weight magnitude, checkpoints, model bytes, inference work, archive v3 bytes, and retained training/inference records. Checked arithmetic reports overflow explicitly. Exact limits accept and limit-plus-one rejects before partial model, trace, selection, dispatch, or archive publication. Limits and work counters are excluded from compiler and learned semantic identities.
+
 Memory budgets cover plans/revisions/events, buffers/operations/accesses, alias facts/domains, lifetime uses, obligations, reuse attempts, guard dependencies and fallback depth, layout entries, per-buffer/total abstract bytes, canonical/archive bytes, evaluation elements, trace events/bytes, and generated cases. Projected hard-limit failures happen against a staged store before publication; resource policy never enters `memory_hash`.
 
 `ResourceLimits`, `ResourceKind`, `ResourceUsage` and `BudgetCheck` provide one structured policy across core, evaluator, store, protocol and CLI. Limits are excluded from `Program`, snapshots and every hash identity.

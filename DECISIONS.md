@@ -531,3 +531,47 @@ Potential persistent references inside generic semantic attributes are rejected 
 ## ADR-117: Stage 6B stops before learned ranking and tuning
 
 **Decision.** Stage 6B contains no training, neural ranking, cost-model fitting, prompt optimization, Bayesian/beam/population search, autotuning, hardware-driven mutation, or automatic fastest-artifact selection.
+
+## ADR-118: Stage 6C learning remains evaluation-only
+
+**Decision.** Datasets, labels, training, models, inference, scores, work counters and held-out metrics live only in `agentir-policy-eval`. They have no legality, proof, success or artifact-selection authority and enter no compiler graph or hash.
+
+## ADR-119: Learned inputs are exact visible frames
+
+**Decision.** Inference receives only the versioned Stage 6B visible schema, exact ordered choices/features/compiler order, complete/bounded status and permitted surface. Labels, future outcomes, reference solutions, policy scores, provider data and split membership are rejected.
+
+## ADR-120: Dataset splits use stable semantic groups
+
+**Decision.** Train/validation/test/excluded membership is a fixed-seed function of semantic group identity, never random per row. One semantic state cannot cross split boundaries.
+
+## ADR-121: The first learned model is an integer pairwise linear ranker
+
+**Decision.** V1 uses a bounded pairwise integer perceptron and deterministic visible-feature codec. Checked integer arithmetic avoids floating nondeterminism and removes native ML, Python, network and GPU dependencies.
+
+## ADR-122: Training is restartable and compiler-independent
+
+**Decision.** Dataset, split, configuration, checkpoint, run and model have independent hashes. Exact epoch/update/work/byte limits and fixed ordering define completion; wall time and environment variables do not.
+
+## ADR-123: Learned inference precedes one production dispatch
+
+**Decision.** A learned descriptor has an explicit policy kind and model binding. Scores traverse existing Stage 6B validation/ties; only the later selected member traverses the production verifier once. Failed inference publishes no trace/selection and mutates no compiler state.
+
+## ADR-124: Learned identities are independent
+
+**Decision.** Dataset, example, semantic group, split, training configuration, checkpoint, training run, model, input and inference use distinct v1 domains. Work counters are non-semantic and excluded from training-run/inference identity.
+
+## ADR-125: Evaluation archive v3 retains learning provenance
+
+**Decision.** New evaluation saves use v3. Immutable v1/v2 inputs migrate only v1→v2→v3; migration invents no learning data and marks legacy episodes unlearned. Replay recomputes inference but never trains or contacts external/device services.
+
+## ADR-126: Resumable enumeration uses opaque anchored cursors
+
+**Decision.** V1 pagination retains exact anchors, kind, limits, count, complete/bounded and exhausted status, version, digest and deterministic work. Choice IDs are assigned before paging; corrupt, future or stale cursors reject before publication.
+
+## ADR-127: Repairs are typed but non-authoritative
+
+**Decision.** Twelve stable repair categories anchor an exact diagnostic/base and carry a bounded ordinary production request. Anchor changes invalidate them, acceptance is not promised, and agent-supplied proofs/guards/certificates are forbidden.
+
+## ADR-128: Stage 7 waits for an explicit freeze gate
+
+**Decision.** The dependency matrix, contract registry, diagnostic/limit/cursor/learning/archive audits, tests and two-run study must be documented before Stage 7. Stage 7 cannot silently change registered Stage 1–6 contracts.

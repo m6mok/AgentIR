@@ -63,6 +63,15 @@ Start with the root [README](../README.md), then choose the document matching th
 - [Constraint solving](constraint-solving.md) — compact facts, soundness and obligation discharge.
 - [Resource budgets](resource-budgets.md) — interactive defaults, hard caps and check placement.
 - [Benchmarking](benchmarking.md) — statistical schema v2, SpecIR/candidate workloads and historical references.
+- [Stage 6C scope](stage-6c-scope.md) — offline learned-ranking trust boundary.
+- [Learned ranking dataset](learned-ranking-dataset.md) — visible inputs, separate labels, group splits and leakage checks.
+- [Learned ranking model](learned-ranking-model.md) — fixed-point linear artifact and independent identity.
+- [Learned ranking training](learned-ranking-training.md) — bounded restartable integer training.
+- [Learned ranking inference](learned-ranking-inference.md) — read-only scoring before explicit production selection.
+- [Evaluation archive v3](evaluation-archive-v3.md) — learned provenance and v1→v2→v3 replay.
+- [Continuation cursors](continuation-cursors.md) and [typed repairs](typed-repairs.md) — Stage 6C readiness contracts.
+- [Contract registry](contract-registry.json) — machine-checked version/hash/ID/diagnostic inventory.
+- [Pre-Stage-7 audit](pre-stage-7-architecture-audit.md) and [readiness gate](pre-stage-7-readiness.md).
 - [Development](development.md) — repository layout, checks, tests and baseline harness.
 - [Glossary](glossary.md) — short definitions of AgentIR terms.
 - [Roadmap](roadmap.md) — sequencing from the prototype to a GPU backend.

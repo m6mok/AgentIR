@@ -102,6 +102,15 @@ Stage 5 deliberately contains no reduction lowering, shared memory/subgroups, ar
 - scripted/external rankers, explicit production selection and model-free replay;
 - ranking metrics/fairness and evaluation archive v2 with explicit v1 migration.
 
-## Stage 6C and later
+## Completed Stage 6C: offline learned ranking foundation
 
-Learned policies, compact learned codecs, cost models, prompt optimization, autotuning, population/beam search and automatic best-artifact selection remain future work. They may consume Stage 6A/6B data but may not weaken the compiler proof boundary.
+- resumable exact choice pagination, typed repair descriptors, and deterministic non-semantic work counters;
+- immutable policy-visible datasets with group-wise train/validation/test/excluded splits and leakage validation;
+- bounded restartable pairwise integer-linear training and fixed-point inference;
+- explicit learned policy kind, ordinary Stage 6B score validation, and one production dispatch after selection;
+- evaluation archive v3 with explicit v1→v2→v3 migration and exact inference replay;
+- two byte-identical local study/archive runs and the pre-Stage-7 architecture/readiness audit.
+
+## Stage 7 and later
+
+Stage 7 semantics are intentionally unspecified. Later search, tuning, prompt, or hardware-driven policy work requires separately versioned contracts and cannot weaken the compiler proof boundary or silently change frozen Stage 1–6 contracts.
