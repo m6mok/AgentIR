@@ -5,7 +5,7 @@
 
 use crate::{
     continuation::FrameCompleteness,
-    hashing::domain_hash,
+    hashing::{domain_hash, domain_hash_cleared},
     model::{
         EvaluationArchive, EvaluationDiagnostic, EvaluationErrorCode, EvaluationResult, PolicyKind,
     },
@@ -1176,62 +1176,62 @@ pub fn validate_training_run(
 
 /// Computes dataset identity without trusting the stored hash.
 pub fn ranking_dataset_hash(dataset: &RankingDataset) -> EvaluationResult<String> {
-    let mut model = dataset.clone();
-    model.manifest.ranking_dataset_hash.clear();
-    domain_hash(RANKING_DATASET_HASH_DOMAIN, &model)
+    domain_hash_cleared(RANKING_DATASET_HASH_DOMAIN, dataset, |model| {
+        model.manifest.ranking_dataset_hash.clear();
+    })
 }
 
 /// Computes example identity without trusting the stored hash.
 pub fn ranking_example_hash(example: &RankingExample) -> EvaluationResult<String> {
-    let mut model = example.clone();
-    model.ranking_example_hash.clear();
-    domain_hash(RANKING_EXAMPLE_HASH_DOMAIN, &model)
+    domain_hash_cleared(RANKING_EXAMPLE_HASH_DOMAIN, example, |model| {
+        model.ranking_example_hash.clear();
+    })
 }
 
 /// Computes split identity without trusting the stored hash.
 pub fn dataset_split_hash(split: &DatasetSplit) -> EvaluationResult<String> {
-    let mut model = split.clone();
-    model.dataset_split_hash.clear();
-    domain_hash(DATASET_SPLIT_HASH_DOMAIN, &model)
+    domain_hash_cleared(DATASET_SPLIT_HASH_DOMAIN, split, |model| {
+        model.dataset_split_hash.clear();
+    })
 }
 
 /// Computes configuration identity without trusting the stored hash.
 pub fn training_configuration_hash(
     configuration: &TrainingConfiguration,
 ) -> EvaluationResult<String> {
-    let mut model = configuration.clone();
-    model.training_configuration_hash.clear();
-    domain_hash(TRAINING_CONFIGURATION_HASH_DOMAIN, &model)
+    domain_hash_cleared(TRAINING_CONFIGURATION_HASH_DOMAIN, configuration, |model| {
+        model.training_configuration_hash.clear();
+    })
 }
 
 /// Computes training-run identity while excluding non-semantic work counters.
 pub fn training_run_hash(run: &TrainingRun) -> EvaluationResult<String> {
-    let mut model = run.clone();
-    model.training_run_hash.clear();
-    model.work_units = WorkUnitCounters::default();
-    domain_hash(TRAINING_RUN_HASH_DOMAIN, &model)
+    domain_hash_cleared(TRAINING_RUN_HASH_DOMAIN, run, |model| {
+        model.training_run_hash.clear();
+        model.work_units = WorkUnitCounters::default();
+    })
 }
 
 /// Computes model identity without trusting the stored hash.
 pub fn learned_model_hash(model: &LearnedModelArtifact) -> EvaluationResult<String> {
-    let mut value = model.clone();
-    value.learned_model_hash.clear();
-    domain_hash(LEARNED_MODEL_HASH_DOMAIN, &value)
+    domain_hash_cleared(LEARNED_MODEL_HASH_DOMAIN, model, |value| {
+        value.learned_model_hash.clear();
+    })
 }
 
 /// Computes input identity without trusting the stored hash.
 pub fn ranking_input_hash(input: &RankingInput) -> EvaluationResult<String> {
-    let mut model = input.clone();
-    model.ranking_input_hash.clear();
-    domain_hash(RANKING_INPUT_HASH_DOMAIN, &model)
+    domain_hash_cleared(RANKING_INPUT_HASH_DOMAIN, input, |model| {
+        model.ranking_input_hash.clear();
+    })
 }
 
 /// Computes inference identity while excluding non-semantic work counters.
 pub fn inference_hash(record: &InferenceRecord) -> EvaluationResult<String> {
-    let mut model = record.clone();
-    model.inference_hash.clear();
-    model.work_units = WorkUnitCounters::default();
-    domain_hash(INFERENCE_HASH_DOMAIN, &model)
+    domain_hash_cleared(INFERENCE_HASH_DOMAIN, record, |model| {
+        model.inference_hash.clear();
+        model.work_units = WorkUnitCounters::default();
+    })
 }
 
 fn semantic_group_hash(input: &RankingInput) -> EvaluationResult<String> {
@@ -1251,9 +1251,9 @@ fn semantic_group_hash(input: &RankingInput) -> EvaluationResult<String> {
 }
 
 fn training_checkpoint_hash(checkpoint: &TrainingCheckpoint) -> EvaluationResult<String> {
-    let mut model = checkpoint.clone();
-    model.checkpoint_hash.clear();
-    domain_hash(TRAINING_CHECKPOINT_HASH_DOMAIN, &model)
+    domain_hash_cleared(TRAINING_CHECKPOINT_HASH_DOMAIN, checkpoint, |model| {
+        model.checkpoint_hash.clear();
+    })
 }
 
 fn validate_ranking_input(input: &RankingInput) -> EvaluationResult<()> {

@@ -1,7 +1,7 @@
 //! Bounded compiler-owned typed repair descriptors.
 
 use crate::{
-    hashing::domain_hash,
+    hashing::domain_hash_cleared,
     model::{EvaluationDiagnostic, EvaluationErrorCode, EvaluationResult},
 };
 use serde::{Deserialize, Serialize};
@@ -122,9 +122,9 @@ pub fn validate_repair(
 
 /// Computes the independent repair hash without trusting its retained value.
 pub fn repair_hash(repair: &RepairDescriptor) -> EvaluationResult<String> {
-    let mut model = repair.clone();
-    model.repair_hash.clear();
-    domain_hash(REPAIR_HASH_DOMAIN, &model)
+    domain_hash_cleared(REPAIR_HASH_DOMAIN, repair, |model| {
+        model.repair_hash.clear();
+    })
 }
 
 fn contains_forbidden_proof_field(value: &Value) -> bool {

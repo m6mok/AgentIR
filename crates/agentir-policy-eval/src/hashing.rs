@@ -45,16 +45,34 @@ pub fn domain_hash<T: Serialize>(domain: &[u8], value: &T) -> EvaluationResult<S
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+/// Clones a retained-hash contract, clears only its self-hash field, and hashes it.
+///
+/// The caller must still provide the distinct semantic domain; this helper
+/// deliberately unifies mechanics without merging hash contracts.
+pub fn domain_hash_cleared<T, F>(
+    domain: &[u8],
+    value: &T,
+    clear_self_hash: F,
+) -> EvaluationResult<String>
+where
+    T: Clone + Serialize,
+    F: FnOnce(&mut T),
+{
+    let mut model = value.clone();
+    clear_self_hash(&mut model);
+    domain_hash(domain, &model)
+}
+
 pub(crate) fn corpus_hash(corpus: &EvaluationCorpus) -> EvaluationResult<String> {
-    let mut model = corpus.clone();
-    model.corpus_hash.clear();
-    domain_hash(CORPUS_HASH_DOMAIN, &model)
+    domain_hash_cleared(CORPUS_HASH_DOMAIN, corpus, |model| {
+        model.corpus_hash.clear();
+    })
 }
 
 pub(crate) fn policy_hash(policy: &PolicyDescriptor) -> EvaluationResult<String> {
-    let mut model = policy.clone();
-    model.policy_hash.clear();
-    domain_hash(POLICY_HASH_DOMAIN, &model)
+    domain_hash_cleared(POLICY_HASH_DOMAIN, policy, |model| {
+        model.policy_hash.clear();
+    })
 }
 
 pub(crate) fn observation_hash(observation: &EvaluationObservation) -> EvaluationResult<String> {
@@ -97,9 +115,9 @@ pub(crate) fn evaluation_hash(run: &EvaluationRun) -> EvaluationResult<String> {
 }
 
 pub(crate) fn aggregate_hash(aggregate: &EvaluationAggregate) -> EvaluationResult<String> {
-    let mut model = aggregate.clone();
-    model.aggregate_hash.clear();
-    domain_hash(AGGREGATE_HASH_DOMAIN, &model)
+    domain_hash_cleared(AGGREGATE_HASH_DOMAIN, aggregate, |model| {
+        model.aggregate_hash.clear();
+    })
 }
 
 pub(crate) fn archive_hash(archive: &EvaluationArchive) -> EvaluationResult<String> {

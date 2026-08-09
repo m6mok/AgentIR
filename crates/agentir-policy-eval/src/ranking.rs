@@ -6,7 +6,7 @@
 //! action is submitted to the compiler.
 
 use crate::{
-    hashing::domain_hash,
+    hashing::{domain_hash, domain_hash_cleared},
     model::{
         CompilerOutcome, EvaluationDiagnostic, EvaluationErrorCode, EvaluationResult,
         EvaluationRun, PolicyKind,
@@ -584,37 +584,37 @@ pub fn feature_schema_v1() -> EvaluationResult<FeatureSchema> {
 
 /// Computes the feature-schema hash without trusting the stored hash.
 pub fn feature_schema_hash(schema: &FeatureSchema) -> EvaluationResult<String> {
-    let mut model = schema.clone();
-    model.feature_schema_hash.clear();
-    domain_hash(FEATURE_SCHEMA_HASH_DOMAIN, &model)
+    domain_hash_cleared(FEATURE_SCHEMA_HASH_DOMAIN, schema, |model| {
+        model.feature_schema_hash.clear();
+    })
 }
 
 /// Computes the exact ordered choice-set hash.
 pub fn choice_set_hash(choice_set: &EvaluationChoiceSet) -> EvaluationResult<String> {
-    let mut model = choice_set.clone();
-    model.choice_set_hash.clear();
-    domain_hash(CHOICE_SET_HASH_DOMAIN, &model)
+    domain_hash_cleared(CHOICE_SET_HASH_DOMAIN, choice_set, |model| {
+        model.choice_set_hash.clear();
+    })
 }
 
 /// Computes the ranking-policy hash.
 pub fn ranking_policy_hash(policy: &RankingPolicyDescriptor) -> EvaluationResult<String> {
-    let mut model = policy.clone();
-    model.ranking_policy_hash.clear();
-    domain_hash(RANKING_POLICY_HASH_DOMAIN, &model)
+    domain_hash_cleared(RANKING_POLICY_HASH_DOMAIN, policy, |model| {
+        model.ranking_policy_hash.clear();
+    })
 }
 
 /// Computes the ranking-trace hash.
 pub fn ranking_trace_hash(trace: &RankingTrace) -> EvaluationResult<String> {
-    let mut model = trace.clone();
-    model.ranking_trace_hash.clear();
-    domain_hash(RANKING_TRACE_HASH_DOMAIN, &model)
+    domain_hash_cleared(RANKING_TRACE_HASH_DOMAIN, trace, |model| {
+        model.ranking_trace_hash.clear();
+    })
 }
 
 /// Computes the explicit selection hash.
 pub fn selection_hash(selection: &SelectionOutcome) -> EvaluationResult<String> {
-    let mut model = selection.clone();
-    model.selection_hash.clear();
-    domain_hash(SELECTION_HASH_DOMAIN, &model)
+    domain_hash_cleared(SELECTION_HASH_DOMAIN, selection, |model| {
+        model.selection_hash.clear();
+    })
 }
 
 /// Constructs a checked exact ordered choice set and assigns stable identities.
