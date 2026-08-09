@@ -914,6 +914,26 @@ pub enum LearningEpisodeStatus {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum EvaluationErrorCode {
+    /// Stable Stage 7E wire variant.
+    EvaluationAutotuningCampaignNotFound,
+    /// Stable Stage 7E wire variant.
+    EvaluationAutotuningCampaignPlanInvalid,
+    /// Stable Stage 7E wire variant.
+    EvaluationAutotuningCampaignPlanCorrupt,
+    /// Stable Stage 7E wire variant.
+    EvaluationAutotuningCampaignInvalidTransition,
+    /// Stable Stage 7E wire variant.
+    EvaluationAutotuningCampaignAnchorStale,
+    /// Stable Stage 7E wire variant.
+    EvaluationAutotuningCampaignCheckpointCorrupt,
+    /// Stable Stage 7E wire variant.
+    EvaluationAutotuningCampaignReplayMismatch,
+    /// Stable Stage 7E wire variant.
+    EvaluationAutotuningCampaignLimitExceeded,
+    /// Stable Stage 7E wire variant.
+    EvaluationAutotuningCampaignCounterOverflow,
+    /// Stable Stage 7E wire variant.
+    EvaluationAutotuningCampaignClientDataForbidden,
     /// Stable Stage 7D wire variant.
     EvaluationAcquisitionRecoveryNotPrepared,
     /// Stable Stage 7D wire variant.

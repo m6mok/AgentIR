@@ -11,6 +11,7 @@
 #![warn(missing_docs)]
 
 pub mod acquisition;
+pub mod campaign;
 pub mod continuation;
 pub mod corpus;
 pub mod engine;
@@ -26,6 +27,7 @@ pub mod search;
 pub mod work;
 
 pub use acquisition::*;
+pub use campaign::*;
 pub use continuation::*;
 pub use corpus::{builtin_corpus, builtin_ranked_corpus};
 pub use engine::{
