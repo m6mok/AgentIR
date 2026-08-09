@@ -2,6 +2,11 @@
 
 use crate::{
     engine::{EvaluationHarness, RankingSubmission, external_policy, scripted_policy},
+    measured::{
+        MeasuredMetric, MeasuredObjectiveDescriptor, MeasurementAggregationMethod,
+        MeasurementCohort, MeasurementReference, MeasurementValidationPolicy,
+        measured_recommendation, measurement_cohort_from_workspace,
+    },
     model::{EvaluationDiagnostic, EvaluationTaskId, PolicyDecision, PolicyKind, TokenUsage},
     ranking::{RankingDecision, aggregate_ranking_metrics, feature_schema_v1, scripted_ranker},
     search::{
@@ -9,6 +14,7 @@ use crate::{
         SearchObjectiveDescriptor, SearchPlan, SearchRanker, SearchSession, replay_search,
     },
 };
+use agentir_core::Workspace;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, path::Path};
@@ -16,6 +22,87 @@ use std::{collections::BTreeMap, path::Path};
 #[derive(Debug, Deserialize)]
 #[serde(tag = "command", deny_unknown_fields)]
 enum EvaluationRequest {
+    #[serde(rename = "evaluation.measurement_cohort.create")]
+    MeasurementCohortCreate {
+        request_id: String,
+        task: EvaluationTaskId,
+        initial_anchor_hash: String,
+        measurements: Vec<MeasurementReference>,
+        validation_policy: MeasurementValidationPolicy,
+        records_per_artifact: u64,
+        aggregation_method: MeasurementAggregationMethod,
+    },
+    #[serde(rename = "evaluation.measurement_cohort.query")]
+    MeasurementCohortQuery {
+        request_id: String,
+        measurement_cohort_hash: String,
+    },
+    #[serde(rename = "evaluation.measured_search.start")]
+    MeasuredSearchStart {
+        request_id: String,
+        task: EvaluationTaskId,
+        corpus_hash: String,
+        measurement_cohort_hash: String,
+        metric: MeasuredMetric,
+        indifference_band_ppm: u64,
+        ranking_policy: String,
+        #[serde(default)]
+        seed: u64,
+        beam_width: u64,
+        maximum_semantic_depth: u64,
+        maximum_children_retained_per_node: u64,
+        checkpoint_cadence_work_units: u64,
+    },
+    #[serde(rename = "evaluation.measured_search.advance")]
+    MeasuredSearchAdvance {
+        request_id: String,
+        search: String,
+        measured_objective_hash: String,
+        measurement_cohort_hash: String,
+        maximum_work_units: u64,
+    },
+    #[serde(rename = "evaluation.measured_search.status")]
+    MeasuredSearchStatus {
+        request_id: String,
+        search: String,
+        measured_objective_hash: String,
+        measurement_cohort_hash: String,
+    },
+    #[serde(rename = "evaluation.measured_search.checkpoint")]
+    MeasuredSearchCheckpoint {
+        request_id: String,
+        search: String,
+        measured_objective_hash: String,
+        measurement_cohort_hash: String,
+    },
+    #[serde(rename = "evaluation.measured_search.resume")]
+    MeasuredSearchResume {
+        request_id: String,
+        checkpoint: Box<crate::search::SearchCheckpoint>,
+        measured_objective_hash: String,
+        measurement_cohort_hash: String,
+    },
+    #[serde(rename = "evaluation.measured_search.cancel")]
+    MeasuredSearchCancel {
+        request_id: String,
+        search: String,
+        measured_objective_hash: String,
+        measurement_cohort_hash: String,
+    },
+    #[serde(rename = "evaluation.measured_search.result")]
+    MeasuredSearchResult {
+        request_id: String,
+        search: String,
+        measured_objective_hash: String,
+        measurement_cohort_hash: String,
+    },
+    #[serde(rename = "evaluation.measured_search.replay")]
+    MeasuredSearchReplay {
+        request_id: String,
+        search: String,
+        measured_objective_hash: String,
+        measurement_cohort_hash: String,
+    },
     #[serde(rename = "evaluation.search.start")]
     SearchStart {
         request_id: String,
@@ -184,7 +271,17 @@ enum EvaluationRequest {
 impl EvaluationRequest {
     fn request_id(&self) -> &str {
         match self {
-            Self::SearchStart { request_id, .. }
+            Self::MeasurementCohortCreate { request_id, .. }
+            | Self::MeasurementCohortQuery { request_id, .. }
+            | Self::MeasuredSearchStart { request_id, .. }
+            | Self::MeasuredSearchAdvance { request_id, .. }
+            | Self::MeasuredSearchStatus { request_id, .. }
+            | Self::MeasuredSearchCheckpoint { request_id, .. }
+            | Self::MeasuredSearchResume { request_id, .. }
+            | Self::MeasuredSearchCancel { request_id, .. }
+            | Self::MeasuredSearchResult { request_id, .. }
+            | Self::MeasuredSearchReplay { request_id, .. }
+            | Self::SearchStart { request_id, .. }
             | Self::SearchAdvance { request_id, .. }
             | Self::SearchStatus { request_id, .. }
             | Self::SearchCheckpoint { request_id, .. }
@@ -224,6 +321,10 @@ pub struct EvaluationProtocol {
     harness: EvaluationHarness,
     searches: BTreeMap<String, SearchSession>,
     search_rankers: BTreeMap<String, SearchRanker>,
+    measurement_workspace: Option<Workspace>,
+    measurement_cohorts: BTreeMap<String, MeasurementCohort>,
+    measured_objectives: BTreeMap<String, MeasuredObjectiveDescriptor>,
+    measured_search_anchors: BTreeMap<String, (String, String)>,
     max_request_bytes: u64,
 }
 
@@ -234,8 +335,22 @@ impl EvaluationProtocol {
             harness: EvaluationHarness::new()?,
             searches: BTreeMap::new(),
             search_rankers: BTreeMap::new(),
+            measurement_workspace: None,
+            measurement_cohorts: BTreeMap::new(),
+            measured_objectives: BTreeMap::new(),
+            measured_search_anchors: BTreeMap::new(),
             max_request_bytes: 4 * 1024 * 1024,
         })
+    }
+
+    /// Creates an evaluation protocol bound to one already verified production workspace.
+    ///
+    /// JSONL clients may reference only measurement IDs or hashes from this workspace;
+    /// timing summaries and device metadata remain unrepresentable in requests.
+    pub fn with_measurement_workspace(workspace: Workspace) -> Result<Self, EvaluationDiagnostic> {
+        let mut protocol = Self::new()?;
+        protocol.measurement_workspace = Some(workspace);
+        Ok(protocol)
     }
 
     /// Maximum encoded bytes accepted for one physical JSONL line.
@@ -279,6 +394,394 @@ impl EvaluationProtocol {
 
     fn handle(&mut self, request: EvaluationRequest) -> Result<Value, EvaluationDiagnostic> {
         match request {
+            EvaluationRequest::MeasurementCohortCreate {
+                task,
+                initial_anchor_hash,
+                measurements,
+                validation_policy,
+                records_per_artifact,
+                aggregation_method,
+                ..
+            } => {
+                let workspace = self.measurement_workspace.as_ref().ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationMeasurementNotFound,
+                        "evaluation protocol has no verified production measurement workspace",
+                    )
+                })?;
+                self.harness.task(&task)?;
+                let cohort = measurement_cohort_from_workspace(
+                    workspace,
+                    self.harness.corpus().corpus_hash.clone(),
+                    task,
+                    initial_anchor_hash,
+                    &measurements,
+                    validation_policy,
+                    records_per_artifact,
+                    aggregation_method,
+                )?;
+                let hash = cohort.measurement_cohort_hash.clone();
+                self.measurement_cohorts.insert(hash.clone(), cohort);
+                Ok(json!({"measurement_cohort_hash": hash, "hardware_calls": 0}))
+            }
+            EvaluationRequest::MeasurementCohortQuery {
+                measurement_cohort_hash,
+                ..
+            } => serde_json::to_value(
+                self.measurement_cohorts
+                    .get(&measurement_cohort_hash)
+                    .ok_or_else(|| {
+                        EvaluationDiagnostic::new(
+                            crate::model::EvaluationErrorCode::EvaluationMeasurementNotFound,
+                            "measurement cohort does not exist",
+                        )
+                    })?,
+            )
+            .map_err(|error| serialization_error(&error)),
+            EvaluationRequest::MeasuredSearchStart {
+                task,
+                corpus_hash,
+                measurement_cohort_hash,
+                metric,
+                indifference_band_ppm,
+                ranking_policy,
+                seed,
+                beam_width,
+                maximum_semantic_depth,
+                maximum_children_retained_per_node,
+                checkpoint_cadence_work_units,
+                ..
+            } => {
+                if corpus_hash != self.harness.corpus().corpus_hash {
+                    return Err(EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationSearchRootStale,
+                        "measured search start corpus hash is stale",
+                    ));
+                }
+                let cohort = self
+                    .measurement_cohorts
+                    .get(&measurement_cohort_hash)
+                    .ok_or_else(|| {
+                        EvaluationDiagnostic::new(
+                            crate::model::EvaluationErrorCode::EvaluationMeasurementNotFound,
+                            "measured search cohort does not exist",
+                        )
+                    })?
+                    .clone();
+                let task_definition = self.harness.task(&task)?.clone();
+                let descriptor = scripted_ranker(&ranking_policy, &feature_schema_v1()?, seed)?;
+                let ranker = SearchRanker::Scripted { descriptor };
+                let objective = SearchObjectiveDescriptor::new(
+                    self.harness.corpus(),
+                    &task_definition,
+                    vec![
+                        SearchObjectiveComponent {
+                            kind: SearchObjectiveComponentKind::TaskCriterionSuccess,
+                            direction: ObjectiveDirection::Maximize,
+                        },
+                        SearchObjectiveComponent {
+                            kind: SearchObjectiveComponentKind::CompilerTerminalSuccess,
+                            direction: ObjectiveDirection::Maximize,
+                        },
+                        SearchObjectiveComponent {
+                            kind: SearchObjectiveComponentKind::RejectionCount,
+                            direction: ObjectiveDirection::Minimize,
+                        },
+                        SearchObjectiveComponent {
+                            kind: SearchObjectiveComponentKind::TrajectoryLength,
+                            direction: ObjectiveDirection::Minimize,
+                        },
+                    ],
+                )?;
+                if cohort.task_id != task
+                    || cohort.initial_anchor_hash != objective.initial_anchor_hash
+                    || cohort.corpus_hash != corpus_hash
+                {
+                    return Err(EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationMeasuredAnchorStale,
+                        "measurement cohort does not match the exact Stage 7A root",
+                    ));
+                }
+                let measured = MeasuredObjectiveDescriptor::new(
+                    &cohort,
+                    metric,
+                    indifference_band_ppm,
+                    objective.search_objective_hash.clone(),
+                )?;
+                let plan = SearchPlan::deterministic_beam_v1(
+                    &objective,
+                    &ranker,
+                    beam_width,
+                    maximum_semantic_depth,
+                    maximum_children_retained_per_node,
+                    checkpoint_cadence_work_units,
+                )?;
+                let session = SearchSession::start(
+                    self.harness.corpus().clone(),
+                    task,
+                    objective,
+                    plan,
+                    &ranker,
+                )?;
+                let search = session.search_run_id.clone();
+                let measured_hash = measured.measured_objective_hash.clone();
+                self.measured_objectives
+                    .insert(measured_hash.clone(), measured);
+                self.measured_search_anchors.insert(
+                    search.clone(),
+                    (measurement_cohort_hash.clone(), measured_hash.clone()),
+                );
+                self.search_rankers.insert(search.clone(), ranker);
+                self.searches.insert(search.clone(), session.clone());
+                Ok(json!({
+                    "search": search,
+                    "status": session.status,
+                    "search_objective_hash": session.objective.search_objective_hash,
+                    "search_plan_hash": session.plan.search_plan_hash,
+                    "measurement_cohort_hash": measurement_cohort_hash,
+                    "measured_objective_hash": measured_hash,
+                    "hardware_calls": 0,
+                }))
+            }
+            EvaluationRequest::MeasuredSearchAdvance {
+                search,
+                measured_objective_hash,
+                measurement_cohort_hash,
+                maximum_work_units,
+                ..
+            } => {
+                validate_measured_search_request(
+                    &self.measured_search_anchors,
+                    &search,
+                    &measurement_cohort_hash,
+                    &measured_objective_hash,
+                )?;
+                let ranker = self.search_rankers.get(&search).cloned().ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationSearchPlanInvalid,
+                        "measured search ranker is missing",
+                    )
+                })?;
+                let session = self.searches.get_mut(&search).ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationRunNotFound,
+                        "measured search does not exist",
+                    )
+                })?;
+                let status =
+                    session.advance(maximum_work_units, &ranker, &SearchLimits::default())?;
+                Ok(json!({
+                    "search": search,
+                    "status": status,
+                    "semantic_work": session.work.semantic_expansions,
+                    "hardware_calls": 0,
+                }))
+            }
+            EvaluationRequest::MeasuredSearchStatus {
+                search,
+                measured_objective_hash,
+                measurement_cohort_hash,
+                ..
+            } => {
+                validate_measured_search_request(
+                    &self.measured_search_anchors,
+                    &search,
+                    &measurement_cohort_hash,
+                    &measured_objective_hash,
+                )?;
+                let session = self.searches.get(&search).ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationRunNotFound,
+                        "measured search does not exist",
+                    )
+                })?;
+                Ok(json!({
+                    "search": search,
+                    "status": session.status,
+                    "semantic_work": session.work.semantic_expansions,
+                    "terminal_candidates": session.terminal_candidates.len(),
+                    "hardware_calls": 0,
+                }))
+            }
+            EvaluationRequest::MeasuredSearchCheckpoint {
+                search,
+                measured_objective_hash,
+                measurement_cohort_hash,
+                ..
+            } => {
+                validate_measured_search_request(
+                    &self.measured_search_anchors,
+                    &search,
+                    &measurement_cohort_hash,
+                    &measured_objective_hash,
+                )?;
+                let session = self.searches.get(&search).ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationRunNotFound,
+                        "measured search does not exist",
+                    )
+                })?;
+                Ok(json!({
+                    "checkpoint": session.checkpoint(&SearchLimits::default())?,
+                    "measurement_cohort_hash": measurement_cohort_hash,
+                    "measured_objective_hash": measured_objective_hash,
+                    "hardware_calls": 0,
+                }))
+            }
+            EvaluationRequest::MeasuredSearchResume {
+                checkpoint,
+                measured_objective_hash,
+                measurement_cohort_hash,
+                ..
+            } => {
+                let cohort = self
+                    .measurement_cohorts
+                    .get(&measurement_cohort_hash)
+                    .ok_or_else(|| {
+                        EvaluationDiagnostic::new(
+                            crate::model::EvaluationErrorCode::EvaluationMeasurementNotFound,
+                            "resume cohort does not exist",
+                        )
+                    })?;
+                let objective = self
+                    .measured_objectives
+                    .get(&measured_objective_hash)
+                    .ok_or_else(|| {
+                        EvaluationDiagnostic::new(
+                            crate::model::EvaluationErrorCode::EvaluationMeasuredObjectiveInvalid,
+                            "resume measured objective does not exist",
+                        )
+                    })?;
+                objective.validate(cohort)?;
+                if objective.structural_fallback_objective_hash != checkpoint.search_objective_hash
+                {
+                    return Err(EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationMeasuredAnchorStale,
+                        "resume checkpoint differs from the measured objective root",
+                    ));
+                }
+                if checkpoint.session.ranking_policy.kind
+                    == crate::ranking::RankingPolicyKind::LearnedLinear
+                {
+                    return Err(EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationSearchUnsupportedSurface,
+                        "learned measured resume requires an archive-retained model",
+                    ));
+                }
+                let ranker = SearchRanker::Scripted {
+                    descriptor: checkpoint.session.ranking_policy.clone(),
+                };
+                let session = SearchSession::resume(
+                    &checkpoint,
+                    self.harness.corpus(),
+                    &ranker,
+                    &SearchLimits::default(),
+                )?;
+                let search = session.search_run_id.clone();
+                self.measured_search_anchors.insert(
+                    search.clone(),
+                    (measurement_cohort_hash, measured_objective_hash),
+                );
+                self.search_rankers.insert(search.clone(), ranker);
+                self.searches.insert(search.clone(), session.clone());
+                Ok(json!({
+                    "search": search,
+                    "status": session.status,
+                    "semantic_work": session.work.semantic_expansions,
+                    "hardware_calls": 0,
+                }))
+            }
+            EvaluationRequest::MeasuredSearchCancel {
+                search,
+                measured_objective_hash,
+                measurement_cohort_hash,
+                ..
+            } => {
+                validate_measured_search_request(
+                    &self.measured_search_anchors,
+                    &search,
+                    &measurement_cohort_hash,
+                    &measured_objective_hash,
+                )?;
+                let ranker = self.search_rankers.get(&search).cloned().ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationSearchPlanInvalid,
+                        "measured search ranker is missing",
+                    )
+                })?;
+                let session = self.searches.get_mut(&search).ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationRunNotFound,
+                        "measured search does not exist",
+                    )
+                })?;
+                session.request_cancellation();
+                session.advance(1, &ranker, &SearchLimits::default())?;
+                Ok(json!({"search": search, "status": session.status, "hardware_calls": 0}))
+            }
+            EvaluationRequest::MeasuredSearchResult {
+                search,
+                measured_objective_hash,
+                measurement_cohort_hash,
+                ..
+            } => {
+                validate_measured_search_request(
+                    &self.measured_search_anchors,
+                    &search,
+                    &measurement_cohort_hash,
+                    &measured_objective_hash,
+                )?;
+                let session = self.searches.get(&search).ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationRunNotFound,
+                        "measured search does not exist",
+                    )
+                })?;
+                let cohort = &self.measurement_cohorts[&measurement_cohort_hash];
+                let objective = &self.measured_objectives[&measured_objective_hash];
+                serde_json::to_value(measured_recommendation(session, cohort, objective)?)
+                    .map_err(|error| serialization_error(&error))
+            }
+            EvaluationRequest::MeasuredSearchReplay {
+                search,
+                measured_objective_hash,
+                measurement_cohort_hash,
+                ..
+            } => {
+                validate_measured_search_request(
+                    &self.measured_search_anchors,
+                    &search,
+                    &measurement_cohort_hash,
+                    &measured_objective_hash,
+                )?;
+                let session = self.searches.get(&search).ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationRunNotFound,
+                        "measured search does not exist",
+                    )
+                })?;
+                let ranker = self.search_rankers.get(&search).ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationSearchPlanInvalid,
+                        "measured search ranker is missing",
+                    )
+                })?;
+                replay_search(session, ranker, &SearchLimits::default())?;
+                let recommendation = measured_recommendation(
+                    session,
+                    &self.measurement_cohorts[&measurement_cohort_hash],
+                    &self.measured_objectives[&measured_objective_hash],
+                )?;
+                Ok(json!({
+                    "search": search,
+                    "replayed": true,
+                    "measured_recommendation_hash": recommendation.measured_recommendation_hash,
+                    "benchmark_calls": 0,
+                    "device_calls": 0,
+                    "network_calls": 0,
+                    "training_calls": 0,
+                }))
+            }
             EvaluationRequest::SearchStart {
                 task,
                 corpus_hash,
@@ -757,6 +1260,27 @@ fn validate_search_request<'a>(
         ));
     }
     Ok(session)
+}
+
+fn validate_measured_search_request(
+    anchors: &BTreeMap<String, (String, String)>,
+    search: &str,
+    cohort_hash: &str,
+    objective_hash: &str,
+) -> Result<(), EvaluationDiagnostic> {
+    let retained = anchors.get(search).ok_or_else(|| {
+        EvaluationDiagnostic::new(
+            crate::model::EvaluationErrorCode::EvaluationRunNotFound,
+            "evaluation measured search does not exist",
+        )
+    })?;
+    if retained.0 != cohort_hash || retained.1 != objective_hash {
+        return Err(EvaluationDiagnostic::new(
+            crate::model::EvaluationErrorCode::EvaluationMeasuredAnchorStale,
+            "measured search cohort or objective hash is stale",
+        ));
+    }
+    Ok(())
 }
 
 impl Default for EvaluationProtocol {

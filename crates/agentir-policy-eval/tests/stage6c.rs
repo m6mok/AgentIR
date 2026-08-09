@@ -463,6 +463,8 @@ fn archive_v2_migrates_without_inventing_learning() {
     legacy.manifest.version = 2;
     legacy.learning_statuses.clear();
     legacy.search_history_status = agentir_policy_eval::SearchHistoryStatus::Unspecified;
+    legacy.measured_search_history_status =
+        agentir_policy_eval::MeasuredSearchHistoryStatus::Unspecified;
     legacy.archive_hash.clear();
     legacy.archive_hash = agentir_policy_eval::hashing::domain_hash(
         agentir_policy_eval::hashing::ARCHIVE_HASH_V2_DOMAIN,
@@ -498,6 +500,8 @@ fn archive_rejects_changed_model_and_inference_hashes() {
     let mut archive = harness.archive(&[run]).unwrap();
     archive.manifest.version = 3;
     archive.search_history_status = agentir_policy_eval::SearchHistoryStatus::Unspecified;
+    archive.measured_search_history_status =
+        agentir_policy_eval::MeasuredSearchHistoryStatus::Unspecified;
     let episode_hash = archive.runs[0].episodes[0].episode_hash.clone().unwrap();
     archive.feature_schemas.push(schema.clone());
     archive.choice_sets.push(choice_set.clone());

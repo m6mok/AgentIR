@@ -184,6 +184,8 @@ fn archive_v4_migration_does_not_invent_search_and_search_round_trips() {
     let mut legacy = harness.archive(&[run]).unwrap();
     legacy.manifest.version = 3;
     legacy.search_history_status = SearchHistoryStatus::Unspecified;
+    legacy.measured_search_history_status =
+        agentir_policy_eval::MeasuredSearchHistoryStatus::Unspecified;
     legacy.archive_hash.clear();
     legacy.archive_hash = domain_hash(ARCHIVE_HASH_V3_DOMAIN, &legacy).unwrap();
     verify_archive(&legacy).unwrap();
