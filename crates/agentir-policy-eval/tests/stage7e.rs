@@ -19,7 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 fn corpus() -> agentir_policy_eval::EvaluationCorpus {
     let mut corpus = builtin_ranked_corpus().unwrap();
-    let requests = include_str!("../../../examples/backend_serial.jsonl")
+    let requests = include_str!("../../../examples/stage7e_two_artifact.jsonl")
         .lines()
         .filter(|line| !line.trim().is_empty())
         .map(|line| serde_json::from_str(line).unwrap())
@@ -30,6 +30,12 @@ fn corpus() -> agentir_policy_eval::EvaluationCorpus {
         .find(|task| task.id.0 == "ranked-backend-large")
         .unwrap();
     task.initial_state.production_requests = requests;
+    task.budget.max_actions = u64::try_from(task.initial_state.production_requests.len())
+        .unwrap()
+        .saturating_add(4);
+    task.budget.max_rejections = 4;
+    "materialize two production-replayed terminal artifacts"
+        .clone_into(&mut task.objective.summary);
     task.metadata.insert(
         "stage7e_fixture".to_owned(),
         "synthetic_test_data_not_performance_evidence".to_owned(),
@@ -116,32 +122,105 @@ fn search_complete() -> AutotuningCampaignSession {
 }
 
 fn catalog(campaign: &AutotuningCampaignSession) -> MeasurementAcquisitionCatalog {
-    let hashes = campaign
+    let artifacts = campaign
         .search
         .nodes
         .values()
         .filter(|node| node.terminal)
-        .filter_map(|node| terminal_artifact_hash(&campaign.search, &node.id).unwrap())
-        .collect::<BTreeSet<_>>();
-    assert!(!hashes.is_empty());
+        .filter_map(|node| production_terminal_artifact(campaign, &node.id))
+        .collect::<Vec<_>>();
+    assert!(artifacts.len() >= 2);
     MeasurementAcquisitionCatalog::synthetic_fixture(
-        "stage7e-synthetic-workspace".to_owned(),
+        "stage7e-production-replayed-terminal-paths".to_owned(),
         campaign.plan.initial_anchor_hash.clone(),
-        hashes
-            .into_iter()
-            .enumerate()
-            .map(|(index, artifact_hash)| MeasurementAcquisitionArtifact {
-                artifact_id: ArtifactId::new(format!("stage7e-artifact-{index}")),
-                artifact_hash,
-                spec_hash: "stage7e-shared-spec".to_owned(),
-                target_hash: "stage7e-shared-target".to_owned(),
-                compiler_build_hash: "stage7e-synthetic-build".to_owned(),
-                status: agentir_core::backend_ir::ArtifactStatus::Validated,
-                offline_valid: true,
-            })
-            .collect(),
+        artifacts,
     )
     .unwrap()
+}
+
+fn production_terminal_artifact(
+    campaign: &AutotuningCampaignSession,
+    terminal: &agentir_policy_eval::SearchNodeId,
+) -> Option<MeasurementAcquisitionArtifact> {
+    let artifact_hash = terminal_artifact_hash(&campaign.search, terminal).unwrap()?;
+    let mut node = campaign.search.nodes.get(terminal).unwrap();
+    let mut spec_hashes = BTreeSet::new();
+    let mut target_hashes = BTreeSet::new();
+    let mut publication = None;
+    while let Some(edge_id) = &node.parent_edge {
+        let edge = campaign.search.edges.get(edge_id).unwrap();
+        collect_named_string(
+            &edge.compiler_outcome.response,
+            "spec_hash",
+            &mut spec_hashes,
+        );
+        collect_named_string(
+            &edge.compiler_outcome.response,
+            "target_hash",
+            &mut target_hashes,
+        );
+        let result = edge.compiler_outcome.response.get("result");
+        if result
+            .and_then(|value| value.pointer("/query/artifact_hash"))
+            .and_then(Value::as_str)
+            == Some(artifact_hash.as_str())
+        {
+            let result = result.unwrap();
+            assert!(edge.compiler_outcome.accepted);
+            assert_eq!(
+                result.get("equivalent_to_backend"),
+                Some(&Value::Bool(true))
+            );
+            assert_eq!(result.get("offline_valid"), Some(&Value::Bool(true)));
+            let query = result.get("query").unwrap();
+            let status = match query.get("status").and_then(Value::as_str) {
+                Some("validated") => agentir_core::backend_ir::ArtifactStatus::Validated,
+                Some("sealed") => agentir_core::backend_ir::ArtifactStatus::Sealed,
+                other => panic!("unexpected terminal artifact status: {other:?}"),
+            };
+            publication = Some((
+                ArtifactId::new(query.get("artifact").and_then(Value::as_str).unwrap()),
+                query
+                    .get("compiler_build_hash")
+                    .and_then(Value::as_str)
+                    .unwrap()
+                    .to_owned(),
+                status,
+            ));
+        }
+        node = campaign.search.nodes.get(&edge.parent).unwrap();
+    }
+    let (artifact_id, compiler_build_hash, status) = publication.unwrap();
+    assert_eq!(spec_hashes.len(), 1);
+    assert_eq!(target_hashes.len(), 1);
+    Some(MeasurementAcquisitionArtifact {
+        artifact_id,
+        artifact_hash,
+        spec_hash: spec_hashes.into_iter().next().unwrap(),
+        target_hash: target_hashes.into_iter().next().unwrap(),
+        compiler_build_hash,
+        status,
+        offline_valid: true,
+    })
+}
+
+fn collect_named_string(value: &Value, name: &str, output: &mut BTreeSet<String>) {
+    match value {
+        Value::Object(fields) => {
+            if let Some(value) = fields.get(name).and_then(Value::as_str) {
+                output.insert(value.to_owned());
+            }
+            for value in fields.values() {
+                collect_named_string(value, name, output);
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                collect_named_string(value, name, output);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn complete_campaign() -> (
@@ -228,15 +307,15 @@ fn campaign_hashes_are_stable_and_domain_separated() {
     let campaign = planned_campaign();
     assert_eq!(
         campaign.plan.autotuning_campaign_plan_hash,
-        "361dbb20b2f1c2a7dfee724bbd679e804b736dec3eec3d2b3b77e011066a0a8c"
+        "8b64b3e9e5407bd231690f3aabcf8ec67b561e98f77388a29bdee3838a372e0e"
     );
     assert_eq!(
         campaign.autotuning_campaign_session_hash,
-        "8e85b1c83c65512576035d9ba05985435fb662c1019c6e7f6fac6d9dbef8ac66"
+        "d30692f1c72e962ee40b32048c7a34d3adf297f50d89cdde3532f10b40f6b72d"
     );
     assert_eq!(
         campaign.trace.autotuning_campaign_trace_hash,
-        "0d439e7535fcf85d9d893db2a04f8060212e44bec345ed543868eb70e5a2754b"
+        "73a5648caf085a51015b33d6cfe64fa6f7d30aada749f690a18b46e5da9985a7"
     );
     assert_eq!(
         campaign.plan.autotuning_campaign_plan_hash,
@@ -288,6 +367,34 @@ fn start_search_and_rejected_transitions_are_zero_device_and_atomic() {
         )
         .unwrap();
     assert_eq!(campaign.work.hardware_calls, 0);
+}
+
+#[test]
+fn integrated_search_materializes_at_least_two_production_terminal_artifacts() {
+    let mut campaign = search_complete();
+    let terminal_hashes = campaign
+        .search
+        .nodes
+        .values()
+        .filter(|node| node.terminal)
+        .filter_map(|node| terminal_artifact_hash(&campaign.search, &node.id).unwrap())
+        .collect::<BTreeSet<_>>();
+    assert!(terminal_hashes.len() >= 2);
+    let catalog = catalog(&campaign);
+    assert_eq!(
+        catalog.artifacts.keys().cloned().collect::<BTreeSet<_>>(),
+        terminal_hashes
+    );
+    let base = campaign.autotuning_campaign_session_hash.clone();
+    campaign
+        .prepare_acquisition(
+            &base,
+            &catalog,
+            &agentir_policy_eval::MeasurementAcquisitionLimits::default(),
+            &AutotuningCampaignLimits::default(),
+        )
+        .unwrap();
+    assert!(campaign.terminal_artifact_hashes.len() >= 2);
 }
 
 #[test]
@@ -351,11 +458,11 @@ fn complete_checkpoint_resume_and_replay_never_reexecute() {
         .unwrap();
     assert_eq!(
         checkpoint.autotuning_campaign_checkpoint_hash,
-        "453c2042d7d7a4ea21ca50928558a6814496778f24bf0f80511462fd6ee32019"
+        "7692f5511f58ecbf7622ee4d3c2b14d8a84f070704c5e9a9ec7696fd65584df9"
     );
     assert_eq!(
         result.autotuning_campaign_result_hash,
-        "310f112799eba4be559c7568aba6fa17522916f1c22630f8dc352270bf7f5277"
+        "7e3cb22fb125bb992a103a15aaf7be2af22d070f3d740fb65b44bebb0e99f63f"
     );
     assert_eq!(
         checkpoint.autotuning_campaign_checkpoint_hash,
@@ -449,11 +556,25 @@ fn lifecycle_boundaries_checkpoint_and_resume_without_hardware() {
             &AutotuningCampaignLimits::default(),
         )
         .unwrap();
-    assert_eq!(
-        campaign.status,
-        AutotuningCampaignStatus::AcquisitionComplete
-    );
+    assert_eq!(campaign.status, AutotuningCampaignStatus::Acquiring);
     campaign = resume_boundary(campaign, &store, Some(&catalog));
+    assert_eq!(executor.invocations, invocations);
+    while campaign.status != AutotuningCampaignStatus::AcquisitionComplete {
+        let base = campaign.autotuning_campaign_session_hash.clone();
+        campaign
+            .execute_prepared(
+                &base,
+                &mut store,
+                &catalog,
+                None,
+                &mut executor,
+                None,
+                &MeasurementAcquisitionRecoveryLimits::default(),
+                &AutotuningCampaignLimits::default(),
+            )
+            .unwrap();
+    }
+    let completed_invocations = executor.invocations;
     let base = campaign.autotuning_campaign_session_hash.clone();
     campaign
         .create_cohort(&base, &store, &AutotuningCampaignLimits::default())
@@ -470,7 +591,7 @@ fn lifecycle_boundaries_checkpoint_and_resume_without_hardware() {
         .unwrap();
     let resumed = resume_boundary(campaign, &store, Some(&catalog));
     assert_eq!(resumed.status, AutotuningCampaignStatus::Complete);
-    assert_eq!(executor.invocations, invocations);
+    assert_eq!(executor.invocations, completed_invocations);
 }
 
 #[test]

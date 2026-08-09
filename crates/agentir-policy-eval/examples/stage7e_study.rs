@@ -40,7 +40,7 @@ fn write_json(path: &Path, value: &impl Serialize) -> Result<(), String> {
 
 fn study_corpus() -> EvaluationCorpus {
     let mut corpus = builtin_ranked_corpus().expect("ranked corpus");
-    let requests = include_str!("../../../examples/backend_serial.jsonl")
+    let requests = include_str!("../../../examples/stage7e_two_artifact.jsonl")
         .lines()
         .filter(|line| !line.trim().is_empty())
         .map(|line| serde_json::from_str(line).expect("backend request"))
@@ -51,6 +51,12 @@ fn study_corpus() -> EvaluationCorpus {
         .find(|task| task.id.0 == "ranked-backend-large")
         .expect("backend task");
     task.initial_state.production_requests = requests;
+    task.budget.max_actions = u64::try_from(task.initial_state.production_requests.len())
+        .expect("request count")
+        .saturating_add(4);
+    task.budget.max_rejections = 4;
+    "materialize two production-replayed terminal artifacts"
+        .clone_into(&mut task.objective.summary);
     task.metadata.insert(
         "stage7e_fixture".to_owned(),
         "synthetic_test_data_not_performance_evidence".to_owned(),
@@ -136,31 +142,115 @@ fn advance_search(campaign: &mut AutotuningCampaignSession) {
 }
 
 fn catalog(campaign: &AutotuningCampaignSession) -> MeasurementAcquisitionCatalog {
-    let hashes = campaign
+    let artifacts = campaign
         .search
         .nodes
         .values()
         .filter(|node| node.terminal)
-        .filter_map(|node| terminal_artifact_hash(&campaign.search, &node.id).expect("terminal"))
-        .collect::<BTreeSet<_>>();
+        .filter_map(|node| production_terminal_artifact(campaign, &node.id))
+        .collect::<Vec<_>>();
+    assert!(artifacts.len() >= 2, "two terminal artifacts");
     MeasurementAcquisitionCatalog::synthetic_fixture(
-        "stage7e-synthetic-workspace".to_owned(),
+        "stage7e-production-replayed-terminal-paths".to_owned(),
         campaign.plan.initial_anchor_hash.clone(),
-        hashes
-            .into_iter()
-            .enumerate()
-            .map(|(index, artifact_hash)| MeasurementAcquisitionArtifact {
-                artifact_id: ArtifactId::new(format!("stage7e-artifact-{index}")),
-                artifact_hash,
-                spec_hash: "stage7e-shared-spec".to_owned(),
-                target_hash: "stage7e-shared-target".to_owned(),
-                compiler_build_hash: "stage7e-synthetic-build".to_owned(),
-                status: agentir_core::backend_ir::ArtifactStatus::Validated,
-                offline_valid: true,
-            })
-            .collect(),
+        artifacts,
     )
     .expect("catalog")
+}
+
+fn production_terminal_artifact(
+    campaign: &AutotuningCampaignSession,
+    terminal: &agentir_policy_eval::SearchNodeId,
+) -> Option<MeasurementAcquisitionArtifact> {
+    let artifact_hash =
+        terminal_artifact_hash(&campaign.search, terminal).expect("terminal artifact")?;
+    let mut node = campaign.search.nodes.get(terminal).expect("terminal node");
+    let mut spec_hashes = BTreeSet::new();
+    let mut target_hashes = BTreeSet::new();
+    let mut publication = None;
+    while let Some(edge_id) = &node.parent_edge {
+        let edge = campaign.search.edges.get(edge_id).expect("terminal edge");
+        collect_named_string(
+            &edge.compiler_outcome.response,
+            "spec_hash",
+            &mut spec_hashes,
+        );
+        collect_named_string(
+            &edge.compiler_outcome.response,
+            "target_hash",
+            &mut target_hashes,
+        );
+        let result = edge.compiler_outcome.response.get("result");
+        if result
+            .and_then(|value| value.pointer("/query/artifact_hash"))
+            .and_then(Value::as_str)
+            == Some(artifact_hash.as_str())
+        {
+            let result = result.expect("publication result");
+            assert!(edge.compiler_outcome.accepted, "publication accepted");
+            assert_eq!(
+                result.get("equivalent_to_backend"),
+                Some(&Value::Bool(true))
+            );
+            assert_eq!(result.get("offline_valid"), Some(&Value::Bool(true)));
+            let query = result.get("query").expect("artifact query");
+            let status = match query.get("status").and_then(Value::as_str) {
+                Some("validated") => agentir_core::backend_ir::ArtifactStatus::Validated,
+                Some("sealed") => agentir_core::backend_ir::ArtifactStatus::Sealed,
+                other => panic!("unexpected terminal artifact status: {other:?}"),
+            };
+            publication = Some((
+                ArtifactId::new(
+                    query
+                        .get("artifact")
+                        .and_then(Value::as_str)
+                        .expect("artifact id"),
+                ),
+                query
+                    .get("compiler_build_hash")
+                    .and_then(Value::as_str)
+                    .expect("compiler build hash")
+                    .to_owned(),
+                status,
+            ));
+        }
+        node = campaign
+            .search
+            .nodes
+            .get(&edge.parent)
+            .expect("parent node");
+    }
+    let (artifact_id, compiler_build_hash, status) = publication.expect("publication");
+    assert_eq!(spec_hashes.len(), 1, "one spec hash");
+    assert_eq!(target_hashes.len(), 1, "one target hash");
+    Some(MeasurementAcquisitionArtifact {
+        artifact_id,
+        artifact_hash,
+        spec_hash: spec_hashes.into_iter().next().expect("spec hash"),
+        target_hash: target_hashes.into_iter().next().expect("target hash"),
+        compiler_build_hash,
+        status,
+        offline_valid: true,
+    })
+}
+
+fn collect_named_string(value: &Value, name: &str, output: &mut BTreeSet<String>) {
+    match value {
+        Value::Object(fields) => {
+            if let Some(value) = fields.get(name).and_then(Value::as_str) {
+                output.insert(value.to_owned());
+            }
+            for value in fields.values() {
+                collect_named_string(value, name, output);
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                collect_named_string(value, name, output);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn prepare(campaign: &mut AutotuningCampaignSession, catalog: &MeasurementAcquisitionCatalog) {
@@ -334,12 +424,14 @@ fn main() -> Result<(), String> {
     write_json(
         &output.join("metrics.json"),
         &json!({
-            "schema_version":"agentir.stage7e.study.v1",
+            "schema_version":"agentir.stage7e.study.v2",
             "fixture_label":"synthetic_test_data_not_performance_evidence",
-            "terminal_artifacts":campaign.terminal_artifact_hashes.len(),
+            "terminal_nodes_inspected":campaign.work.terminal_nodes_inspected,
+            "distinct_terminal_artifacts":catalog.artifacts.len(),
+            "retained_artifact_hashes_count":campaign.terminal_artifact_hashes.len(),
             "acquisition_slots":campaign.acquisition_session.as_ref().map_or(0, |value| value.slots.len()),
             "recovery_scenarios":3,
-            "campaign_replay_device_calls":0,
+            "replay_device_calls":0,
             "archive_version":archive.manifest.version,
             "semantic_result_hash":result.autotuning_campaign_result_hash,
         }),

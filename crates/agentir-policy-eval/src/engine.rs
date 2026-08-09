@@ -631,6 +631,56 @@ fn compiler_generated_continuations(
         }
     }
 
+    if next.get("command").and_then(Value::as_str) == Some("backend.lower")
+        && result.get("equivalent_to_memory").and_then(Value::as_bool) == Some(true)
+        && let Some(query) = result.get("query")
+        && let (Some(plan), Some(revision), Some(schedule_hash)) = (
+            query.get("schedule_plan").and_then(Value::as_str),
+            query.get("schedule_revision").and_then(Value::as_str),
+            query.get("schedule_hash").and_then(Value::as_str),
+        )
+        && (next.get("schedule_plan").and_then(Value::as_str) != Some(plan)
+            || next.get("schedule_revision").and_then(Value::as_str) != Some(revision)
+            || next.get("expected_schedule_hash").and_then(Value::as_str) != Some(schedule_hash))
+    {
+        let mut action = next.clone();
+        action["schedule_plan"] = json!(plan);
+        action["schedule_revision"] = json!(revision);
+        action["expected_schedule_hash"] = json!(schedule_hash);
+        choices.push(EvaluationContinuation {
+            choice_id: format!("compiler-backend-lower-{ordinal}"),
+            description: "compiler-anchored backend.lower action".to_owned(),
+            action,
+        });
+    }
+
+    if next.get("command").and_then(Value::as_str) == Some("artifact.emit")
+        && result.get("emittable").and_then(Value::as_bool) == Some(true)
+        && result
+            .get("equivalent_to_schedule")
+            .and_then(Value::as_bool)
+            == Some(true)
+        && let Some(query) = result.get("query")
+        && let (Some(plan), Some(revision), Some(backend_hash)) = (
+            query.get("backend_plan").and_then(Value::as_str),
+            query.get("backend_revision").and_then(Value::as_str),
+            query.get("backend_hash").and_then(Value::as_str),
+        )
+        && (next.get("backend_plan").and_then(Value::as_str) != Some(plan)
+            || next.get("backend_revision").and_then(Value::as_str) != Some(revision)
+            || next.get("expected_backend_hash").and_then(Value::as_str) != Some(backend_hash))
+    {
+        let mut action = next.clone();
+        action["backend_plan"] = json!(plan);
+        action["backend_revision"] = json!(revision);
+        action["expected_backend_hash"] = json!(backend_hash);
+        choices.push(EvaluationContinuation {
+            choice_id: format!("compiler-artifact-emit-{ordinal}"),
+            description: "compiler-anchored artifact.emit action".to_owned(),
+            action,
+        });
+    }
+
     if result.get("purpose").and_then(Value::as_str) == Some("fill_hole") {
         let hole = result
             .get("focus")
