@@ -496,6 +496,7 @@ pub enum AutotuningCampaignHistoryStatus {
 
 impl AutotuningCampaignHistoryStatus {
     /// Returns whether an older archive contains no Stage 7E history.
+    #[must_use]
     pub fn is_no_history(&self) -> bool {
         *self == Self::NoCampaignHistory
     }
@@ -687,7 +688,7 @@ impl AutotuningCampaignSession {
             staged.work.terminal_artifacts_retained,
             campaign_count(artifact_hashes.len())?,
         )?;
-        staged.terminal_artifact_hashes = artifact_hashes.clone();
+        staged.terminal_artifact_hashes.clone_from(&artifact_hashes);
         if artifact_hashes.is_empty() {
             staged.stopping_reason = Some(AutotuningCampaignStoppingReason::NoEligibleTerminal);
             staged.transition(
@@ -752,12 +753,6 @@ impl AutotuningCampaignSession {
         self.verify_base(base_campaign_hash, limits)?;
         let mut staged = self.clone();
         staged.work.checkpoints = campaign_add(staged.work.checkpoints, 1)?;
-        staged.transition(
-            "campaign_checkpoint_created_without_hardware",
-            staged.status,
-            None,
-            limits,
-        )?;
         let search_checkpoint = Some(staged.search.checkpoint(search_limits)?);
         let acquisition_checkpoint = staged
             .acquisition_session
@@ -930,10 +925,10 @@ impl AutotuningCampaignSession {
                     "campaign replay requires its acquisition catalog",
                 )
             })?;
-            if acquisition.status != MeasurementAcquisitionStatus::Running {
-                acquisition.replay(store, catalog)?;
-            } else {
+            if acquisition.status == MeasurementAcquisitionStatus::Running {
                 acquisition.verify(store, catalog)?;
+            } else {
+                acquisition.replay(store, catalog)?;
             }
             replay_work = campaign_add(replay_work, campaign_count(acquisition.slots.len())?)?;
             for journal in &self.recovery_journals {

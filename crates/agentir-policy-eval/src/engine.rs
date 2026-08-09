@@ -3393,11 +3393,10 @@ pub fn attach_autotuning_campaign_artifacts(
                 "campaign bundle contains a corrupt or stale checkpoint",
             ));
         }
-        let replay_key = session
-            .result
-            .as_ref()
-            .map(|result| result.autotuning_campaign_result_hash.as_str())
-            .unwrap_or(session.autotuning_campaign_session_hash.as_str());
+        let replay_key = session.result.as_ref().map_or(
+            session.autotuning_campaign_session_hash.as_str(),
+            |result| result.autotuning_campaign_result_hash.as_str(),
+        );
         if !bundle
             .replay_statuses
             .get(replay_key)
@@ -3745,11 +3744,10 @@ fn verify_archive_v8_campaign(archive: &EvaluationArchive) -> EvaluationResult<(
     let expected_replay_keys = sessions
         .values()
         .map(|session| {
-            session
-                .result
-                .as_ref()
-                .map(|result| result.autotuning_campaign_result_hash.clone())
-                .unwrap_or_else(|| session.autotuning_campaign_session_hash.clone())
+            session.result.as_ref().map_or_else(
+                || session.autotuning_campaign_session_hash.clone(),
+                |result| result.autotuning_campaign_result_hash.clone(),
+            )
         })
         .collect::<BTreeSet<_>>();
     if archive.autotuning_campaign_replay_statuses.len() != expected_replay_keys.len()

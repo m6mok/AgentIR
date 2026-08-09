@@ -10,6 +10,10 @@ use crate::{
         SyntheticMeasurementAcquisitionExecutor, SyntheticMeasurementAcquisitionStore,
         WgpuMeasurementAcquisitionExecutor,
     },
+    campaign::{
+        AutotuningCampaignArchiveBundle, AutotuningCampaignCheckpoint, AutotuningCampaignLimits,
+        AutotuningCampaignPlan, AutotuningCampaignSession,
+    },
     engine::{EvaluationHarness, RankingSubmission, external_policy, scripted_policy},
     measured::{
         MeasuredMetric, MeasuredObjectiveDescriptor, MeasurementAggregationMethod,
@@ -57,6 +61,103 @@ impl From<AcquisitionBenchmarkConfigRequest> for agentir_core::backend_ir::Hardw
 #[derive(Debug, Deserialize)]
 #[serde(tag = "command", deny_unknown_fields)]
 enum EvaluationRequest {
+    #[serde(rename = "evaluation.autotuning_campaign.start")]
+    AutotuningCampaignStart {
+        request_id: String,
+        task: EvaluationTaskId,
+        corpus_hash: String,
+        ranking_policy: String,
+        #[serde(default)]
+        seed: u64,
+        beam_width: u64,
+        maximum_semantic_depth: u64,
+        maximum_children_retained_per_node: u64,
+        checkpoint_cadence_work_units: u64,
+        benchmark_config: AcquisitionBenchmarkConfigRequest,
+        records_per_artifact: u64,
+        validation_policy: MeasurementValidationPolicy,
+        acquisition_checkpoint_cadence_slots: u64,
+        measured_metric: MeasuredMetric,
+        aggregation_method: MeasurementAggregationMethod,
+        indifference_band_ppm: u64,
+        terminal_artifact_cap: u64,
+    },
+    #[serde(rename = "evaluation.autotuning_campaign.advance_search")]
+    AutotuningCampaignAdvanceSearch {
+        request_id: String,
+        campaign: String,
+        autotuning_campaign_session_hash: String,
+        maximum_work_units: u64,
+    },
+    #[serde(rename = "evaluation.autotuning_campaign.prepare_acquisition")]
+    AutotuningCampaignPrepareAcquisition {
+        request_id: String,
+        campaign: String,
+        autotuning_campaign_session_hash: String,
+    },
+    #[serde(rename = "evaluation.autotuning_campaign.execute_prepared")]
+    AutotuningCampaignExecutePrepared {
+        request_id: String,
+        campaign: String,
+        autotuning_campaign_session_hash: String,
+        #[serde(default)]
+        fault_boundary: Option<MeasurementAcquisitionRecoveryFaultBoundary>,
+    },
+    #[serde(rename = "evaluation.autotuning_campaign.reconcile")]
+    AutotuningCampaignReconcile {
+        request_id: String,
+        campaign: String,
+        autotuning_campaign_session_hash: String,
+        #[serde(default)]
+        authorize_retry: bool,
+    },
+    #[serde(rename = "evaluation.autotuning_campaign.create_cohort")]
+    AutotuningCampaignCreateCohort {
+        request_id: String,
+        campaign: String,
+        autotuning_campaign_session_hash: String,
+    },
+    #[serde(rename = "evaluation.autotuning_campaign.recommend")]
+    AutotuningCampaignRecommend {
+        request_id: String,
+        campaign: String,
+        autotuning_campaign_session_hash: String,
+    },
+    #[serde(rename = "evaluation.autotuning_campaign.status")]
+    AutotuningCampaignStatus {
+        request_id: String,
+        campaign: String,
+        autotuning_campaign_session_hash: String,
+    },
+    #[serde(rename = "evaluation.autotuning_campaign.checkpoint")]
+    AutotuningCampaignCheckpoint {
+        request_id: String,
+        campaign: String,
+        autotuning_campaign_session_hash: String,
+    },
+    #[serde(rename = "evaluation.autotuning_campaign.resume")]
+    AutotuningCampaignResume {
+        request_id: String,
+        autotuning_campaign_checkpoint_hash: String,
+    },
+    #[serde(rename = "evaluation.autotuning_campaign.cancel")]
+    AutotuningCampaignCancel {
+        request_id: String,
+        campaign: String,
+        autotuning_campaign_session_hash: String,
+    },
+    #[serde(rename = "evaluation.autotuning_campaign.result")]
+    AutotuningCampaignResult {
+        request_id: String,
+        campaign: String,
+        autotuning_campaign_session_hash: String,
+    },
+    #[serde(rename = "evaluation.autotuning_campaign.replay")]
+    AutotuningCampaignReplay {
+        request_id: String,
+        campaign: String,
+        autotuning_campaign_session_hash: String,
+    },
     #[serde(rename = "evaluation.measurement_acquisition.recovery.prepare")]
     MeasurementAcquisitionRecoveryPrepare {
         request_id: String,
@@ -422,7 +523,20 @@ enum EvaluationRequest {
 impl EvaluationRequest {
     fn request_id(&self) -> &str {
         match self {
-            Self::MeasurementAcquisitionRecoveryPrepare { request_id, .. }
+            Self::AutotuningCampaignStart { request_id, .. }
+            | Self::AutotuningCampaignAdvanceSearch { request_id, .. }
+            | Self::AutotuningCampaignPrepareAcquisition { request_id, .. }
+            | Self::AutotuningCampaignExecutePrepared { request_id, .. }
+            | Self::AutotuningCampaignReconcile { request_id, .. }
+            | Self::AutotuningCampaignCreateCohort { request_id, .. }
+            | Self::AutotuningCampaignRecommend { request_id, .. }
+            | Self::AutotuningCampaignStatus { request_id, .. }
+            | Self::AutotuningCampaignCheckpoint { request_id, .. }
+            | Self::AutotuningCampaignResume { request_id, .. }
+            | Self::AutotuningCampaignCancel { request_id, .. }
+            | Self::AutotuningCampaignResult { request_id, .. }
+            | Self::AutotuningCampaignReplay { request_id, .. }
+            | Self::MeasurementAcquisitionRecoveryPrepare { request_id, .. }
             | Self::MeasurementAcquisitionRecoveryExecute { request_id, .. }
             | Self::MeasurementAcquisitionRecoveryStatus { request_id, .. }
             | Self::MeasurementAcquisitionRecoveryCheckpoint { request_id, .. }
@@ -507,6 +621,9 @@ pub struct EvaluationProtocol {
     acquisition_results: BTreeMap<String, crate::acquisition::MeasurementAcquisitionResult>,
     recovery_journals: BTreeMap<String, MeasurementAcquisitionRecoveryJournal>,
     recovery_checkpoints: BTreeMap<String, MeasurementAcquisitionRecoveryCheckpoint>,
+    campaigns: BTreeMap<String, AutotuningCampaignSession>,
+    campaign_checkpoints: BTreeMap<String, AutotuningCampaignCheckpoint>,
+    campaign_replay_statuses: BTreeMap<String, bool>,
     acquisition_executor: AcquisitionProtocolExecutor,
     synthetic_acquisition_store: SyntheticMeasurementAcquisitionStore,
     max_request_bytes: u64,
@@ -530,6 +647,9 @@ impl EvaluationProtocol {
             acquisition_results: BTreeMap::new(),
             recovery_journals: BTreeMap::new(),
             recovery_checkpoints: BTreeMap::new(),
+            campaigns: BTreeMap::new(),
+            campaign_checkpoints: BTreeMap::new(),
+            campaign_replay_statuses: BTreeMap::new(),
             acquisition_executor: AcquisitionProtocolExecutor::Hardware(
                 WgpuMeasurementAcquisitionExecutor { adapter_index: 0 },
             ),
@@ -664,6 +784,53 @@ impl EvaluationProtocol {
                 },
             )?;
         }
+        if !self.campaigns.is_empty() {
+            let mut checkpoints = Vec::new();
+            let mut results = Vec::new();
+            let mut replay_statuses = BTreeMap::new();
+            for session in self.campaigns.values() {
+                let checkpoint = self
+                    .campaign_checkpoints
+                    .values()
+                    .find(|checkpoint| checkpoint.session.as_ref() == session)
+                    .cloned()
+                    .ok_or_else(|| {
+                        EvaluationDiagnostic::new(
+                            crate::model::EvaluationErrorCode::EvaluationAutotuningCampaignCheckpointCorrupt,
+                            "campaign archive save requires an exact explicit campaign checkpoint",
+                        )
+                    })?;
+                let replay_key = session.result.as_ref().map_or_else(
+                    || session.autotuning_campaign_session_hash.clone(),
+                    |result| result.autotuning_campaign_result_hash.clone(),
+                );
+                if !self
+                    .campaign_replay_statuses
+                    .get(&replay_key)
+                    .copied()
+                    .unwrap_or(false)
+                {
+                    return Err(EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationAutotuningCampaignReplayMismatch,
+                        "campaign archive save requires an explicit zero-device replay",
+                    ));
+                }
+                replay_statuses.insert(replay_key, true);
+                if let Some(result) = &session.result {
+                    results.push(result.clone());
+                }
+                checkpoints.push(checkpoint);
+            }
+            archive = crate::engine::attach_autotuning_campaign_artifacts(
+                &archive,
+                AutotuningCampaignArchiveBundle {
+                    sessions: self.campaigns.values().cloned().collect(),
+                    checkpoints,
+                    results,
+                    replay_statuses,
+                },
+            )?;
+        }
         let bytes = serde_json::to_vec(&archive).map_err(|error| {
             EvaluationDiagnostic::new(
                 crate::model::EvaluationErrorCode::EvaluationArchiveInvalid,
@@ -671,11 +838,11 @@ impl EvaluationProtocol {
             )
         })?;
         if u64::try_from(bytes.len()).unwrap_or(u64::MAX)
-            > MeasurementAcquisitionRecoveryLimits::default().archive_v7_bytes
+            > AutotuningCampaignLimits::default().archive_v8_bytes
         {
             return Err(EvaluationDiagnostic::new(
-                crate::model::EvaluationErrorCode::EvaluationAcquisitionRecoveryLimitExceeded,
-                "evaluation archive v7 exceeds the Stage 7D byte limit",
+                crate::model::EvaluationErrorCode::EvaluationAutotuningCampaignLimitExceeded,
+                "evaluation archive v8 exceeds the Stage 7E byte limit",
             ));
         }
         let temporary = path.with_extension("agentir-evaluation.tmp");
@@ -739,6 +906,16 @@ impl EvaluationProtocol {
                 checkpoint.clone(),
             );
         }
+        for checkpoint in &archive.autotuning_campaign_checkpoints {
+            let session = checkpoint.session.as_ref().clone();
+            self.campaigns.insert(session.campaign_id.clone(), session);
+            self.campaign_checkpoints.insert(
+                checkpoint.autotuning_campaign_checkpoint_hash.clone(),
+                checkpoint.clone(),
+            );
+        }
+        self.campaign_replay_statuses
+            .extend(archive.autotuning_campaign_replay_statuses.clone());
         Ok(archive)
     }
 
@@ -783,6 +960,497 @@ impl EvaluationProtocol {
 
     fn handle(&mut self, request: EvaluationRequest) -> Result<Value, EvaluationDiagnostic> {
         match request {
+            EvaluationRequest::AutotuningCampaignStart {
+                task,
+                corpus_hash,
+                ranking_policy,
+                seed,
+                beam_width,
+                maximum_semantic_depth,
+                maximum_children_retained_per_node,
+                checkpoint_cadence_work_units,
+                benchmark_config,
+                records_per_artifact,
+                validation_policy,
+                acquisition_checkpoint_cadence_slots,
+                measured_metric,
+                aggregation_method,
+                indifference_band_ppm,
+                terminal_artifact_cap,
+                ..
+            } => {
+                if corpus_hash != self.harness.corpus().corpus_hash {
+                    return Err(EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationSearchRootStale,
+                        "campaign start corpus hash is stale",
+                    ));
+                }
+                let task_definition = self.harness.task(&task)?.clone();
+                let descriptor = scripted_ranker(&ranking_policy, &feature_schema_v1()?, seed)?;
+                let ranker = SearchRanker::Scripted { descriptor };
+                let objective = SearchObjectiveDescriptor::new(
+                    self.harness.corpus(),
+                    &task_definition,
+                    vec![
+                        SearchObjectiveComponent {
+                            kind: SearchObjectiveComponentKind::TaskCriterionSuccess,
+                            direction: ObjectiveDirection::Maximize,
+                        },
+                        SearchObjectiveComponent {
+                            kind: SearchObjectiveComponentKind::CompilerTerminalSuccess,
+                            direction: ObjectiveDirection::Maximize,
+                        },
+                        SearchObjectiveComponent {
+                            kind: SearchObjectiveComponentKind::RejectionCount,
+                            direction: ObjectiveDirection::Minimize,
+                        },
+                        SearchObjectiveComponent {
+                            kind: SearchObjectiveComponentKind::TrajectoryLength,
+                            direction: ObjectiveDirection::Minimize,
+                        },
+                    ],
+                )?;
+                let search_plan = SearchPlan::deterministic_beam_v1(
+                    &objective,
+                    &ranker,
+                    beam_width,
+                    maximum_semantic_depth,
+                    maximum_children_retained_per_node,
+                    checkpoint_cadence_work_units,
+                )?;
+                let search = SearchSession::start(
+                    self.harness.corpus().clone(),
+                    task,
+                    objective,
+                    search_plan,
+                    &ranker,
+                )?;
+                let plan = AutotuningCampaignPlan::new(
+                    &search,
+                    &ranker,
+                    benchmark_config.into(),
+                    records_per_artifact,
+                    validation_policy,
+                    acquisition_checkpoint_cadence_slots,
+                    measured_metric,
+                    aggregation_method,
+                    indifference_band_ppm,
+                    terminal_artifact_cap,
+                )?;
+                let session = AutotuningCampaignSession::start(
+                    search,
+                    ranker,
+                    plan,
+                    &AutotuningCampaignLimits::default(),
+                )?;
+                let campaign = session.campaign_id.clone();
+                let response = json!({
+                    "campaign": campaign,
+                    "status": session.status,
+                    "autotuning_campaign_plan_hash": session.plan.autotuning_campaign_plan_hash,
+                    "autotuning_campaign_session_hash": session.autotuning_campaign_session_hash,
+                    "device_calls": 0,
+                });
+                self.campaigns.insert(campaign, session);
+                Ok(response)
+            }
+            EvaluationRequest::AutotuningCampaignAdvanceSearch {
+                campaign,
+                autotuning_campaign_session_hash,
+                maximum_work_units,
+                ..
+            } => {
+                let mut session = retained_campaign(
+                    &self.campaigns,
+                    &campaign,
+                    &autotuning_campaign_session_hash,
+                )?
+                .clone();
+                let status = session.advance_search(
+                    &autotuning_campaign_session_hash,
+                    maximum_work_units,
+                    &SearchLimits::default(),
+                    &AutotuningCampaignLimits::default(),
+                )?;
+                let session_hash = session.autotuning_campaign_session_hash.clone();
+                self.campaigns.insert(campaign.clone(), session);
+                Ok(
+                    json!({"campaign":campaign,"status":status,"autotuning_campaign_session_hash":session_hash,"device_calls":0}),
+                )
+            }
+            EvaluationRequest::AutotuningCampaignPrepareAcquisition {
+                campaign,
+                autotuning_campaign_session_hash,
+                ..
+            } => {
+                let mut session = retained_campaign(
+                    &self.campaigns,
+                    &campaign,
+                    &autotuning_campaign_session_hash,
+                )?
+                .clone();
+                let catalog = if let Some(catalog) = &self.acquisition_catalog {
+                    catalog.clone()
+                } else {
+                    let workspace = self.measurement_workspace.as_ref().ok_or_else(|| {
+                        EvaluationDiagnostic::new(
+                            crate::model::EvaluationErrorCode::EvaluationAcquisitionArtifactSetInvalid,
+                            "campaign prepare requires a server-owned acquisition catalog",
+                        )
+                    })?;
+                    MeasurementAcquisitionCatalog::from_workspace(
+                        workspace,
+                        session.plan.initial_anchor_hash.clone(),
+                    )?
+                };
+                let status = session.prepare_acquisition(
+                    &autotuning_campaign_session_hash,
+                    &catalog,
+                    &crate::acquisition::MeasurementAcquisitionLimits::default(),
+                    &AutotuningCampaignLimits::default(),
+                )?;
+                let session_hash = session.autotuning_campaign_session_hash.clone();
+                let artifact_hashes = session.terminal_artifact_hashes.clone();
+                self.acquisition_catalog = Some(catalog);
+                self.campaigns.insert(campaign.clone(), session);
+                Ok(
+                    json!({"campaign":campaign,"status":status,"autotuning_campaign_session_hash":session_hash,"terminal_artifact_hashes":artifact_hashes,"device_calls":0}),
+                )
+            }
+            EvaluationRequest::AutotuningCampaignExecutePrepared {
+                campaign,
+                autotuning_campaign_session_hash,
+                fault_boundary,
+                ..
+            } => {
+                let mut session = retained_campaign(
+                    &self.campaigns,
+                    &campaign,
+                    &autotuning_campaign_session_hash,
+                )?
+                .clone();
+                let catalog = self.acquisition_catalog.clone().ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationAcquisitionArtifactSetInvalid,
+                        "campaign execution requires its server-owned acquisition catalog",
+                    )
+                })?;
+                let status = match &mut self.acquisition_executor {
+                    AcquisitionProtocolExecutor::Hardware(executor) => {
+                        let mut store = self.measurement_workspace.clone().ok_or_else(|| {
+                            EvaluationDiagnostic::new(
+                                crate::model::EvaluationErrorCode::EvaluationAcquisitionMeasurementMissing,
+                                "campaign hardware execution requires a production workspace",
+                            )
+                        })?;
+                        let read_workspace = store.clone();
+                        let status = session.execute_prepared(
+                            &autotuning_campaign_session_hash,
+                            &mut store,
+                            &catalog,
+                            Some(&read_workspace),
+                            executor,
+                            fault_boundary,
+                            &MeasurementAcquisitionRecoveryLimits::default(),
+                            &AutotuningCampaignLimits::default(),
+                        )?;
+                        self.measurement_workspace = Some(store);
+                        status
+                    }
+                    AcquisitionProtocolExecutor::Synthetic(executor) => {
+                        let mut store = self.synthetic_acquisition_store.clone();
+                        let status = session.execute_prepared(
+                            &autotuning_campaign_session_hash,
+                            &mut store,
+                            &catalog,
+                            None,
+                            executor.as_mut(),
+                            fault_boundary,
+                            &MeasurementAcquisitionRecoveryLimits::default(),
+                            &AutotuningCampaignLimits::default(),
+                        )?;
+                        self.synthetic_acquisition_store = store;
+                        status
+                    }
+                };
+                let session_hash = session.autotuning_campaign_session_hash.clone();
+                self.campaigns.insert(campaign.clone(), session);
+                Ok(
+                    json!({"campaign":campaign,"status":status,"autotuning_campaign_session_hash":session_hash}),
+                )
+            }
+            EvaluationRequest::AutotuningCampaignReconcile {
+                campaign,
+                autotuning_campaign_session_hash,
+                authorize_retry,
+                ..
+            } => {
+                let mut session = retained_campaign(
+                    &self.campaigns,
+                    &campaign,
+                    &autotuning_campaign_session_hash,
+                )?
+                .clone();
+                let catalog = self.acquisition_catalog.as_ref().ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationAcquisitionArtifactSetInvalid,
+                        "campaign reconciliation requires its catalog",
+                    )
+                })?;
+                let status = match &self.acquisition_executor {
+                    AcquisitionProtocolExecutor::Hardware(_) => session.reconcile(
+                        &autotuning_campaign_session_hash,
+                        self.measurement_workspace.as_ref().ok_or_else(|| {
+                            EvaluationDiagnostic::new(
+                                crate::model::EvaluationErrorCode::EvaluationAcquisitionMeasurementMissing,
+                                "campaign reconciliation requires its production workspace",
+                            )
+                        })?,
+                        catalog,
+                        authorize_retry,
+                        &MeasurementAcquisitionRecoveryLimits::default(),
+                        &AutotuningCampaignLimits::default(),
+                    )?,
+                    AcquisitionProtocolExecutor::Synthetic(_) => session.reconcile(
+                        &autotuning_campaign_session_hash,
+                        &self.synthetic_acquisition_store,
+                        catalog,
+                        authorize_retry,
+                        &MeasurementAcquisitionRecoveryLimits::default(),
+                        &AutotuningCampaignLimits::default(),
+                    )?,
+                };
+                let session_hash = session.autotuning_campaign_session_hash.clone();
+                self.campaigns.insert(campaign.clone(), session);
+                Ok(
+                    json!({"campaign":campaign,"status":status,"autotuning_campaign_session_hash":session_hash,"device_calls":0}),
+                )
+            }
+            EvaluationRequest::AutotuningCampaignCreateCohort {
+                campaign,
+                autotuning_campaign_session_hash,
+                ..
+            } => {
+                let mut session = retained_campaign(
+                    &self.campaigns,
+                    &campaign,
+                    &autotuning_campaign_session_hash,
+                )?
+                .clone();
+                let status = match &self.acquisition_executor {
+                    AcquisitionProtocolExecutor::Hardware(_) => session.create_cohort(
+                        &autotuning_campaign_session_hash,
+                        self.measurement_workspace.as_ref().ok_or_else(|| {
+                            EvaluationDiagnostic::new(
+                                crate::model::EvaluationErrorCode::EvaluationAcquisitionMeasurementMissing,
+                                "campaign cohort requires its production workspace",
+                            )
+                        })?,
+                        &AutotuningCampaignLimits::default(),
+                    )?,
+                    AcquisitionProtocolExecutor::Synthetic(_) => session.create_cohort(
+                        &autotuning_campaign_session_hash,
+                        &self.synthetic_acquisition_store,
+                        &AutotuningCampaignLimits::default(),
+                    )?,
+                };
+                let session_hash = session.autotuning_campaign_session_hash.clone();
+                let cohort_hash = session
+                    .cohort
+                    .as_ref()
+                    .map(|cohort| cohort.measurement_cohort_hash.clone());
+                self.campaigns.insert(campaign.clone(), session);
+                Ok(
+                    json!({"campaign":campaign,"status":status,"autotuning_campaign_session_hash":session_hash,"measurement_cohort_hash":cohort_hash,"device_calls":0}),
+                )
+            }
+            EvaluationRequest::AutotuningCampaignRecommend {
+                campaign,
+                autotuning_campaign_session_hash,
+                ..
+            } => {
+                let mut session = retained_campaign(
+                    &self.campaigns,
+                    &campaign,
+                    &autotuning_campaign_session_hash,
+                )?
+                .clone();
+                let status = session.recommend(
+                    &autotuning_campaign_session_hash,
+                    &AutotuningCampaignLimits::default(),
+                )?;
+                let session_hash = session.autotuning_campaign_session_hash.clone();
+                let recommendation_hash = session
+                    .recommendation
+                    .as_ref()
+                    .map(|value| value.measured_recommendation_hash.clone());
+                self.campaigns.insert(campaign.clone(), session);
+                Ok(
+                    json!({"campaign":campaign,"status":status,"autotuning_campaign_session_hash":session_hash,"measured_recommendation_hash":recommendation_hash,"device_calls":0}),
+                )
+            }
+            EvaluationRequest::AutotuningCampaignStatus {
+                campaign,
+                autotuning_campaign_session_hash,
+                ..
+            } => {
+                let session = retained_campaign(
+                    &self.campaigns,
+                    &campaign,
+                    &autotuning_campaign_session_hash,
+                )?;
+                Ok(
+                    json!({"campaign":campaign,"status":session.status,"autotuning_campaign_session_hash":session.autotuning_campaign_session_hash,"work":session.work,"device_calls":0}),
+                )
+            }
+            EvaluationRequest::AutotuningCampaignCheckpoint {
+                campaign,
+                autotuning_campaign_session_hash,
+                ..
+            } => {
+                let mut session = retained_campaign(
+                    &self.campaigns,
+                    &campaign,
+                    &autotuning_campaign_session_hash,
+                )?
+                .clone();
+                let checkpoint = session.checkpoint(
+                    &autotuning_campaign_session_hash,
+                    &SearchLimits::default(),
+                    &MeasurementAcquisitionRecoveryLimits::default(),
+                    &AutotuningCampaignLimits::default(),
+                )?;
+                let checkpoint_hash = checkpoint.autotuning_campaign_checkpoint_hash.clone();
+                let session_hash = session.autotuning_campaign_session_hash.clone();
+                self.campaign_checkpoints
+                    .insert(checkpoint_hash.clone(), checkpoint);
+                self.campaigns.insert(campaign.clone(), session);
+                Ok(
+                    json!({"campaign":campaign,"autotuning_campaign_checkpoint_hash":checkpoint_hash,"autotuning_campaign_session_hash":session_hash,"device_calls":0}),
+                )
+            }
+            EvaluationRequest::AutotuningCampaignResume {
+                autotuning_campaign_checkpoint_hash,
+                ..
+            } => {
+                let checkpoint = self
+                    .campaign_checkpoints
+                    .get(&autotuning_campaign_checkpoint_hash)
+                    .cloned()
+                    .ok_or_else(|| {
+                        EvaluationDiagnostic::new(
+                            crate::model::EvaluationErrorCode::EvaluationAutotuningCampaignNotFound,
+                            "campaign checkpoint does not exist",
+                        )
+                    })?;
+                let catalog = self.acquisition_catalog.as_ref();
+                let session = match &self.acquisition_executor {
+                    AcquisitionProtocolExecutor::Hardware(_) if checkpoint.session.acquisition_session.is_some() => {
+                        AutotuningCampaignSession::resume(
+                            &checkpoint,
+                            self.measurement_workspace.as_ref().ok_or_else(|| EvaluationDiagnostic::new(
+                                crate::model::EvaluationErrorCode::EvaluationAcquisitionMeasurementMissing,
+                                "campaign resume requires its production workspace",
+                            ))?,
+                            catalog,
+                            &SearchLimits::default(),
+                            &MeasurementAcquisitionRecoveryLimits::default(),
+                            &AutotuningCampaignLimits::default(),
+                        )?
+                    }
+                    _ => AutotuningCampaignSession::resume(
+                        &checkpoint,
+                        &self.synthetic_acquisition_store,
+                        catalog,
+                        &SearchLimits::default(),
+                        &MeasurementAcquisitionRecoveryLimits::default(),
+                        &AutotuningCampaignLimits::default(),
+                    )?,
+                };
+                let campaign = session.campaign_id.clone();
+                let session_hash = session.autotuning_campaign_session_hash.clone();
+                let status = session.status;
+                self.campaigns.insert(campaign.clone(), session);
+                Ok(
+                    json!({"campaign":campaign,"status":status,"autotuning_campaign_session_hash":session_hash,"device_calls":0}),
+                )
+            }
+            EvaluationRequest::AutotuningCampaignCancel {
+                campaign,
+                autotuning_campaign_session_hash,
+                ..
+            } => {
+                let mut session = retained_campaign(
+                    &self.campaigns,
+                    &campaign,
+                    &autotuning_campaign_session_hash,
+                )?
+                .clone();
+                let status = session.cancel(
+                    &autotuning_campaign_session_hash,
+                    &SearchLimits::default(),
+                    &AutotuningCampaignLimits::default(),
+                )?;
+                let session_hash = session.autotuning_campaign_session_hash.clone();
+                self.campaigns.insert(campaign.clone(), session);
+                Ok(
+                    json!({"campaign":campaign,"status":status,"autotuning_campaign_session_hash":session_hash,"device_calls":0}),
+                )
+            }
+            EvaluationRequest::AutotuningCampaignResult {
+                campaign,
+                autotuning_campaign_session_hash,
+                ..
+            } => {
+                let mut session = retained_campaign(
+                    &self.campaigns,
+                    &campaign,
+                    &autotuning_campaign_session_hash,
+                )?
+                .clone();
+                let result = session.finalize(
+                    &autotuning_campaign_session_hash,
+                    &AutotuningCampaignLimits::default(),
+                )?;
+                self.campaigns.insert(campaign, session);
+                serde_json::to_value(result).map_err(|error| serialization_error(&error))
+            }
+            EvaluationRequest::AutotuningCampaignReplay {
+                campaign,
+                autotuning_campaign_session_hash,
+                ..
+            } => {
+                let session = retained_campaign(
+                    &self.campaigns,
+                    &campaign,
+                    &autotuning_campaign_session_hash,
+                )?;
+                let catalog = self.acquisition_catalog.as_ref();
+                let result = match &self.acquisition_executor {
+                    AcquisitionProtocolExecutor::Hardware(_) if session.acquisition_session.is_some() => session.replay(
+                        self.measurement_workspace.as_ref().ok_or_else(|| EvaluationDiagnostic::new(
+                            crate::model::EvaluationErrorCode::EvaluationAcquisitionMeasurementMissing,
+                            "campaign replay requires its production workspace",
+                        ))?,
+                        catalog,
+                        &SearchLimits::default(),
+                        &MeasurementAcquisitionRecoveryLimits::default(),
+                        &AutotuningCampaignLimits::default(),
+                    )?,
+                    _ => session.replay(
+                        &self.synthetic_acquisition_store,
+                        catalog,
+                        &SearchLimits::default(),
+                        &MeasurementAcquisitionRecoveryLimits::default(),
+                        &AutotuningCampaignLimits::default(),
+                    )?,
+                };
+                self.campaign_replay_statuses
+                    .insert(result.autotuning_campaign_result_hash.clone(), true);
+                Ok(
+                    json!({"campaign":campaign,"replayed":true,"autotuning_campaign_result_hash":result.autotuning_campaign_result_hash,"device_calls":0,"benchmark_calls":0,"network_calls":0}),
+                )
+            }
             EvaluationRequest::MeasurementAcquisitionRecoveryPrepare {
                 session,
                 measurement_acquisition_plan_hash,
@@ -2446,6 +3114,30 @@ fn validate_search_request<'a>(
         return Err(EvaluationDiagnostic::new(
             crate::model::EvaluationErrorCode::EvaluationSearchCheckpointStale,
             "search request objective or plan hash is stale",
+        ));
+    }
+    Ok(session)
+}
+
+fn retained_campaign<'a>(
+    campaigns: &'a BTreeMap<String, AutotuningCampaignSession>,
+    campaign: &str,
+    session_hash: &str,
+) -> Result<&'a AutotuningCampaignSession, EvaluationDiagnostic> {
+    let session = campaigns.get(campaign).ok_or_else(|| {
+        EvaluationDiagnostic::new(
+            crate::model::EvaluationErrorCode::EvaluationAutotuningCampaignNotFound,
+            "autotuning campaign does not exist",
+        )
+    })?;
+    if session.autotuning_campaign_session_hash != session_hash {
+        return Err(EvaluationDiagnostic::new(
+            crate::model::EvaluationErrorCode::EvaluationAutotuningCampaignAnchorStale,
+            "autotuning campaign session hash is stale",
+        )
+        .expected_actual(
+            json!(session.autotuning_campaign_session_hash),
+            json!(session_hash),
         ));
     }
     Ok(session)

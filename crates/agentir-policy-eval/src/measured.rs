@@ -797,7 +797,11 @@ pub fn measured_recommendation(
     Ok(recommendation)
 }
 
-pub(crate) fn terminal_artifact_hash(
+/// Resolves the single compiler-published artifact on one retained terminal path.
+///
+/// This performs no ranking or hardware work and returns `None` when the path
+/// does not publish exactly one distinct artifact.
+pub fn terminal_artifact_hash(
     session: &SearchSession,
     terminal: &SearchNodeId,
 ) -> EvaluationResult<Option<String>> {
