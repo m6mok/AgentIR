@@ -33,3 +33,7 @@
 ## Verdict
 
 **Ready for Stage 7.** No unexplained semantic nondeterminism, compiler-hash change, workspace archive change, leakage, replay mismatch, cursor duplicate/loss, unclassified failed study case, correctness bug, or major boundary violation remains. The tracked tree must still be clean after the final commits; raw local analysis stays under ignored `target/`.
+
+## Historical note
+
+This is the freeze record that preceded Stage 7 and is not rewritten as a Stage 7A result. The later narrow implementation and verdict are recorded in [stage-7a-readiness.md](stage-7a-readiness.md).

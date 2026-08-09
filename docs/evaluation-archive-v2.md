@@ -6,4 +6,4 @@ Evaluation archive v1 remains an immutable input. `migrate_archive_v1_to_v2` fir
 
 Canonical JSON decoding uses exact IEEE-754 round-trip parsing. This is required because raw aggregate ratios participate in evaluation archive hashes; a one-ULP parser drift would otherwise make a freshly saved archive fail its own envelope verification. Metrics remain finite and never substitute for compiler proof.
 
-V2 is now an immutable legacy input. New saves use evaluation archive v3 and cross the explicit v2→v3 migration described in [evaluation-archive-v3.md](evaluation-archive-v3.md).
+V2 is an immutable legacy input. New saves use evaluation archive v4 and cross the explicit v2→v3→v4 migrations described in [evaluation-archive-v3.md](evaluation-archive-v3.md) and [evaluation-archive-v4.md](evaluation-archive-v4.md).

@@ -72,6 +72,8 @@ Start with the root [README](../README.md), then choose the document matching th
 - [Continuation cursors](continuation-cursors.md) and [typed repairs](typed-repairs.md) — Stage 6C readiness contracts.
 - [Contract registry](contract-registry.json) — machine-checked version/hash/ID/diagnostic inventory.
 - [Pre-Stage-7 audit](pre-stage-7-architecture-audit.md) and [readiness gate](pre-stage-7-readiness.md).
+- [Stage 7A scope](stage-7a-scope.md), [objectives](search-objectives.md), [plans](search-plans.md), [graph](search-graph.md), [checkpoints](search-checkpoints.md), [replay](search-replay.md), and [fairness](search-fairness.md).
+- [Evaluation archive v4](evaluation-archive-v4.md), [external search protocol](external-search-protocol.md), and [Stage 7A readiness](stage-7a-readiness.md).
 - [Development](development.md) — repository layout, checks, tests and baseline harness.
 - [Glossary](glossary.md) — short definitions of AgentIR terms.
 - [Roadmap](roadmap.md) — sequencing from the prototype to a GPU backend.

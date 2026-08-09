@@ -2,12 +2,12 @@
   "registry_version": 1,
   "archive_families": [
     {"name":"workspace","current":9,"legacy":[1,2,3,4,5,6,7,8],"document":"docs/persistence.md"},
-    {"name":"evaluation","current":3,"legacy":[1,2],"document":"docs/evaluation-archive-v3.md"}
+    {"name":"evaluation","current":4,"legacy":[1,2,3],"document":"docs/evaluation-archive-v4.md"}
   ],
   "migration_edges": [
     "workspace:1->2","workspace:2->3","workspace:3->4","workspace:4->5",
     "workspace:5->6","workspace:6->7","workspace:7->8","workspace:8->9",
-    "evaluation:1->2","evaluation:2->3"
+    "evaluation:1->2","evaluation:2->3","evaluation:3->4"
   ],
   "hash_domains": [
     "agentir.content.exact.v1","agentir.spec.semantic.v1","agentir.impl.semantic.v1",
@@ -29,11 +29,17 @@
     "agentir.evaluation.dataset_group.v1","agentir.evaluation.dataset_split.v1",
     "agentir.evaluation.training_configuration.v1","agentir.evaluation.training_run.v1",
     "agentir.evaluation.training_checkpoint.v1","agentir.evaluation.learned_model.v1",
-    "agentir.evaluation.ranking_input.v1","agentir.evaluation.inference.v1"
+    "agentir.evaluation.ranking_input.v1","agentir.evaluation.inference.v1",
+    "agentir.evaluation.archive.v4","agentir.evaluation.search_objective.v1",
+    "agentir.evaluation.search_plan.v1","agentir.evaluation.search_node.v1",
+    "agentir.evaluation.search_edge.v1","agentir.evaluation.search_checkpoint.v1",
+    "agentir.evaluation.search_trace.v1","agentir.evaluation.search_result.v1",
+    "agentir.evaluation.search_state.v1","agentir.evaluation.search_root.v1",
+    "agentir.evaluation.search_repair.v1"
   ],
   "id_prefixes": [
     "w","r","t","d","p","c","v","o","h","ob","ca","cr","pr","ir","iv",
-    "eq","er","en","ee","mp","mr","mb","mo","sp","sr","sn","tm","tr","bp","br","bk","ar","me","ec","$"
+    "eq","er","en","ee","mp","mr","mb","mo","sp","sr","sn","tm","tr","bp","br","bk","ar","me","ec","search-node-","search-edge-","search-run-","$"
   ],
   "continuation_cursor_versions": ["evaluation-ranking-choice:v1"],
   "feature_codecs": ["ranking-visible-schema:v1","visible_feature_integer_codec_v1"],
@@ -64,16 +70,22 @@
     "EvaluationWorkUnitOverflow","EvaluationWorkUnitLimitExceeded","EvaluationDatasetInvalid",
     "EvaluationDatasetLeakage","EvaluationTrainingInvalid","EvaluationTrainingOverflow",
     "EvaluationModelInvalid","EvaluationModelIncompatible","EvaluationInferenceInvalid",
-    "EvaluationEventOrderInvalid","TokenAccountingUnavailable"
+    "EvaluationEventOrderInvalid","EvaluationSearchObjectiveInvalid","EvaluationSearchPlanInvalid",
+    "EvaluationSearchRootStale","EvaluationSearchCheckpointStale","EvaluationSearchCheckpointCorrupt",
+    "EvaluationSearchFrontierCorrupt","EvaluationSearchUnsupportedSurface","EvaluationSearchLimitExceeded",
+    "EvaluationSearchReplayMismatch","EvaluationSearchIncomplete","TokenAccountingUnavailable"
   ],
   "resource_limit_families": [
     "core","candidate","equality","memory","schedule","backend","artifact","device",
-    "evaluation","ranking","continuation","dataset","training","model","inference","archive-replay"
+    "evaluation","ranking","continuation","dataset","training","model","inference","search","search-checkpoint","archive-replay"
   ],
   "public_contract_documents": [
     "docs/architecture.md","docs/resource-budgets.md","docs/continuation-cursors.md",
     "docs/typed-repairs.md","docs/ranking-features.md","docs/learned-ranking-dataset.md",
     "docs/learned-ranking-model.md","docs/learned-ranking-training.md",
-    "docs/learned-ranking-inference.md","docs/evaluation-archive-v3.md"
+    "docs/learned-ranking-inference.md","docs/evaluation-archive-v3.md",
+    "docs/stage-7a-scope.md","docs/search-objectives.md","docs/search-plans.md",
+    "docs/search-graph.md","docs/search-checkpoints.md","docs/search-replay.md",
+    "docs/search-fairness.md","docs/evaluation-archive-v4.md","docs/external-search-protocol.md"
   ]
 }

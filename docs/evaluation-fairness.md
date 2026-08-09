@@ -7,3 +7,5 @@ Every policy receives the same task order and budget. Surfaces intentionally dif
 Ranked comparison additionally requires the exact choice-set hash sequence, visible feature-schema hash, and escape surface. See [ranking-fairness.md](ranking-fairness.md).
 
 Stage 6C additionally requires the same dataset input schema, feature codec, complete/bounded continuation status, and inference limits. After a selected action causes frame divergence, later rows are explicitly incomparable. Train, validation, test, and excluded metrics remain separate; no weighted overall score or “best policy” claim is produced without a separately defined objective.
+
+Stage 7A comparisons additionally require exact initial anchors, objective hash, algorithm/version, beam/depth/child envelope, checkpoint semantics and successful safety limits. Complete/bounded/cancelled/failed and terminal/no-terminal runs remain separate. After search divergence only task-level comparison under the same envelope is permitted; see [search-fairness.md](search-fairness.md).

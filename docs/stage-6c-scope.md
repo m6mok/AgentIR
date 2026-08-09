@@ -6,4 +6,6 @@ The learned layer has no legality, proof, equivalence, success, or artifact-sele
 
 Stage 6C introduces independent dataset, example, split, training-configuration, training-run, checkpoint, model, input, and inference hash domains. Evaluation archive v3 retains their provenance and migrates legacy v1 only through v2. Workspace archive v1–v9 and compiler event/hash contracts are unchanged.
 
+Stage 7A later made v3 an immutable legacy input; current evaluation saves use v4 without changing any Stage 6C learning contract.
+
 Stage 7 is outside this scope. The pre-Stage-7 gate is recorded in [pre-stage-7-readiness.md](pre-stage-7-readiness.md).

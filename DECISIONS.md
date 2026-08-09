@@ -575,3 +575,47 @@ Potential persistent references inside generic semantic attributes are rejected 
 ## ADR-128: Stage 7 waits for an explicit freeze gate
 
 **Decision.** The dependency matrix, contract registry, diagnostic/limit/cursor/learning/archive audits, tests and two-run study must be documented before Stage 7. Stage 7 cannot silently change registered Stage 1–6 contracts.
+
+## ADR-129: Stage 7A is narrow offline bounded search
+
+**Decision.** Stage 7A owns only deterministic offline orchestration over existing production-generated menu choice sets. It is not full autotuning, stochastic/population search, hardware selection, approximate equivalence or live workspace publication.
+
+## ADR-130: Search remains evaluation-only
+
+**Decision.** Objectives, plans, frontiers, branch isolation, checkpoints, results and replay live only in `agentir-policy-eval`. Core knows none of these types and search creates no legality, proof, guard, certificate or success authority.
+
+## ADR-131: The first algorithm is deterministic beam v1
+
+**Decision.** `deterministic_beam_v1` is level-synchronous with versioned width/depth/child/cadence semantics. It expands exact total-order frontiers and has no time-, thread-, address-, map-iteration- or random-dependent stopping rule.
+
+## ADR-132: Branches reconstruct isolated production engines
+
+**Decision.** Every branch starts in a fresh evaluation harness, replays its exact prior edges, rebuilds current production continuations/ranking, and submits the selected menu action through the ordinary production verifier. Caller/live state is never exploration state.
+
+## ADR-133: Search identity is independently domain separated
+
+**Decision.** Objective, plan, node, edge, checkpoint, trace, result and repair use independent `agentir.evaluation.search_*` v1 domains. They never substitute for compiler, ranking/model/inference or archive hashes.
+
+## ADR-134: Structural objectives are ordered checked integers
+
+**Decision.** Stage 7A objectives are explicit ordered lexicographic structural vectors. Hardware/timing/provider/future/reference/label/split fields reject. Objective components remain interpretable and no opaque float score is introduced.
+
+## ADR-135: Algorithmic envelope and safety limits are separate
+
+**Decision.** Beam width, semantic depth, children, order and checkpoint cadence enter `search_plan_hash`. Operational graph/engine/request/byte caps and wall-clock samples enter no search identity.
+
+## ADR-136: Duplicate states preserve provenance
+
+**Decision.** Search-local IDs are deterministic `search-node-N`/`search-edge-N`. The first published equal compiler-state observation is the canonical representative; later alternative-parent nodes/edges remain retained and are marked duplicate rather than silently merged.
+
+## ADR-137: Checkpoint and cancellation are unit-boundary deterministic
+
+**Decision.** Checkpoints retain the exact next semantic work cursor and verify every anchor/graph/frontier invariant before execution. Cancellation is cooperative only between parent-expansion units. Advance partitioning does not change semantic trace/result bytes.
+
+## ADR-138: Search recommendations are non-authoritative
+
+**Decision.** Results say selected terminal trajectory, highest-ranked observed terminal under the exact plan, recommended trajectory, or bounded frontier result. They never say globally optimal or automatically publish/select a compiler artifact.
+
+## ADR-139: Evaluation archive v4 retains search provenance
+
+**Decision.** New evaluation saves use v4. Immutable v1/v2/v3 inputs migrate only v1→v2→v3→v4; v3→v4 explicitly records no search history and invents no objective, plan, node, checkpoint, trace or result. Workspace archives remain unrelated v1–v9.

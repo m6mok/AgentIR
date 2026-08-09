@@ -111,6 +111,17 @@ Stage 5 deliberately contains no reduction lowering, shared memory/subgroups, ar
 - evaluation archive v3 with explicit v1→v2→v3 migration and exact inference replay;
 - two byte-identical local study/archive runs and the pre-Stage-7 architecture/readiness audit.
 
-## Stage 7 and later
+## Stage 7A: reproducible bounded offline search
 
-Stage 7 semantics are intentionally unspecified. Later search, tuning, prompt, or hardware-driven policy work requires separately versioned contracts and cannot weaken the compiler proof boundary or silently change frozen Stage 1–6 contracts.
+- independently hashed structural objective and deterministic search-plan contracts;
+- menu-only `deterministic_beam_v1` over existing production choice sets;
+- isolated branch reconstruction, total frontier ordering and explicit duplicate provenance;
+- deterministic advance/checkpoint/resume/cancellation and exact replay;
+- evaluation archive v4 with pure v3 migration and no invented search history;
+- scripted/learned beam-width 1/2/4 reproducibility study.
+
+Stage 7A is not full autotuning and makes no globally optimal, hardware-performance or correctness claim.
+
+## Stage 7B and later
+
+Stage 7B semantics remain unspecified. Later hardware objectives, tuning, prompt, concurrent search, new algorithms or broader surfaces require separately versioned contracts and cannot weaken the compiler proof boundary or silently change frozen Stage 1–7A contracts.

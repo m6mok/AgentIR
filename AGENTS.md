@@ -41,6 +41,11 @@ AgentIR is an agent-native compiler prototype. Preserve these invariants in ever
 35. Stage 6C datasets, labels, models, training runs, inference scores, work counters and benchmarks remain non-correctness evaluation data.
 36. Learned inference sees only the exact Stage 6B visible frame; labels, future outcomes, reference solutions, provider/session data and split membership are forbidden inputs.
 37. Learned selection uses existing score validation, tie resolution and the production verifier/atomic transaction path; failed inference consumes no compiler IDs or state.
+38. Stage 7A search exists only in `agentir-policy-eval` and explores existing production-generated menu choices in isolated evaluation engines.
+39. Search objectives, plans, nodes, checkpoints, traces and results are distinct non-correctness contracts; ranking/search never advance compiler proofs or publish a live workspace.
+40. Deterministic search-plan envelope fields are semantic, while runtime safety limits and wall-clock observations enter no search identity.
+41. Evaluation archive v1/v2/v3 remain immutable legacy inputs; new evaluation saves use v4 and migrate only v1→v2→v3→v4 without invented search history.
+42. Stage 7A results are observed recommendations or bounded-frontier records, never globally optimal claims or hardware-driven artifact selection.
 
 ## Where to look before changing code
 
@@ -125,12 +130,17 @@ cargo run -p agentir-cli --bin agentir < examples/equality_to_artifact.jsonl
 cargo run -p agentir-cli --bin agentir < examples/backend_rejected_reduce.jsonl
 cargo run --release -p agentir-protocol --example baseline
 cargo run -p agentir-eval -- < examples/eval_free_saxpy.jsonl
+cargo run -p agentir-eval -- < examples/eval_search_start.jsonl
 cargo run --release -p agentir-policy-eval --example evaluation_baseline
 cargo test -p agentir-policy-eval --test stage6c
 cargo test -p agentir-policy-eval --test contract_registry
+cargo test -p agentir-policy-eval --test stage7a
 cargo run --release -p agentir-policy-eval --example stage6c_study -- --output target/stage6c-study/run-1
 cargo run --release -p agentir-policy-eval --example stage6c_study -- --output target/stage6c-study/run-2
 cargo run --release -p agentir-policy-eval --example stage6c_compare -- target/stage6c-study/run-1 target/stage6c-study/run-2
+cargo run --release -p agentir-policy-eval --example stage7a_study -- --output target/stage7a-study/run-1
+cargo run --release -p agentir-policy-eval --example stage7a_study -- --output target/stage7a-study/run-2
+cargo run --release -p agentir-policy-eval --example stage7a_compare -- target/stage7a-study/run-1 target/stage7a-study/run-2
 ```
 
 The final SAXPY response must contain `[12.0,24.0,36.0,48.0]`.

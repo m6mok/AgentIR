@@ -60,4 +60,8 @@ Schema v2 remains unchanged. The evaluation baseline covers choice enumeration/c
 
 # Stage 6C workloads
 
-Schema v2 remains unchanged. `stage6c_study` measures dataset extraction/leakage validation/splitting, visible feature encoding, integer training, model serialization/hash, fixed-point inference, score/tie validation, production dispatch, replay, evaluation archive v3 verification, and failure fast paths. Raw min/median/p90/p95/p99/max/mean/stddev samples stay under `target/stage6c-study/`; `stage6c_compare` requires byte-identical semantic files and archive bytes while excluding timing.
+Schema v2 remains unchanged. `stage6c_study` measures dataset extraction/leakage validation/splitting, visible feature encoding, integer training, model serialization/hash, fixed-point inference, score/tie validation, production dispatch, replay, current evaluation archive verification, and failure fast paths. Raw min/median/p90/p95/p99/max/mean/stddev samples stay under `target/stage6c-study/`; `stage6c_compare` requires byte-identical semantic files and archive bytes while excluding timing.
+
+# Stage 7A workloads
+
+`stage7a_study` measures root initialization, bounded search, deterministic continuation/ranking/branch counters, checkpoint encode/verify, full replay and evaluation archive v4 validation. It runs scripted and learned beam widths 1/2/4 over a documented deterministic task subset. `stage7a_compare` requires byte-identical semantic, result, checkpoint, mutation-classification and archive files; timing median/p95/p99 fields remain machine observations only.

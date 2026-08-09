@@ -1,6 +1,6 @@
 # Evaluation archive v3
 
-New evaluation saves use `agentir.evaluation.archive` version 3 and domain `agentir.evaluation.archive.v3\0`. V3 adds immutable datasets, splits, training configurations/runs/checkpoints, learned models, exact ranking inputs, inference records, and an explicit learned/unlearned status for every episode.
+Evaluation archive v3 introduced domain `agentir.evaluation.archive.v3\0`, immutable datasets, splits, training configurations/runs/checkpoints, learned models, exact ranking inputs, inference records, and an explicit learned/unlearned status for every episode. V3 is now an immutable legacy input; new saves use v4 and cross the explicit v3→v4 edge in [evaluation-archive-v4.md](evaluation-archive-v4.md).
 
 Evaluation archive v1 and v2 remain immutable inputs. Loading follows only `v1 → v2 → v3`; v1 migration invents no ranking and v2 migration invents no dataset, label, split, model, training run, or inference. Migrated episodes are explicitly unlearned. Workspace archive v1–v9 is unrelated and unchanged.
 

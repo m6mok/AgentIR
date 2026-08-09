@@ -1,5 +1,11 @@
 # Glossary
 
+- **SearchObjectiveDescriptor** — ordered structural evaluation objective anchored to one exact corpus/task/root.
+- **SearchPlan** — deterministic Stage 7A algorithmic envelope, distinct from runtime safety limits and ranker/model identity.
+- **SearchNode/SearchEdge** — evaluation-only trajectory provenance whose selected action and outcome are production verified.
+- **SearchCheckpoint** — exact anchored frontier and next-work cursor for deterministic resume.
+- **Recommended trajectory** — non-authoritative observed terminal or bounded-frontier selection, never a global optimum or compiler proof.
+
 - **EvaluationChoiceSet** — exact ordered compiler-generated actions visible to one ranked observation.
 - **RankingTrace** — policy preferences plus deterministic tie result and explicit selected choice; never compiler proof.
 - **SelectionOutcome** — selected choice or bounded escape anchored to its production compiler outcome.
@@ -9,7 +15,7 @@
 - **Policy descriptor**: versioned free/menu/hybrid visible surface and deterministic configuration identified by `policy_hash`.
 - **Evaluation observation**: exact agent-visible task/compiler/budget state and bounded continuation, identified by `observation_hash`.
 - **Evaluation episode**: ordered observation/decision/compiler-outcome transcript with compiler-derived result and `episode_hash`.
-- **Evaluation archive**: separate `agentir.evaluation.archive` v1; never a workspace archive or correctness proof.
+- **Evaluation archive**: separate `agentir.evaluation.archive` family, currently v4; never a workspace archive or correctness proof.
 - **Repair cycle**: interval from one rejected decision through the first accepted progress-producing decision or episode completion.
 - **Free policy**: schema-valid production action surface without a generated menu.
 - **Menu policy**: compiler-generated choice-only surface with no arbitrary escape.
