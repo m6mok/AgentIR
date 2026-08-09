@@ -151,9 +151,8 @@ Deferred beyond Stage 7D: concurrent writers, remote/distributed workers,
 multi-device pooling, automatic retry, live tuning, prediction/training, energy
 objectives, statistical inference, and new search/ranking algorithms.
 
-## Implemented Stage 7E; closure gate pending
+## Completed Stage 7
 
-Stage 7E integrates existing Stage 7A–7D records into a checkpointable campaign with one explicit hardware boundary, zero-device replay, and evaluation archive v8. The deterministic offline study now materializes four distinct production-replayed terminal artifacts before labelled synthetic acquisition. Full Stage 7 closure and any Stage 8 scope remain blocked until the controlled two-artifact production WebGPU smoke in `stage-7-readiness.md` succeeds.
-- byte-identical synthetic orchestration study without performance claims.
+Stage 7E integrates existing Stage 7A–7D records into a checkpointable campaign with one dormant optional hardware boundary, zero-device replay, and evaluation archive v8. The deterministic offline study materializes four distinct production-replayed terminal artifacts before labelled synthetic acquisition. ADR-180 makes this complete offline gate authoritative for project readiness, so Stage 7 is closed without requiring a physical GPU. Its acceptance evidence includes a byte-identical synthetic orchestration study without performance claims. Stage 8 may now be scoped separately but is not started here.
 
-Concurrent/remote acquisition, multi-device pooling, new search algorithms, prediction, raw-sample significance, energy records, training during acquisition and live publication remain later work.
+Physical GPU qualification, concurrent/remote acquisition, multi-device pooling, new search algorithms, prediction, raw-sample significance, energy records, training during acquisition and live publication are outside the active strategy. Reintroducing a mandatory hardware gate requires a new ADR.

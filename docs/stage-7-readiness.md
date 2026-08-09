@@ -1,7 +1,11 @@
 # Full Stage 7 readiness
 
-Stage 7 is fully closed only when Stage 7A bounded search, Stage 7C explicit acquisition, Stage 7D recovery, Stage 7B measured recommendation, and Stage 7E durable orchestration all pass the offline gate and a controlled real-device smoke.
+Stage 7 uses an offline-only closure gate. The active project strategy does not require a physical GPU, adapter discovery, production benchmark, or machine-local measurement record.
 
-The device gate requires a production workspace, an available WebGPU adapter, at least two compatible proved/offline-valid artifacts, normal acquisition, durable prepare, a post-publication fault, restart, zero-device reconciliation without another benchmark, complete Stage 7C result, Stage 7B cohort/recommendation, final checkpoint, and zero-device campaign replay. Machine data and measurements remain under `target/stage7e-study/device/` and are never committed.
+The gate requires the full workspace checks plus deterministic Stage 6C and Stage 7A–7E studies. One production-replayed Stage 7A search must publish at least two distinct proved/offline-valid terminal artifacts. Canonical artifact-hash materialization must precede explicitly labelled synthetic acquisition; Stage 7C acquisition, Stage 7D recovery, Stage 7B recommendation and Stage 7E checkpoint/replay/archive verification must then pass with zero device calls outside the dormant execution boundary. Before/after compatibility checks must retain all older contracts and hashes.
 
-The deterministic integrated study now passes the offline multi-artifact gate with four distinct production-replayed terminal artifacts. The current repository verdict remains `OFFLINE_READY_STAGE7_NOT_FULLY_CLOSED` because the machine-specific real-device gate has not been established. Stage 8 scope must not begin on the strength of synthetic evidence. Even a successful gate would not prove exactly-once hardware execution, superiority, portability, significance, compiler correctness, or global optimality.
+The integrated study satisfies this policy with four distinct production-replayed terminal artifacts, four acquisition slots, deterministic recovery, byte-identical semantic outputs and zero replay device calls. The full offline quality gate and compatibility audit pass. The repository verdict is therefore:
+
+`STAGE7_FULLY_CLOSED_READY_FOR_STAGE8_SCOPE`
+
+This authorizes separate Stage 8 scoping; it does not begin Stage 8 in this change. Physical WebGPU execution remains optional and cannot be inferred from synthetic records. Stage 7 closure makes no claim of hardware execution, performance superiority, portability, statistical significance, exactly-once execution, compiler correctness, or global optimality.

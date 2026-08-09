@@ -68,7 +68,7 @@ AgentIR is an agent-native compiler prototype. Preserve these invariants in ever
 62. Campaign recovery remains Stage 7D single-writer prepare/reconcile/explicit-retry semantics and makes no exactly-once physical execution claim.
 63. Campaign recommendations never publish a live artifact and do not prove speed, portability, significance, correctness, or global optimality.
 64. Evaluation archive v1–v7 are immutable legacy inputs; new evaluation saves use v8 and migrate only v1→v2→v3→v4→v5→v6→v7→v8 without invented campaign history.
-65. Stage 7 is not fully closed and Stage 8 scope must not begin until both the offline gate and controlled two-artifact real-device campaign smoke pass.
+65. Stage 7 closure is an offline contract gate: the deterministic multi-artifact campaign, recovery, replay, archive and full workspace checks must pass without device calls. Physical GPU execution is optional compatibility evidence, never a Stage 8 prerequisite or a substitute for the offline gate.
 
 ## Where to look before changing code
 

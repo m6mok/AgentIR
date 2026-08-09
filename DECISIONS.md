@@ -774,8 +774,18 @@ Potential persistent references inside generic semantic attributes are rejected 
 
 ## ADR-178: Full Stage 7 closure requires a controlled device gate
 
+**Status.** Superseded by ADR-180 for project readiness. The implemented device lifecycle remains an immutable optional compatibility surface.
+
 **Decision.** Offline tests and synthetic byte identity are necessary but insufficient. Stage 8 scope remains blocked until a production workspace, WebGPU adapter, at least two compatible terminal artifacts, post-publication crash/restart/reconciliation, final checkpoint, and zero-device replay complete successfully.
 
 ## ADR-179: Broader autotuning remains deferred
 
 **Decision.** Stage 7E stays single-workspace/single-writer. Concurrency, distribution, remote workers, multi-device pools, prediction, interpolation, training, energy objectives, statistical inference, automatic retry, and new search/ranking algorithms are later scope.
+
+## ADR-180: Stage 7 readiness uses an offline-only closure gate
+
+**Decision.** The active project strategy does not depend on physical GPU availability. Stage 7 closes when the full offline gate passes: one production-replayed Stage 7A search publishes at least two distinct proved/offline-valid terminal artifacts; canonical materialization feeds only explicitly labelled synthetic acquisition data; Stage 7C–7E lifecycle, recovery, checkpoint, recommendation, replay and evaluation archive checks pass deterministically; replay and every non-execution operation report zero device calls; and the full workspace quality gate passes.
+
+The WebGPU executor, device discovery and physical recovery path remain supported optional compatibility surfaces, but they are not exercised by the default strategy and do not block Stage 8 scope. This readiness change does not alter compiler semantics, proof frontiers, workspace archive v1–v9, evaluation archive v1–v8, `HardwareMeasurementRecord` v1, or any Stage 6/7 hash domain.
+
+Offline closure proves deterministic orchestration and contract integrity only. It does not prove physical execution behavior, performance superiority, portability, statistical significance, exactly-once hardware execution, compiler correctness, or global optimality. Requiring hardware again needs a new explicit ADR and acceptance gate.

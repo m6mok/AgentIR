@@ -91,7 +91,7 @@
 - **Autotuning campaign** — Stage 7E evaluation-only composition of frozen search, acquisition, recovery, cohort, and recommendation records.
 - **Campaign checkpoint** — exact zero-device restart snapshot carrying campaign and current Stage 7A–7D anchors.
 - **Campaign result** — non-authoritative final recommendation record; it neither publishes an artifact nor advances correctness.
-- **Stage 7 closure gate** — offline determinism plus a controlled two-artifact production WebGPU crash/restart/reconciliation smoke required before Stage 8 scope.
+- **Stage 7 closure gate** — deterministic multi-artifact production replay, labelled synthetic lifecycle/recovery evidence, zero-device replay, archive verification and the full offline workspace gate; physical GPU execution is optional compatibility evidence.
 - **Acquisition slot** — one complete benchmark/publication unit; checkpoint and cancellation occur only between slots.
 - **Acquisition checkpoint** — independently hashed completed-prefix snapshot whose device/build/runtime/record anchors are revalidated before resume.
 - **Acquisition result** — non-correctness terminal orchestration record; it is not a cohort, recommendation or performance proof.
