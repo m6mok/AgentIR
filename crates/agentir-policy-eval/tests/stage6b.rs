@@ -366,6 +366,7 @@ fn archive_v1_migration_is_explicitly_unranked() {
     legacy.ranking_inputs.clear();
     legacy.inference_records.clear();
     legacy.learning_statuses.clear();
+    legacy.search_history_status = agentir_policy_eval::SearchHistoryStatus::Unspecified;
     legacy.archive_hash.clear();
     legacy.archive_hash =
         domain_hash(agentir_policy_eval::hashing::ARCHIVE_HASH_DOMAIN, &legacy).unwrap();

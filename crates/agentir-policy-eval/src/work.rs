@@ -133,7 +133,16 @@ pub fn archive_work_units(archive: &EvaluationArchive) -> WorkUnitCounters {
             .saturating_add(archive.training_runs.len())
             .saturating_add(archive.learned_models.len())
             .saturating_add(archive.ranking_inputs.len())
-            .saturating_add(archive.inference_records.len()),
+            .saturating_add(archive.inference_records.len())
+            .saturating_add(archive.search_objectives.len())
+            .saturating_add(archive.search_plans.len())
+            .saturating_add(archive.search_runs.len())
+            .saturating_add(archive.search_nodes.len())
+            .saturating_add(archive.search_edges.len())
+            .saturating_add(archive.search_checkpoints.len())
+            .saturating_add(archive.search_traces.len())
+            .saturating_add(archive.search_results.len())
+            .saturating_add(archive.search_rejections.len()),
     )
     .unwrap_or(u64::MAX);
     WorkUnitCounters {

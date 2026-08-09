@@ -20,13 +20,19 @@ use crate::{
         EvaluationManifest, EvaluationObservation, EvaluationResult, EvaluationRun, EvaluationTask,
         EvaluationTaskId, LearningEpisodeStatus, PolicyCapabilities, PolicyDecision,
         PolicyDescriptor, PolicyKind, PolicyOrigin, PolicyVersion, RejectionClassification,
-        RepairCycle, SemanticResult, TaskBudget, TaskSuccessCriterion, TokenUsage, UsageTrust,
+        RepairCycle, SearchHistoryStatus, SemanticResult, TaskBudget, TaskSuccessCriterion,
+        TokenUsage, UsageTrust,
     },
     ranking::{
         ChoiceCategory, ChoiceOrigin, ChoicePreconditions, EvaluationChoiceSet, FeatureSchema,
         RankingDecision, RankingLimits, RankingPolicyDescriptor, RankingTrace, SelectionOutcome,
         build_choice_set, compiler_choice, feature_schema_v1, rank_choices, record_selection,
         scripted_ranker,
+    },
+    search::{
+        SearchCheckpoint, SearchLimits, SearchRanker, SearchSession, replay_search,
+        search_checkpoint_hash, search_edge_hash, search_node_hash, search_objective_hash,
+        search_plan_hash, search_result_hash, search_trace_hash,
     },
 };
 use agentir_core::backend::compiler_build_hash;
@@ -364,7 +370,7 @@ pub struct RankingSubmission {
     pub correlation_id: Option<String>,
 }
 
-/// Stage 6C artifacts attached atomically to an evaluation archive v3.
+/// Stage 6C artifacts attached atomically to the current evaluation archive.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct LearnedArchiveBundle {
     /// Immutable datasets.
@@ -1838,7 +1844,7 @@ impl EvaluationHarness {
         let mut archive = EvaluationArchive {
             manifest: EvaluationManifest {
                 format: "agentir.evaluation.archive".to_owned(),
-                version: 3,
+                version: 4,
                 corpus_version: self.corpus.version.clone(),
                 corpus_hash: self.corpus.corpus_hash.clone(),
                 compiler_build_hash: compiler_build_hash().to_string(),
@@ -1863,6 +1869,17 @@ impl EvaluationHarness {
             ranking_inputs: Vec::new(),
             inference_records: Vec::new(),
             learning_statuses,
+            search_history_status: SearchHistoryStatus::NoSearchHistory,
+            search_objectives: Vec::new(),
+            search_plans: Vec::new(),
+            search_runs: Vec::new(),
+            search_nodes: Vec::new(),
+            search_edges: Vec::new(),
+            search_checkpoints: Vec::new(),
+            search_traces: Vec::new(),
+            search_results: Vec::new(),
+            search_rejections: Vec::new(),
+            search_work_counters: Vec::new(),
             archive_hash: String::new(),
         };
         archive.archive_hash = archive_hash(&archive)?;
@@ -1922,8 +1939,11 @@ impl EvaluationHarness {
             )
         })?;
         let archive = match archive.manifest.version {
-            1 => migrate_archive_v2_to_v3(&migrate_archive_v1_to_v2(&archive)?)?,
-            2 => migrate_archive_v2_to_v3(&archive)?,
+            1 => migrate_archive_v3_to_v4(&migrate_archive_v2_to_v3(&migrate_archive_v1_to_v2(
+                &archive,
+            )?)?)?,
+            2 => migrate_archive_v3_to_v4(&migrate_archive_v2_to_v3(&archive)?)?,
+            3 => migrate_archive_v3_to_v4(&archive)?,
             _ => archive,
         };
         verify_archive(&archive)?;
@@ -2242,7 +2262,7 @@ fn percentile(values: &[u64], percentile: usize) -> u64 {
 /// Verifies every independent hash and archive structural invariant.
 pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
     if archive.manifest.format != "agentir.evaluation.archive"
-        || !matches!(archive.manifest.version, 1..=3)
+        || !matches!(archive.manifest.version, 1..=4)
     {
         return Err(EvaluationDiagnostic::new(
             EvaluationErrorCode::EvaluationArchiveInvalid,
@@ -2293,7 +2313,7 @@ pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
                 match (&step.ranking_trace, &step.selection) {
                     (None, None) => {}
                     (Some(trace), Some(selection)) => {
-                        if !matches!(archive.manifest.version, 2 | 3)
+                        if !matches!(archive.manifest.version, 2..=4)
                             || trace.ranking_trace_hash
                                 != crate::ranking::ranking_trace_hash(trace)?
                             || selection.selection_hash
@@ -2328,6 +2348,8 @@ pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
             || !archive.choice_sets.is_empty()
             || !archive.ranking_statuses.is_empty()
             || has_learned_fields(archive)
+            || has_search_fields(archive)
+            || archive.search_history_status != SearchHistoryStatus::Unspecified
         {
             return Err(EvaluationDiagnostic::new(
                 EvaluationErrorCode::EvaluationArchiveInvalid,
@@ -2337,7 +2359,11 @@ pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
     } else {
         verify_archive_v2_ranking(archive, &episode_ids)?;
         if archive.manifest.version == 2 {
-            if has_learned_fields(archive) || !archive.learning_statuses.is_empty() {
+            if has_learned_fields(archive)
+                || !archive.learning_statuses.is_empty()
+                || has_search_fields(archive)
+                || archive.search_history_status != SearchHistoryStatus::Unspecified
+            {
                 return Err(EvaluationDiagnostic::new(
                     EvaluationErrorCode::EvaluationArchiveInvalid,
                     "evaluation archive v2 cannot contain Stage 6C fields",
@@ -2345,6 +2371,18 @@ pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
             }
         } else {
             verify_archive_v3_learning(archive, &episode_ids)?;
+            if archive.manifest.version == 3 {
+                if has_search_fields(archive)
+                    || archive.search_history_status != SearchHistoryStatus::Unspecified
+                {
+                    return Err(EvaluationDiagnostic::new(
+                        EvaluationErrorCode::EvaluationArchiveInvalid,
+                        "evaluation archive v3 cannot contain Stage 7A fields",
+                    ));
+                }
+            } else {
+                verify_archive_v4_search(archive)?;
+            }
         }
     }
     for aggregate in &archive.aggregates {
@@ -2428,21 +2466,60 @@ pub fn migrate_archive_v2_to_v3(source: &EvaluationArchive) -> EvaluationResult<
         .flat_map(|run| run.episodes.iter())
         .map(|episode| (episode.id.clone(), LearningEpisodeStatus::Unlearned))
         .collect();
+    migrated.search_history_status = SearchHistoryStatus::Unspecified;
+    migrated.search_objectives.clear();
+    migrated.search_plans.clear();
+    migrated.search_runs.clear();
+    migrated.search_nodes.clear();
+    migrated.search_edges.clear();
+    migrated.search_checkpoints.clear();
+    migrated.search_traces.clear();
+    migrated.search_results.clear();
+    migrated.search_rejections.clear();
+    migrated.search_work_counters.clear();
     migrated.archive_hash.clear();
     migrated.archive_hash = archive_hash(&migrated)?;
     verify_archive(&migrated)?;
     Ok(migrated)
 }
 
-/// Atomically attaches verified Stage 6C artifacts to an evaluation archive v3.
+/// Pure explicit migration from immutable evaluation archive v3 to v4.
+pub fn migrate_archive_v3_to_v4(source: &EvaluationArchive) -> EvaluationResult<EvaluationArchive> {
+    if source.manifest.version != 3 {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationArchiveMigrationInvalid,
+            "evaluation archive migration requires exact source version 3",
+        ));
+    }
+    verify_archive(source)?;
+    let mut migrated = source.clone();
+    migrated.manifest.version = 4;
+    migrated.search_history_status = SearchHistoryStatus::NoSearchHistory;
+    migrated.search_objectives.clear();
+    migrated.search_plans.clear();
+    migrated.search_runs.clear();
+    migrated.search_nodes.clear();
+    migrated.search_edges.clear();
+    migrated.search_checkpoints.clear();
+    migrated.search_traces.clear();
+    migrated.search_results.clear();
+    migrated.search_rejections.clear();
+    migrated.search_work_counters.clear();
+    migrated.archive_hash.clear();
+    migrated.archive_hash = archive_hash(&migrated)?;
+    verify_archive(&migrated)?;
+    Ok(migrated)
+}
+
+/// Atomically attaches verified Stage 6C artifacts to evaluation archive v4.
 pub fn attach_learning_artifacts(
     source: &EvaluationArchive,
     bundle: LearnedArchiveBundle,
 ) -> EvaluationResult<EvaluationArchive> {
-    if source.manifest.version != 3 {
+    if source.manifest.version != 4 {
         return Err(EvaluationDiagnostic::new(
             EvaluationErrorCode::EvaluationArchiveInvalid,
-            "learned artifacts require evaluation archive v3",
+            "learned artifacts require current evaluation archive v4",
         ));
     }
     verify_archive(source)?;
@@ -2497,6 +2574,121 @@ pub fn attach_learning_artifacts(
     Ok(archive)
 }
 
+/// Atomically attaches stopped, structurally valid Stage 7A sessions and checkpoints.
+pub fn attach_search_artifacts(
+    source: &EvaluationArchive,
+    artifacts: &[(SearchSession, SearchCheckpoint)],
+) -> EvaluationResult<EvaluationArchive> {
+    if source.manifest.version != 4 {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationArchiveInvalid,
+            "search artifacts require evaluation archive v4",
+        ));
+    }
+    verify_archive(source)?;
+    let mut archive = source.clone();
+    for (session, checkpoint) in artifacts {
+        if session.status == crate::search::SearchStatus::Running
+            || checkpoint.session != *session
+            || checkpoint.search_checkpoint_hash != search_checkpoint_hash(checkpoint)?
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationSearchIncomplete,
+                "only stopped search sessions with exact final checkpoints can be archived",
+            ));
+        }
+        let mut record = session.run_record();
+        record.checkpoint_hashes = vec![checkpoint.search_checkpoint_hash.clone()];
+        if !archive
+            .feature_schemas
+            .iter()
+            .any(|schema| schema.feature_schema_hash == session.ranking_policy.feature_schema_hash)
+        {
+            let schema = feature_schema_v1()?;
+            if schema.feature_schema_hash != session.ranking_policy.feature_schema_hash {
+                return Err(EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationFeatureSchemaMismatch,
+                    "search ranking policy references an unavailable visible feature schema",
+                ));
+            }
+            archive.feature_schemas.push(schema);
+        }
+        if !archive
+            .ranking_policies
+            .iter()
+            .any(|policy| policy.ranking_policy_hash == session.ranking_policy.ranking_policy_hash)
+        {
+            archive
+                .ranking_policies
+                .push(session.ranking_policy.clone());
+        }
+        archive.search_objectives.push(session.objective.clone());
+        archive.search_plans.push(session.plan.clone());
+        archive.search_runs.push(record);
+        archive.search_nodes.extend(session.nodes.values().cloned());
+        archive.search_edges.extend(session.edges.values().cloned());
+        archive.search_checkpoints.push(checkpoint.clone());
+        if let Some(trace) = &session.trace {
+            archive.search_traces.push(trace.clone());
+        }
+        if let Some(result) = &session.result {
+            archive.search_results.push(result.clone());
+        }
+        if let Some(rejection) = &session.rejection {
+            archive.search_rejections.push(rejection.clone());
+        }
+        archive.search_work_counters.push(session.work.clone());
+    }
+    archive.search_history_status = if archive.search_runs.is_empty() {
+        SearchHistoryStatus::NoSearchHistory
+    } else {
+        SearchHistoryStatus::SearchHistoryPresent
+    };
+    archive
+        .search_objectives
+        .sort_by(|left, right| left.search_objective_hash.cmp(&right.search_objective_hash));
+    archive
+        .search_objectives
+        .dedup_by(|left, right| left.search_objective_hash == right.search_objective_hash);
+    archive
+        .search_plans
+        .sort_by(|left, right| left.search_plan_hash.cmp(&right.search_plan_hash));
+    archive
+        .search_plans
+        .dedup_by(|left, right| left.search_plan_hash == right.search_plan_hash);
+    archive
+        .feature_schemas
+        .sort_by(|left, right| left.feature_schema_hash.cmp(&right.feature_schema_hash));
+    archive
+        .feature_schemas
+        .dedup_by(|left, right| left.feature_schema_hash == right.feature_schema_hash);
+    archive
+        .ranking_policies
+        .sort_by(|left, right| left.ranking_policy_hash.cmp(&right.ranking_policy_hash));
+    archive
+        .ranking_policies
+        .dedup_by(|left, right| left.ranking_policy_hash == right.ranking_policy_hash);
+    archive
+        .search_runs
+        .sort_by(|left, right| left.search_run_id.cmp(&right.search_run_id));
+    archive
+        .search_nodes
+        .sort_by(|left, right| left.id.cmp(&right.id));
+    archive
+        .search_edges
+        .sort_by(|left, right| left.id.cmp(&right.id));
+    archive
+        .search_traces
+        .sort_by(|left, right| left.search_trace_hash.cmp(&right.search_trace_hash));
+    archive
+        .search_results
+        .sort_by(|left, right| left.search_result_hash.cmp(&right.search_result_hash));
+    archive.archive_hash.clear();
+    archive.archive_hash = archive_hash(&archive)?;
+    verify_archive(&archive)?;
+    Ok(archive)
+}
+
 fn sort_stage6c_artifacts(archive: &mut EvaluationArchive) {
     archive.ranking_datasets.sort_by(|left, right| {
         left.manifest
@@ -2535,6 +2727,246 @@ fn has_learned_fields(archive: &EvaluationArchive) -> bool {
         || !archive.learned_models.is_empty()
         || !archive.ranking_inputs.is_empty()
         || !archive.inference_records.is_empty()
+}
+
+fn has_search_fields(archive: &EvaluationArchive) -> bool {
+    !archive.search_objectives.is_empty()
+        || !archive.search_plans.is_empty()
+        || !archive.search_runs.is_empty()
+        || !archive.search_nodes.is_empty()
+        || !archive.search_edges.is_empty()
+        || !archive.search_checkpoints.is_empty()
+        || !archive.search_traces.is_empty()
+        || !archive.search_results.is_empty()
+        || !archive.search_rejections.is_empty()
+        || !archive.search_work_counters.is_empty()
+}
+
+fn verify_archive_v4_search(archive: &EvaluationArchive) -> EvaluationResult<()> {
+    match archive.search_history_status {
+        SearchHistoryStatus::Unspecified => {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationArchiveInvalid,
+                "evaluation archive v4 must explicitly classify search-history presence",
+            ));
+        }
+        SearchHistoryStatus::NoSearchHistory => {
+            if has_search_fields(archive) {
+                return Err(EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationArchiveInvalid,
+                    "evaluation archive v4 declares no search history but retains search fields",
+                ));
+            }
+            return Ok(());
+        }
+        SearchHistoryStatus::SearchHistoryPresent => {
+            if archive.search_runs.is_empty() || archive.search_checkpoints.is_empty() {
+                return Err(EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationArchiveInvalid,
+                    "evaluation archive v4 search history requires runs and final checkpoints",
+                ));
+            }
+        }
+    }
+
+    let mut objectives = BTreeMap::new();
+    for objective in &archive.search_objectives {
+        let task = archive
+            .corpus
+            .tasks
+            .iter()
+            .find(|task| task.id == objective.task_id)
+            .ok_or_else(|| {
+                EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationSearchRootStale,
+                    "archive v4 search objective task is missing",
+                )
+            })?;
+        objective.validate(&archive.corpus, task)?;
+        if objective.search_objective_hash != search_objective_hash(objective)?
+            || objectives
+                .insert(objective.search_objective_hash.clone(), objective)
+                .is_some()
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationSearchObjectiveInvalid,
+                "archive v4 search objective is corrupt or duplicated",
+            ));
+        }
+    }
+    let mut plans = BTreeMap::new();
+    for plan in &archive.search_plans {
+        if plan.search_plan_hash != search_plan_hash(plan)?
+            || !objectives.contains_key(&plan.search_objective_hash)
+            || plans.insert(plan.search_plan_hash.clone(), plan).is_some()
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationSearchPlanInvalid,
+                "archive v4 search plan is corrupt, duplicated, or unanchored",
+            ));
+        }
+    }
+    let policies = archive
+        .ranking_policies
+        .iter()
+        .map(|policy| (policy.ranking_policy_hash.as_str(), policy))
+        .collect::<BTreeMap<_, _>>();
+    let models = archive
+        .learned_models
+        .iter()
+        .map(|model| (model.learned_model_hash.as_str(), model))
+        .collect::<BTreeMap<_, _>>();
+    let schemas = archive
+        .feature_schemas
+        .iter()
+        .map(|schema| (schema.feature_schema_hash.as_str(), schema))
+        .collect::<BTreeMap<_, _>>();
+    let runs = archive
+        .search_runs
+        .iter()
+        .map(|run| (run.search_run_id.as_str(), run))
+        .collect::<BTreeMap<_, _>>();
+    if runs.len() != archive.search_runs.len() {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationArchiveInvalid,
+            "archive v4 contains duplicate search run IDs",
+        ));
+    }
+    let mut checkpoint_hashes = BTreeSet::new();
+    let mut expected_nodes = Vec::new();
+    let mut expected_edges = Vec::new();
+    let mut expected_traces = Vec::new();
+    let mut expected_results = Vec::new();
+    let mut expected_rejections = Vec::new();
+    let mut expected_work = Vec::new();
+    for checkpoint in &archive.search_checkpoints {
+        if checkpoint.search_checkpoint_hash != search_checkpoint_hash(checkpoint)?
+            || !checkpoint_hashes.insert(checkpoint.search_checkpoint_hash.as_str())
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationSearchCheckpointCorrupt,
+                "archive v4 search checkpoint is corrupt or duplicated",
+            ));
+        }
+        let plan = plans.get(&checkpoint.search_plan_hash).ok_or_else(|| {
+            EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationSearchPlanInvalid,
+                "archive v4 checkpoint references a missing plan",
+            )
+        })?;
+        let policy = policies
+            .get(plan.ranking_policy_hash.as_str())
+            .ok_or_else(|| {
+                EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationRankingPolicyNotFound,
+                    "archive v4 search plan references a missing ranking policy",
+                )
+            })?;
+        let ranker = if let Some(model_hash) = &plan.learned_model_hash {
+            let model = models.get(model_hash.as_str()).ok_or_else(|| {
+                EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationModelInvalid,
+                    "archive v4 search plan references a missing learned model",
+                )
+            })?;
+            let schema = schemas
+                .get(policy.feature_schema_hash.as_str())
+                .ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        EvaluationErrorCode::EvaluationFeatureSchemaNotFound,
+                        "archive v4 learned search references a missing feature schema",
+                    )
+                })?;
+            SearchRanker::Learned {
+                descriptor: (*policy).clone(),
+                model: Box::new((**model).clone()),
+                schema: (*schema).clone(),
+            }
+        } else {
+            SearchRanker::Scripted {
+                descriptor: (*policy).clone(),
+            }
+        };
+        let session = SearchSession::resume(
+            checkpoint,
+            &archive.corpus,
+            &ranker,
+            &SearchLimits::default(),
+        )?;
+        replay_search(&session, &ranker, &SearchLimits::default())?;
+        let run = runs.get(session.search_run_id.as_str()).ok_or_else(|| {
+            EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationArchiveInvalid,
+                "archive v4 checkpoint references a missing search run",
+            )
+        })?;
+        if run.initial_anchor_hash != session.objective.initial_anchor_hash
+            || run.search_objective_hash != session.objective.search_objective_hash
+            || run.search_plan_hash != session.plan.search_plan_hash
+            || run.status != session.status
+            || run.semantic_work != session.work.semantic_expansions
+            || run.checkpoint_hashes != vec![checkpoint.search_checkpoint_hash.clone()]
+            || run.search_trace_hash
+                != session
+                    .trace
+                    .as_ref()
+                    .map(|trace| trace.search_trace_hash.clone())
+            || run.search_result_hash
+                != session
+                    .result
+                    .as_ref()
+                    .map(|result| result.search_result_hash.clone())
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationArchiveInvalid,
+                "archive v4 search run differs from its exact final checkpoint",
+            ));
+        }
+        expected_nodes.extend(session.nodes.into_values());
+        expected_edges.extend(session.edges.into_values());
+        expected_traces.extend(session.trace);
+        expected_results.extend(session.result);
+        expected_rejections.extend(session.rejection);
+        expected_work.push(session.work);
+    }
+    if archive.search_checkpoints.len() != archive.search_runs.len() {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationArchiveInvalid,
+            "archive v4 requires exactly one final checkpoint per search run",
+        ));
+    }
+    expected_nodes.sort_by(|left, right| left.id.cmp(&right.id));
+    expected_edges.sort_by(|left, right| left.id.cmp(&right.id));
+    expected_traces.sort_by(|left, right| left.search_trace_hash.cmp(&right.search_trace_hash));
+    expected_results.sort_by(|left, right| left.search_result_hash.cmp(&right.search_result_hash));
+    if archive.search_nodes != expected_nodes
+        || archive.search_edges != expected_edges
+        || archive.search_traces != expected_traces
+        || archive.search_results != expected_results
+        || archive.search_rejections != expected_rejections
+        || archive.search_work_counters != expected_work
+        || archive
+            .search_nodes
+            .iter()
+            .any(|node| node.search_node_hash != search_node_hash(node).unwrap_or_default())
+        || archive
+            .search_edges
+            .iter()
+            .any(|edge| edge.search_edge_hash != search_edge_hash(edge).unwrap_or_default())
+        || archive
+            .search_traces
+            .iter()
+            .any(|trace| trace.search_trace_hash != search_trace_hash(trace).unwrap_or_default())
+        || archive.search_results.iter().any(|result| {
+            result.search_result_hash != search_result_hash(result).unwrap_or_default()
+        })
+    {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationArchiveInvalid,
+            "archive v4 flattened search graph, trace, result, rejection, or work store differs",
+        ));
+    }
+    Ok(())
 }
 
 fn verify_archive_v3_learning(

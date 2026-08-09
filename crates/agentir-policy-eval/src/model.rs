@@ -12,6 +12,10 @@ use crate::ranking::{
     EvaluationChoiceSet, FeatureSchema, RankingPolicyDescriptor, RankingTrace, SelectionOutcome,
 };
 use crate::repairs::RepairDescriptor;
+use crate::search::{
+    SearchCheckpoint, SearchEdge, SearchNode, SearchObjectiveDescriptor, SearchPlan,
+    SearchRejection, SearchResult, SearchRunRecord, SearchTrace, SearchWorkCounters,
+};
 
 /// Stable task identity assigned by the harness.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -628,7 +632,7 @@ pub struct EvaluationManifest {
     pub aggregation_configuration: BTreeMap<String, Value>,
 }
 
-/// Separate Stage 6A archive; never embedded in workspace archive v9.
+/// Separate current evaluation archive v4; never embedded in workspace archive v9.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EvaluationArchive {
     /// Stable serialized contract field.
@@ -675,8 +679,61 @@ pub struct EvaluationArchive {
     /// Explicit learned/unlearned classification for every v3 episode.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub learning_statuses: BTreeMap<String, LearningEpisodeStatus>,
+    /// Explicit v4 classification of search-history presence.
+    #[serde(default, skip_serializing_if = "SearchHistoryStatus::is_unspecified")]
+    pub search_history_status: SearchHistoryStatus,
+    /// Stage 7A exact objective descriptors. Empty in v1/v2/v3.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub search_objectives: Vec<SearchObjectiveDescriptor>,
+    /// Stage 7A deterministic search plans. Empty in v1/v2/v3.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub search_plans: Vec<SearchPlan>,
+    /// Stage 7A search-run summaries. Empty in v1/v2/v3.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub search_runs: Vec<SearchRunRecord>,
+    /// Stage 7A search nodes. Empty in v1/v2/v3.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub search_nodes: Vec<SearchNode>,
+    /// Stage 7A search edges. Empty in v1/v2/v3.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub search_edges: Vec<SearchEdge>,
+    /// Stage 7A resumable checkpoints. Empty in v1/v2/v3.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub search_checkpoints: Vec<SearchCheckpoint>,
+    /// Stage 7A replayable semantic traces. Empty in v1/v2/v3.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub search_traces: Vec<SearchTrace>,
+    /// Stage 7A non-authoritative results. Empty in v1/v2/v3.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub search_results: Vec<SearchResult>,
+    /// Stage 7A structured search rejections. Empty in v1/v2/v3.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub search_rejections: Vec<SearchRejection>,
+    /// Stage 7A deterministic non-correctness work counters. Empty in v1/v2/v3.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub search_work_counters: Vec<SearchWorkCounters>,
     /// Stable serialized contract field.
     pub archive_hash: String,
+}
+
+/// Search-history presence recorded explicitly by evaluation archive v4.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SearchHistoryStatus {
+    /// Legacy decoding default; forbidden in a verified v4 archive.
+    #[default]
+    Unspecified,
+    /// Pure migration retained no synthetic search history.
+    NoSearchHistory,
+    /// One or more exact Stage 7A runs are retained.
+    SearchHistoryPresent,
+}
+
+impl SearchHistoryStatus {
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    fn is_unspecified(&self) -> bool {
+        matches!(self, Self::Unspecified)
+    }
 }
 
 /// Ranking presence recorded explicitly by evaluation archive v2.
@@ -801,6 +858,26 @@ pub enum EvaluationErrorCode {
     EvaluationInferenceInvalid,
     /// Stable wire variant.
     EvaluationEventOrderInvalid,
+    /// Stable wire variant.
+    EvaluationSearchObjectiveInvalid,
+    /// Stable wire variant.
+    EvaluationSearchPlanInvalid,
+    /// Stable wire variant.
+    EvaluationSearchRootStale,
+    /// Stable wire variant.
+    EvaluationSearchCheckpointStale,
+    /// Stable wire variant.
+    EvaluationSearchCheckpointCorrupt,
+    /// Stable wire variant.
+    EvaluationSearchFrontierCorrupt,
+    /// Stable wire variant.
+    EvaluationSearchUnsupportedSurface,
+    /// Stable wire variant.
+    EvaluationSearchLimitExceeded,
+    /// Stable wire variant.
+    EvaluationSearchReplayMismatch,
+    /// Stable wire variant.
+    EvaluationSearchIncomplete,
     /// Stable wire variant.
     TokenAccountingUnavailable,
 }

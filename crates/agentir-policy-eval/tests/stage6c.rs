@@ -462,6 +462,7 @@ fn archive_v2_migrates_without_inventing_learning() {
     let mut legacy = harness.archive(&[run]).unwrap();
     legacy.manifest.version = 2;
     legacy.learning_statuses.clear();
+    legacy.search_history_status = agentir_policy_eval::SearchHistoryStatus::Unspecified;
     legacy.archive_hash.clear();
     legacy.archive_hash = agentir_policy_eval::hashing::domain_hash(
         agentir_policy_eval::hashing::ARCHIVE_HASH_V2_DOMAIN,
@@ -495,6 +496,8 @@ fn archive_rejects_changed_model_and_inference_hashes() {
         )
         .unwrap();
     let mut archive = harness.archive(&[run]).unwrap();
+    archive.manifest.version = 3;
+    archive.search_history_status = agentir_policy_eval::SearchHistoryStatus::Unspecified;
     let episode_hash = archive.runs[0].episodes[0].episode_hash.clone().unwrap();
     archive.feature_schemas.push(schema.clone());
     archive.choice_sets.push(choice_set.clone());
@@ -547,6 +550,7 @@ fn archive_rejects_changed_model_and_inference_hashes() {
         train_linear_ranker(&dataset, &split, &schema, &configuration, None, &limits).unwrap();
     let policy = learned_policy(&model, PolicyKind::Menu, false, limits.work_units).unwrap();
     let (_, inference) = infer(&input, &schema, &model, &policy, &limits).unwrap();
+    let archive = agentir_policy_eval::migrate_archive_v3_to_v4(&archive).unwrap();
     let learned = attach_learning_artifacts(
         &archive,
         LearnedArchiveBundle {
@@ -567,7 +571,7 @@ fn archive_rejects_changed_model_and_inference_hashes() {
     changed_weight.learned_models[0].weights[0] += 1;
     changed_weight.archive_hash.clear();
     changed_weight.archive_hash = agentir_policy_eval::hashing::domain_hash(
-        agentir_policy_eval::hashing::ARCHIVE_HASH_V3_DOMAIN,
+        agentir_policy_eval::hashing::ARCHIVE_HASH_V4_DOMAIN,
         &changed_weight,
     )
     .unwrap();
@@ -580,7 +584,7 @@ fn archive_rejects_changed_model_and_inference_hashes() {
     changed_score.inference_records[0].scores[0].score.units += 1;
     changed_score.archive_hash.clear();
     changed_score.archive_hash = agentir_policy_eval::hashing::domain_hash(
-        agentir_policy_eval::hashing::ARCHIVE_HASH_V3_DOMAIN,
+        agentir_policy_eval::hashing::ARCHIVE_HASH_V4_DOMAIN,
         &changed_score,
     )
     .unwrap();
