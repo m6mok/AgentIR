@@ -1,16 +1,16 @@
 use agentir_core::{
-    backend::{compiler_build_hash, device_fingerprint_hash},
+    backend::{compiler_build_hash, device_fingerprint_hash, measurement_hash},
     backend_ir::{DeviceFingerprint, HardwareBenchmarkConfig, HardwareMeasurementRecord},
 };
 use agentir_policy_eval::ranking::{feature_schema_v1, scripted_ranker};
 use agentir_policy_eval::{
-    EvaluationHarness, LearnedModelArtifact, MeasuredMetric, MeasuredObjectiveDescriptor,
-    MeasurementAggregationMethod, MeasurementCohort, MeasurementCohortRecord,
-    MeasurementValidationPolicy, ObjectiveDirection, SearchLimits, SearchObjectiveComponent,
-    SearchObjectiveComponentKind, SearchObjectiveDescriptor, SearchPlan, SearchRanker,
-    SearchSession, attach_measured_search_artifacts, attach_search_artifacts,
-    builtin_ranked_corpus, learned_model_hash, learned_policy, measured_recommendation,
-    measurement_cohort_hash, verify_measurement_cohort,
+    EvaluationErrorCode, EvaluationHarness, LearnedModelArtifact, MeasuredMetric,
+    MeasuredObjectiveDescriptor, MeasurementAggregationMethod, MeasurementCohort,
+    MeasurementCohortRecord, MeasurementValidationPolicy, ObjectiveDirection, SearchLimits,
+    SearchObjectiveComponent, SearchObjectiveComponentKind, SearchObjectiveDescriptor, SearchPlan,
+    SearchRanker, SearchSession, SearchStatus, attach_measured_search_artifacts,
+    attach_search_artifacts, builtin_ranked_corpus, learned_model_hash, learned_policy,
+    measured_recommendation, measurement_cohort_hash, verify_measurement_cohort,
 };
 use serde_json::{Value, json};
 use std::{
@@ -370,6 +370,29 @@ fn write_json(path: &Path, value: &impl serde::Serialize) {
     fs::write(path, bytes).expect("write");
 }
 
+fn mixed_device_rejection(cohort: &MeasurementCohort) -> EvaluationErrorCode {
+    let mut mixed = cohort.clone();
+    let record = &mut mixed.records[1].record;
+    "stage7b-intentionally-mixed-device".clone_into(&mut record.device.adapter_name);
+    record.device_fingerprint_hash =
+        device_fingerprint_hash(&record.device).expect("mixed-device fingerprint");
+    record.measurement_hash = measurement_hash(record).expect("mixed-device measurement hash");
+    mixed.records.sort_by(|left, right| {
+        left.record
+            .measurement_hash
+            .cmp(&right.record.measurement_hash)
+    });
+    mixed.measurement_hashes = mixed
+        .records
+        .iter()
+        .map(|entry| entry.record.measurement_hash.to_string())
+        .collect();
+    mixed.measurement_cohort_hash = measurement_cohort_hash(&mixed).expect("mixed cohort hash");
+    verify_measurement_cohort(&mixed)
+        .expect_err("mixed-device cohort must reject")
+        .code
+}
+
 fn main() -> Result<(), String> {
     let output = output_path()?;
     fs::create_dir_all(&output).map_err(|error| error.to_string())?;
@@ -393,6 +416,11 @@ fn main() -> Result<(), String> {
     }
     let normal = cohort(&searches[0].0, records);
     let tie = cohort(&searches[0].0, synthetic_records(&hashes, true));
+    let structured_rejection = mixed_device_rejection(&normal);
+    assert_eq!(
+        structured_rejection,
+        EvaluationErrorCode::EvaluationMeasurementMixedDevice
+    );
     let mut artifacts = Vec::new();
     for (session, _) in &searches {
         for (cohort, ppm) in [(&normal, 1_000), (&tie, 10_000)] {
@@ -448,6 +476,41 @@ fn main() -> Result<(), String> {
             }
         }
     }
+    let statuses = |wanted| {
+        searches
+            .iter()
+            .filter(|(session, _)| session.status == wanted)
+            .count()
+    };
+    let terminal_nodes = searches
+        .iter()
+        .map(|(session, _)| session.nodes.values().filter(|node| node.terminal).count())
+        .sum::<usize>();
+    let successful_terminals = searches
+        .iter()
+        .map(|(session, _)| {
+            session
+                .nodes
+                .values()
+                .filter(|node| node.terminal && node.task_success)
+                .count()
+        })
+        .sum::<usize>();
+    let sum_work = |select: fn(&agentir_policy_eval::SearchWorkCounters) -> u64| {
+        searches
+            .iter()
+            .map(|(session, _)| select(&session.work))
+            .sum::<u64>()
+    };
+    let measured_work = &archive.measured_search_runs;
+    let eligible_terminal_evaluations = recommendations
+        .iter()
+        .map(|recommendation| recommendation.eligible_alternatives.len())
+        .sum::<usize>();
+    let ineligible_terminal_evaluations = recommendations
+        .iter()
+        .map(|recommendation| recommendation.ineligible_alternatives.len())
+        .sum::<usize>();
     let semantic = json!({
         "schema_version": "agentir.stage7b.study.v1",
         "task_count": 1,
@@ -457,12 +520,58 @@ fn main() -> Result<(), String> {
         "beam_widths": [1, 2, 4],
         "objective_variants": ["median_ns", "p95_ns"],
         "verified_artifacts": normal.artifact_hashes.len(),
-        "cohorts": {"normal": normal.measurement_cohort_hash, "indifference": tie.measurement_cohort_hash, "structured_rejection": "mixed_device"},
-        "measurement_records_inspected": normal.records.len() + tie.records.len(),
+        "search_statuses": {
+            "complete": statuses(SearchStatus::Complete),
+            "bounded": statuses(SearchStatus::Bounded),
+            "cancelled": statuses(SearchStatus::Cancelled),
+            "failed": statuses(SearchStatus::Failed)
+        },
+        "terminal_nodes": terminal_nodes,
+        "no_terminal_searches": searches.iter().filter(|(session, _)| session.terminal_candidates.is_empty()).count(),
+        "task_success_terminals": successful_terminals,
+        "measured_terminal_evaluations": eligible_terminal_evaluations,
+        "unmeasured_terminal_evaluations": ineligible_terminal_evaluations,
+        "eligible_artifacts": normal.artifact_hashes.len(),
+        "ineligible_artifact_evaluations": ineligible_terminal_evaluations,
+        "cohorts": {
+            "normal": normal.measurement_cohort_hash,
+            "indifference": tie.measurement_cohort_hash,
+            "structured_rejection": structured_rejection
+        },
+        "cohort_validation_failures": {"mixed_device": 1},
+        "search_work": {
+            "nodes": sum_work(|work| work.nodes_created),
+            "edges": sum_work(|work| work.edges_created),
+            "expansions": sum_work(|work| work.semantic_expansions),
+            "accepted_expansions": sum_work(|work| work.accepted_expansions),
+            "compiler_rejections": sum_work(|work| work.compiler_rejected_expansions),
+            "policy_rejections": sum_work(|work| work.policy_rejected_expansions),
+            "budget_rejections": 0,
+            "duplicate_states": sum_work(|work| work.duplicate_states_detected),
+            "ranking_inferences": sum_work(|work| work.ranking_inferences),
+            "production_requests": sum_work(|work| work.production_requests_submitted)
+        },
+        "measurement_records_inspected": measured_work.iter().map(|run| run.work.measurement_records_inspected).sum::<u64>(),
+        "objective_aggregations": measured_work.iter().map(|run| run.work.objective_aggregations).sum::<u64>(),
         "recommendations": recommendations.iter().filter(|item| item.artifact_hash.is_some()).count(),
         "no_recommendation": recommendations.iter().filter(|item| item.artifact_hash.is_none()).count(),
         "indifference_ties": cohort_indifference_pairs,
+        "checkpoints": searches.len(),
+        "automatic_checkpoints": sum_work(|work| work.checkpoints_encoded),
+        "search_replays": searches.len(),
+        "recommendation_replays": measured_work.iter().map(|run| run.work.recommendation_replays).sum::<u64>(),
         "hardware_calls_during_search_or_replay": 0,
+        "evidence_categories": {
+            "compiler_proved_correctness": "retained artifact status only",
+            "production_structural_validation": "offline_validated",
+            "deterministic_search_replay": true,
+            "measurement_eligibility": "synthetic_fixture_v1",
+            "measured_objective_values": "integer_ns_observations",
+            "task_success": successful_terminals,
+            "learned_ranking_metrics": {"searches": 3, "inferences": sum_work(|work| work.ranking_inferences)},
+            "confidence_tests": "contract_reproducibility_only",
+            "hardware_observations": "none"
+        },
         "synthetic_measurements_are_performance_evidence": false,
         "global_optimality_claim": false,
         "correctness_claim_from_measurement": false,
@@ -485,19 +594,26 @@ fn main() -> Result<(), String> {
             "cross_device_pooling": "rejected"
         }),
     );
-    write_json(
-        &output.join("device-study.json"),
-        &json!({
-            "status": "skipped",
-            "code": "REAL_WEBGPU_DEVICE_STUDY_NOT_REQUESTED_OR_AVAILABLE",
-            "fake_hardware_records_created": false,
-            "performance_conclusion": false
-        }),
-    );
+    let device_skip = json!({
+        "status": "skipped",
+        "code": "REAL_WEBGPU_DEVICE_STUDY_NOT_REQUESTED_OR_AVAILABLE",
+        "fake_hardware_records_created": false,
+        "performance_conclusion": false
+    });
+    write_json(&output.join("device-study.json"), &device_skip);
+    if let Some(root) = output.parent() {
+        let device_output = root.join("device");
+        fs::create_dir_all(&device_output).map_err(|error| error.to_string())?;
+        write_json(&device_output.join("structured-skip.json"), &device_skip);
+    }
+    let elapsed_ns = started.elapsed().as_nanos().to_string();
     write_json(
         &output.join("timing-observations.json"),
         &json!({
-            "elapsed_ns": started.elapsed().as_nanos().to_string(),
+            "sample_count": 1,
+            "median_ns": elapsed_ns,
+            "p95_ns": elapsed_ns,
+            "p99_ns": elapsed_ns,
             "timing_is_correctness": false
         }),
     );

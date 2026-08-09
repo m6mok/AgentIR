@@ -225,42 +225,7 @@ pub fn measurement_cohort_from_workspace(
     });
     let first = &resolved[0].record;
     for record in resolved.iter().skip(1).map(|entry| &entry.record) {
-        let mismatch = if record.device_fingerprint_hash != first.device_fingerprint_hash {
-            Some((
-                EvaluationErrorCode::EvaluationMeasurementMixedDevice,
-                "device",
-            ))
-        } else if record.target_hash != first.target_hash {
-            Some((
-                EvaluationErrorCode::EvaluationMeasurementMixedTarget,
-                "target",
-            ))
-        } else if record.compiler_build_hash != first.compiler_build_hash {
-            Some((
-                EvaluationErrorCode::EvaluationMeasurementMixedBuild,
-                "compiler build",
-            ))
-        } else if record.runtime_version != first.runtime_version {
-            Some((
-                EvaluationErrorCode::EvaluationMeasurementMixedRuntime,
-                "runtime",
-            ))
-        } else if record.config.input_distribution != first.config.input_distribution
-            || record.config.tensor_dimensions != first.config.tensor_dimensions
-        {
-            Some((
-                EvaluationErrorCode::EvaluationMeasurementMixedInput,
-                "input",
-            ))
-        } else if record.config != first.config {
-            Some((
-                EvaluationErrorCode::EvaluationMeasurementMixedConfig,
-                "benchmark config",
-            ))
-        } else {
-            None
-        };
-        if let Some((code, field)) = mismatch {
+        if let Some((code, field)) = cohort_compatibility_mismatch(first, record) {
             return Err(measured_error(
                 code,
                 format!("measurement cohort mixes incompatible {field} records"),
@@ -316,6 +281,18 @@ pub fn verify_measurement_cohort(cohort: &MeasurementCohort) -> EvaluationResult
     }
     let mut hashes = Vec::new();
     let mut artifacts = BTreeMap::<String, u64>::new();
+    let first = &cohort.records[0].record;
+    if first.target_hash.as_str() != cohort.target_hash
+        || first.compiler_build_hash.as_str() != cohort.compiler_build_hash
+        || first.device_fingerprint_hash.as_str() != cohort.device_fingerprint_hash
+        || first.runtime_version != cohort.runtime_version
+        || first.config != cohort.benchmark_config
+    {
+        return Err(measured_error(
+            EvaluationErrorCode::EvaluationMeasurementCohortCorrupt,
+            "retained cohort top-level anchors differ from its first record",
+        ));
+    }
     for entry in &cohort.records {
         let calculated = measurement_hash(&entry.record).map_err(|error| {
             measured_error(
@@ -323,19 +300,25 @@ pub fn verify_measurement_cohort(cohort: &MeasurementCohort) -> EvaluationResult
                 format!("retained measurement cannot be verified: {error}"),
             )
         })?;
-        if calculated != entry.record.measurement_hash
-            || entry.record.target_hash.as_str() != cohort.target_hash
-            || entry.record.compiler_build_hash.as_str() != cohort.compiler_build_hash
-            || entry.record.device_fingerprint_hash.as_str() != cohort.device_fingerprint_hash
-            || entry.record.runtime_version != cohort.runtime_version
-            || entry.record.config != cohort.benchmark_config
-            || !cohort
-                .validation_policy
-                .accepts(&entry.record.validation_status)
+        if calculated != entry.record.measurement_hash {
+            return Err(measured_error(
+                EvaluationErrorCode::EvaluationMeasurementCorrupt,
+                "retained measurement hash is corrupt",
+            ));
+        }
+        if !cohort
+            .validation_policy
+            .accepts(&entry.record.validation_status)
         {
             return Err(measured_error(
-                EvaluationErrorCode::EvaluationMeasurementCohortCorrupt,
-                "retained cohort record or same-device/build/config anchor is invalid",
+                EvaluationErrorCode::EvaluationMeasurementValidationInvalid,
+                "retained measurement validation status is not accepted",
+            ));
+        }
+        if let Some((code, field)) = cohort_compatibility_mismatch(first, &entry.record) {
+            return Err(measured_error(
+                code,
+                format!("retained measurement cohort mixes incompatible {field} records"),
             ));
         }
         hashes.push(entry.record.measurement_hash.to_string());
@@ -344,9 +327,11 @@ pub fn verify_measurement_cohort(cohort: &MeasurementCohort) -> EvaluationResult
             .or_default();
         *count = count.checked_add(1).ok_or_else(measured_overflow)?;
     }
-    hashes.sort();
-    if hashes.windows(2).any(|pair| pair[0] == pair[1])
-        || hashes != cohort.measurement_hashes
+    let mut canonical_hashes = hashes.clone();
+    canonical_hashes.sort();
+    if canonical_hashes.windows(2).any(|pair| pair[0] == pair[1])
+        || hashes != canonical_hashes
+        || canonical_hashes != cohort.measurement_hashes
         || artifacts.keys().cloned().collect::<Vec<_>>() != cohort.artifact_hashes
         || artifacts
             .values()
@@ -359,6 +344,47 @@ pub fn verify_measurement_cohort(cohort: &MeasurementCohort) -> EvaluationResult
         ));
     }
     Ok(())
+}
+
+fn cohort_compatibility_mismatch(
+    first: &HardwareMeasurementRecord,
+    record: &HardwareMeasurementRecord,
+) -> Option<(EvaluationErrorCode, &'static str)> {
+    if record.device_fingerprint_hash != first.device_fingerprint_hash {
+        Some((
+            EvaluationErrorCode::EvaluationMeasurementMixedDevice,
+            "device",
+        ))
+    } else if record.target_hash != first.target_hash {
+        Some((
+            EvaluationErrorCode::EvaluationMeasurementMixedTarget,
+            "target",
+        ))
+    } else if record.compiler_build_hash != first.compiler_build_hash {
+        Some((
+            EvaluationErrorCode::EvaluationMeasurementMixedBuild,
+            "compiler build",
+        ))
+    } else if record.runtime_version != first.runtime_version {
+        Some((
+            EvaluationErrorCode::EvaluationMeasurementMixedRuntime,
+            "runtime",
+        ))
+    } else if record.config.input_distribution != first.config.input_distribution
+        || record.config.tensor_dimensions != first.config.tensor_dimensions
+    {
+        Some((
+            EvaluationErrorCode::EvaluationMeasurementMixedInput,
+            "input",
+        ))
+    } else if record.config != first.config {
+        Some((
+            EvaluationErrorCode::EvaluationMeasurementMixedConfig,
+            "benchmark config",
+        ))
+    } else {
+        None
+    }
 }
 
 /// Hardware metric permitted by Stage 7B v1.
