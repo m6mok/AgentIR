@@ -139,31 +139,8 @@ pub fn measurement_cohort_from_workspace(
     references: &[MeasurementReference],
     request: MeasurementCohortRequest,
 ) -> EvaluationResult<MeasurementCohort> {
-    let MeasurementCohortRequest {
-        corpus_hash,
-        task_id,
-        initial_anchor_hash,
-        validation_policy,
-        records_per_artifact,
-        aggregation_method,
-    } = request;
-    if references.is_empty() || records_per_artifact == 0 {
-        return Err(measured_error(
-            EvaluationErrorCode::EvaluationMeasurementMissing,
-            "measurement cohort requires records and a positive per-artifact count",
-        ));
-    }
-    if aggregation_method == MeasurementAggregationMethod::SingleRecordSummaryV1
-        && records_per_artifact != 1
-    {
-        return Err(measured_error(
-            EvaluationErrorCode::EvaluationUnequalMeasurementRecords,
-            "single-record aggregation requires exactly one record per artifact",
-        ));
-    }
     let store = workspace.measurement_store();
     let mut resolved = Vec::with_capacity(references.len());
-    let mut seen_hashes = BTreeSet::new();
     for reference in references {
         let (id, record) = match reference {
             MeasurementReference::Id(id) => store.records.get_key_value(id),
@@ -178,24 +155,6 @@ pub fn measurement_cohort_from_workspace(
                 "measurement reference does not resolve in the production workspace",
             )
         })?;
-        let calculated = measurement_hash(record).map_err(|error| {
-            measured_error(
-                EvaluationErrorCode::EvaluationMeasurementCorrupt,
-                format!("production measurement cannot be verified: {error}"),
-            )
-        })?;
-        if calculated != record.measurement_hash {
-            return Err(measured_error(
-                EvaluationErrorCode::EvaluationMeasurementCorrupt,
-                "production measurement hash is corrupt",
-            ));
-        }
-        if !seen_hashes.insert(record.measurement_hash.to_string()) {
-            return Err(measured_error(
-                EvaluationErrorCode::EvaluationMeasurementDuplicate,
-                "duplicate measurement hashes are forbidden in a cohort",
-            ));
-        }
         let package_valid = workspace.artifact_store().packages.values().any(|package| {
             package.artifact_hash == record.artifact_hash
                 && package.status == ArtifactStatus::Validated
@@ -206,17 +165,68 @@ pub fn measurement_cohort_from_workspace(
                 "measurement artifact is not a retained offline-valid artifact",
             ));
         }
-        if !validation_policy.accepts(&record.validation_status) {
-            return Err(measured_error(
-                EvaluationErrorCode::EvaluationMeasurementValidationInvalid,
-                "measurement validation status is not accepted by the cohort policy",
-            )
-            .expected_actual(json!(validation_policy), json!(record.validation_status)));
-        }
         resolved.push(MeasurementCohortRecord {
             measurement_id: id.clone(),
             record: record.clone(),
         });
+    }
+    measurement_cohort_from_verified_records(resolved, request)
+}
+
+/// Freezes already server-resolved production-format records through the same
+/// Stage 7B eligibility and canonicalization path.
+pub fn measurement_cohort_from_verified_records(
+    mut resolved: Vec<MeasurementCohortRecord>,
+    request: MeasurementCohortRequest,
+) -> EvaluationResult<MeasurementCohort> {
+    let MeasurementCohortRequest {
+        corpus_hash,
+        task_id,
+        initial_anchor_hash,
+        validation_policy,
+        records_per_artifact,
+        aggregation_method,
+    } = request;
+    if resolved.is_empty() || records_per_artifact == 0 {
+        return Err(measured_error(
+            EvaluationErrorCode::EvaluationMeasurementMissing,
+            "measurement cohort requires records and a positive per-artifact count",
+        ));
+    }
+    if aggregation_method == MeasurementAggregationMethod::SingleRecordSummaryV1
+        && records_per_artifact != 1
+    {
+        return Err(measured_error(
+            EvaluationErrorCode::EvaluationUnequalMeasurementRecords,
+            "single-record aggregation requires exactly one record per artifact",
+        ));
+    }
+    let mut seen_hashes = BTreeSet::new();
+    for entry in &resolved {
+        let calculated = measurement_hash(&entry.record).map_err(|error| {
+            measured_error(
+                EvaluationErrorCode::EvaluationMeasurementCorrupt,
+                format!("production measurement cannot be verified: {error}"),
+            )
+        })?;
+        if calculated != entry.record.measurement_hash
+            || !seen_hashes.insert(entry.record.measurement_hash.to_string())
+        {
+            return Err(measured_error(
+                EvaluationErrorCode::EvaluationMeasurementDuplicate,
+                "duplicate or corrupt measurement hashes are forbidden in a cohort",
+            ));
+        }
+        if !validation_policy.accepts(&entry.record.validation_status) {
+            return Err(measured_error(
+                EvaluationErrorCode::EvaluationMeasurementValidationInvalid,
+                "measurement validation status is not accepted by the cohort policy",
+            )
+            .expected_actual(
+                json!(validation_policy),
+                json!(entry.record.validation_status),
+            ));
+        }
     }
     resolved.sort_by(|left, right| {
         left.record

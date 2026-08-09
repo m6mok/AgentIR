@@ -30,6 +30,8 @@ pub const ARCHIVE_HASH_V3_DOMAIN: &[u8] = b"agentir.evaluation.archive.v3\0";
 pub const ARCHIVE_HASH_V4_DOMAIN: &[u8] = b"agentir.evaluation.archive.v4\0";
 /// Evaluation archive v5 hash domain.
 pub const ARCHIVE_HASH_V5_DOMAIN: &[u8] = b"agentir.evaluation.archive.v5\0";
+/// Evaluation archive v6 hash domain.
+pub const ARCHIVE_HASH_V6_DOMAIN: &[u8] = b"agentir.evaluation.archive.v6\0";
 
 fn canonical<T: Serialize>(value: &T) -> EvaluationResult<Vec<u8>> {
     serde_json::to_vec(value).map_err(|error| {
@@ -133,6 +135,7 @@ pub(crate) fn archive_hash(archive: &EvaluationArchive) -> EvaluationResult<Stri
             3 => ARCHIVE_HASH_V3_DOMAIN,
             4 => ARCHIVE_HASH_V4_DOMAIN,
             5 => ARCHIVE_HASH_V5_DOMAIN,
+            6 => ARCHIVE_HASH_V6_DOMAIN,
             _ => ARCHIVE_HASH_DOMAIN,
         },
         &model,

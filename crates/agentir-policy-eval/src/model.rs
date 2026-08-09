@@ -4,12 +4,17 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+use crate::acquisition::{
+    MeasurementAcquisitionCheckpoint, MeasurementAcquisitionPlan, MeasurementAcquisitionResult,
+    MeasurementAcquisitionSession, MeasurementAcquisitionTrace,
+};
 use crate::learned::{
     DatasetSplit, InferenceRecord, LearnedModelArtifact, RankingDataset, RankingInput,
     TrainingConfiguration, TrainingRun,
 };
 use crate::measured::{
-    MeasuredObjectiveDescriptor, MeasuredRecommendation, MeasuredSearchRunRecord, MeasurementCohort,
+    MeasuredObjectiveDescriptor, MeasuredRecommendation, MeasuredSearchRunRecord,
+    MeasurementCohort, MeasurementCohortRecord,
 };
 use crate::ranking::{
     EvaluationChoiceSet, FeatureSchema, RankingPolicyDescriptor, RankingTrace, SelectionOutcome,
@@ -733,8 +738,58 @@ pub struct EvaluationArchive {
     /// Stage 7B non-authoritative measured recommendations. Empty in v1–v4.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub measured_recommendations: Vec<MeasuredRecommendation>,
+    /// Explicit v6 classification of acquisition-history presence.
+    #[serde(
+        default,
+        skip_serializing_if = "MeasurementAcquisitionHistoryStatus::is_unspecified"
+    )]
+    pub measurement_acquisition_history_status: MeasurementAcquisitionHistoryStatus,
+    /// Stage 7C immutable acquisition plans. Empty in v1-v5.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub measurement_acquisition_plans: Vec<MeasurementAcquisitionPlan>,
+    /// Stage 7C terminal or resumable sessions. Empty in v1-v5.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub measurement_acquisition_sessions: Vec<MeasurementAcquisitionSession>,
+    /// Stage 7C slot-boundary checkpoints. Empty in v1-v5.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub measurement_acquisition_checkpoints: Vec<MeasurementAcquisitionCheckpoint>,
+    /// Stage 7C semantic traces. Empty in v1-v5.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub measurement_acquisition_traces: Vec<MeasurementAcquisitionTrace>,
+    /// Stage 7C terminal results. Empty in v1-v5.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub measurement_acquisition_results: Vec<MeasurementAcquisitionResult>,
+    /// Complete production-format records referenced by Stage 7C results.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub measurement_acquisition_records: Vec<MeasurementCohortRecord>,
+    /// Explicit result-to-Stage-7B-cohort handoff links.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub measurement_acquisition_cohort_links: BTreeMap<String, String>,
+    /// Exact zero-device replay status by acquisition result hash.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub measurement_acquisition_replay_statuses: BTreeMap<String, bool>,
     /// Stable serialized contract field.
     pub archive_hash: String,
+}
+
+/// Measurement-acquisition presence recorded explicitly by evaluation archive v6.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MeasurementAcquisitionHistoryStatus {
+    /// Legacy decoding default; forbidden in a verified v6 archive.
+    #[default]
+    Unspecified,
+    /// Pure migration retained no synthetic acquisition history.
+    NoAcquisitionHistory,
+    /// One or more verified acquisition results are retained.
+    AcquisitionHistoryPresent,
+}
+
+impl MeasurementAcquisitionHistoryStatus {
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    fn is_unspecified(&self) -> bool {
+        matches!(self, Self::Unspecified)
+    }
 }
 
 /// Measured-search presence recorded explicitly by evaluation archive v5.

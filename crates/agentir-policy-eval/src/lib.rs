@@ -29,9 +29,11 @@ pub use continuation::*;
 pub use corpus::{builtin_corpus, builtin_ranked_corpus};
 pub use engine::{
     EvaluationHarness, EvaluationLimits, LearnedArchiveBundle, RankingSubmission,
-    attach_learning_artifacts, attach_measured_search_artifacts, attach_search_artifacts,
-    external_policy, migrate_archive_v1_to_v2, migrate_archive_v2_to_v3, migrate_archive_v3_to_v4,
-    migrate_archive_v4_to_v5, ranked_policy, scripted_policy, verify_archive,
+    attach_learning_artifacts, attach_measured_search_artifacts,
+    attach_measurement_acquisition_artifacts, attach_search_artifacts, external_policy,
+    migrate_archive_v1_to_v2, migrate_archive_v2_to_v3, migrate_archive_v3_to_v4,
+    migrate_archive_v4_to_v5, migrate_archive_v5_to_v6, ranked_policy, scripted_policy,
+    verify_archive,
 };
 pub use learned::*;
 pub use measured::*;

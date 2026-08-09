@@ -41,6 +41,7 @@ version = "0.1.0"
 dependencies = [
  "agentir-core",
  "agentir-protocol",
+ "agentir-runtime-wgpu",
  "agentir-store",
  "serde",
  "serde_json",

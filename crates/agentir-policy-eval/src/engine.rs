@@ -1,6 +1,10 @@
 //! Episode state machine, scripted policies, replay, metrics, and archives.
 
 use crate::{
+    acquisition::{
+        MeasurementAcquisitionArchiveBundle, measurement_acquisition_checkpoint_hash,
+        measurement_acquisition_result_hash, measurement_acquisition_trace_hash,
+    },
     corpus::builtin_corpus,
     hashing::{
         aggregate_hash, archive_hash, corpus_hash, episode_hash, evaluation_hash, observation_hash,
@@ -24,10 +28,11 @@ use crate::{
         EvaluationAggregate, EvaluationArchive, EvaluationComparison, EvaluationContinuation,
         EvaluationCorpus, EvaluationDiagnostic, EvaluationEpisode, EvaluationErrorCode,
         EvaluationManifest, EvaluationObservation, EvaluationResult, EvaluationRun, EvaluationTask,
-        EvaluationTaskId, LearningEpisodeStatus, MeasuredSearchHistoryStatus, PolicyCapabilities,
-        PolicyDecision, PolicyDescriptor, PolicyKind, PolicyOrigin, PolicyVersion,
-        RejectionClassification, RepairCycle, SearchHistoryStatus, SemanticResult, TaskBudget,
-        TaskSuccessCriterion, TokenUsage, UsageTrust,
+        EvaluationTaskId, LearningEpisodeStatus, MeasuredSearchHistoryStatus,
+        MeasurementAcquisitionHistoryStatus, PolicyCapabilities, PolicyDecision, PolicyDescriptor,
+        PolicyKind, PolicyOrigin, PolicyVersion, RejectionClassification, RepairCycle,
+        SearchHistoryStatus, SemanticResult, TaskBudget, TaskSuccessCriterion, TokenUsage,
+        UsageTrust,
     },
     ranking::{
         ChoiceCategory, ChoiceOrigin, ChoicePreconditions, EvaluationChoiceSet, FeatureSchema,
@@ -1850,7 +1855,7 @@ impl EvaluationHarness {
         let mut archive = EvaluationArchive {
             manifest: EvaluationManifest {
                 format: "agentir.evaluation.archive".to_owned(),
-                version: 5,
+                version: 6,
                 corpus_version: self.corpus.version.clone(),
                 corpus_hash: self.corpus.corpus_hash.clone(),
                 compiler_build_hash: compiler_build_hash().to_string(),
@@ -1891,6 +1896,16 @@ impl EvaluationHarness {
             measured_objectives: Vec::new(),
             measured_search_runs: Vec::new(),
             measured_recommendations: Vec::new(),
+            measurement_acquisition_history_status:
+                MeasurementAcquisitionHistoryStatus::NoAcquisitionHistory,
+            measurement_acquisition_plans: Vec::new(),
+            measurement_acquisition_sessions: Vec::new(),
+            measurement_acquisition_checkpoints: Vec::new(),
+            measurement_acquisition_traces: Vec::new(),
+            measurement_acquisition_results: Vec::new(),
+            measurement_acquisition_records: Vec::new(),
+            measurement_acquisition_cohort_links: BTreeMap::new(),
+            measurement_acquisition_replay_statuses: BTreeMap::new(),
             archive_hash: String::new(),
         };
         archive.archive_hash = archive_hash(&archive)?;
@@ -1950,14 +1965,17 @@ impl EvaluationHarness {
             )
         })?;
         let archive = match archive.manifest.version {
-            1 => migrate_archive_v4_to_v5(&migrate_archive_v3_to_v4(&migrate_archive_v2_to_v3(
-                &migrate_archive_v1_to_v2(&archive)?,
+            1 => migrate_archive_v5_to_v6(&migrate_archive_v4_to_v5(&migrate_archive_v3_to_v4(
+                &migrate_archive_v2_to_v3(&migrate_archive_v1_to_v2(&archive)?)?,
             )?)?)?,
-            2 => migrate_archive_v4_to_v5(&migrate_archive_v3_to_v4(&migrate_archive_v2_to_v3(
+            2 => migrate_archive_v5_to_v6(&migrate_archive_v4_to_v5(&migrate_archive_v3_to_v4(
+                &migrate_archive_v2_to_v3(&archive)?,
+            )?)?)?,
+            3 => migrate_archive_v5_to_v6(&migrate_archive_v4_to_v5(&migrate_archive_v3_to_v4(
                 &archive,
             )?)?)?,
-            3 => migrate_archive_v4_to_v5(&migrate_archive_v3_to_v4(&archive)?)?,
-            4 => migrate_archive_v4_to_v5(&archive)?,
+            4 => migrate_archive_v5_to_v6(&migrate_archive_v4_to_v5(&archive)?)?,
+            5 => migrate_archive_v5_to_v6(&archive)?,
             _ => archive,
         };
         verify_archive(&archive)?;
@@ -2276,7 +2294,7 @@ fn percentile(values: &[u64], percentile: usize) -> u64 {
 /// Verifies every independent hash and archive structural invariant.
 pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
     if archive.manifest.format != "agentir.evaluation.archive"
-        || !matches!(archive.manifest.version, 1..=5)
+        || !matches!(archive.manifest.version, 1..=6)
     {
         return Err(EvaluationDiagnostic::new(
             EvaluationErrorCode::EvaluationArchiveInvalid,
@@ -2327,7 +2345,7 @@ pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
                 match (&step.ranking_trace, &step.selection) {
                     (None, None) => {}
                     (Some(trace), Some(selection)) => {
-                        if !matches!(archive.manifest.version, 2..=5)
+                        if !matches!(archive.manifest.version, 2..=6)
                             || trace.ranking_trace_hash
                                 != crate::ranking::ranking_trace_hash(trace)?
                             || selection.selection_hash
@@ -2366,6 +2384,9 @@ pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
             || archive.search_history_status != SearchHistoryStatus::Unspecified
             || has_measured_fields(archive)
             || archive.measured_search_history_status != MeasuredSearchHistoryStatus::Unspecified
+            || has_acquisition_fields(archive)
+            || archive.measurement_acquisition_history_status
+                != MeasurementAcquisitionHistoryStatus::Unspecified
         {
             return Err(EvaluationDiagnostic::new(
                 EvaluationErrorCode::EvaluationArchiveInvalid,
@@ -2382,6 +2403,9 @@ pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
                 || has_measured_fields(archive)
                 || archive.measured_search_history_status
                     != MeasuredSearchHistoryStatus::Unspecified
+                || has_acquisition_fields(archive)
+                || archive.measurement_acquisition_history_status
+                    != MeasurementAcquisitionHistoryStatus::Unspecified
             {
                 return Err(EvaluationDiagnostic::new(
                     EvaluationErrorCode::EvaluationArchiveInvalid,
@@ -2396,6 +2420,9 @@ pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
                     || has_measured_fields(archive)
                     || archive.measured_search_history_status
                         != MeasuredSearchHistoryStatus::Unspecified
+                    || has_acquisition_fields(archive)
+                    || archive.measurement_acquisition_history_status
+                        != MeasurementAcquisitionHistoryStatus::Unspecified
                 {
                     return Err(EvaluationDiagnostic::new(
                         EvaluationErrorCode::EvaluationArchiveInvalid,
@@ -2407,6 +2434,9 @@ pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
                 if has_measured_fields(archive)
                     || archive.measured_search_history_status
                         != MeasuredSearchHistoryStatus::Unspecified
+                    || has_acquisition_fields(archive)
+                    || archive.measurement_acquisition_history_status
+                        != MeasurementAcquisitionHistoryStatus::Unspecified
                 {
                     return Err(EvaluationDiagnostic::new(
                         EvaluationErrorCode::EvaluationArchiveInvalid,
@@ -2416,6 +2446,19 @@ pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
             } else {
                 verify_archive_v4_search(archive)?;
                 verify_archive_v5_measured(archive)?;
+                if archive.manifest.version == 5 {
+                    if has_acquisition_fields(archive)
+                        || archive.measurement_acquisition_history_status
+                            != MeasurementAcquisitionHistoryStatus::Unspecified
+                    {
+                        return Err(EvaluationDiagnostic::new(
+                            EvaluationErrorCode::EvaluationArchiveInvalid,
+                            "evaluation archive v5 cannot contain Stage 7C fields",
+                        ));
+                    }
+                } else {
+                    verify_archive_v6_acquisition(archive)?;
+                }
             }
         }
     }
@@ -2571,10 +2614,44 @@ pub fn migrate_archive_v4_to_v5(source: &EvaluationArchive) -> EvaluationResult<
     migrated.measured_objectives.clear();
     migrated.measured_search_runs.clear();
     migrated.measured_recommendations.clear();
+    clear_acquisition_fields(&mut migrated);
     migrated.archive_hash.clear();
     migrated.archive_hash = archive_hash(&migrated)?;
     verify_archive(&migrated)?;
     Ok(migrated)
+}
+
+/// Pure explicit migration from immutable evaluation archive v5 to v6.
+pub fn migrate_archive_v5_to_v6(source: &EvaluationArchive) -> EvaluationResult<EvaluationArchive> {
+    if source.manifest.version != 5 {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationArchiveMigrationInvalid,
+            "evaluation archive migration requires exact source version 5",
+        ));
+    }
+    verify_archive(source)?;
+    let mut migrated = source.clone();
+    migrated.manifest.version = 6;
+    clear_acquisition_fields(&mut migrated);
+    migrated.measurement_acquisition_history_status =
+        MeasurementAcquisitionHistoryStatus::NoAcquisitionHistory;
+    migrated.archive_hash.clear();
+    migrated.archive_hash = archive_hash(&migrated)?;
+    verify_archive(&migrated)?;
+    Ok(migrated)
+}
+
+fn clear_acquisition_fields(archive: &mut EvaluationArchive) {
+    archive.measurement_acquisition_history_status =
+        MeasurementAcquisitionHistoryStatus::Unspecified;
+    archive.measurement_acquisition_plans.clear();
+    archive.measurement_acquisition_sessions.clear();
+    archive.measurement_acquisition_checkpoints.clear();
+    archive.measurement_acquisition_traces.clear();
+    archive.measurement_acquisition_results.clear();
+    archive.measurement_acquisition_records.clear();
+    archive.measurement_acquisition_cohort_links.clear();
+    archive.measurement_acquisition_replay_statuses.clear();
 }
 
 /// Atomically attaches verified Stage 6C artifacts to evaluation archive v4.
@@ -2582,10 +2659,10 @@ pub fn attach_learning_artifacts(
     source: &EvaluationArchive,
     bundle: LearnedArchiveBundle,
 ) -> EvaluationResult<EvaluationArchive> {
-    if !matches!(source.manifest.version, 4 | 5) {
+    if !matches!(source.manifest.version, 4..=6) {
         return Err(EvaluationDiagnostic::new(
             EvaluationErrorCode::EvaluationArchiveInvalid,
-            "learned artifacts require evaluation archive v4 or v5",
+            "learned artifacts require evaluation archive v4, v5, or v6",
         ));
     }
     verify_archive(source)?;
@@ -2645,10 +2722,10 @@ pub fn attach_search_artifacts(
     source: &EvaluationArchive,
     artifacts: &[(SearchSession, SearchCheckpoint)],
 ) -> EvaluationResult<EvaluationArchive> {
-    if !matches!(source.manifest.version, 4 | 5) {
+    if !matches!(source.manifest.version, 4..=6) {
         return Err(EvaluationDiagnostic::new(
             EvaluationErrorCode::EvaluationArchiveInvalid,
-            "search artifacts require evaluation archive v4 or v5",
+            "search artifacts require evaluation archive v4, v5, or v6",
         ));
     }
     verify_archive(source)?;
@@ -2764,10 +2841,10 @@ pub fn attach_measured_search_artifacts(
         MeasuredRecommendation,
     )],
 ) -> EvaluationResult<EvaluationArchive> {
-    if source.manifest.version != 5 {
+    if !matches!(source.manifest.version, 5 | 6) {
         return Err(EvaluationDiagnostic::new(
             EvaluationErrorCode::EvaluationArchiveInvalid,
-            "measured search artifacts require evaluation archive v5",
+            "measured search artifacts require evaluation archive v5 or v6",
         ));
     }
     verify_archive(source)?;
@@ -2859,6 +2936,159 @@ pub fn attach_measured_search_artifacts(
     Ok(archive)
 }
 
+/// Atomically attaches replay-verified Stage 7C acquisition history to archive v6.
+pub fn attach_measurement_acquisition_artifacts(
+    source: &EvaluationArchive,
+    bundle: MeasurementAcquisitionArchiveBundle,
+) -> EvaluationResult<EvaluationArchive> {
+    if source.manifest.version != 6 {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationArchiveInvalid,
+            "measurement acquisition artifacts require evaluation archive v6",
+        ));
+    }
+    verify_archive(source)?;
+    if bundle.sessions.len() != bundle.checkpoints.len() {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationArchiveInvalid,
+            "acquisition bundle requires one exact checkpoint per session",
+        ));
+    }
+    let records = bundle
+        .records
+        .iter()
+        .map(|entry| (entry.measurement_id.clone(), &entry.record))
+        .collect::<BTreeMap<_, _>>();
+    if records.len() != bundle.records.len() {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationAcquisitionMeasurementDuplicate,
+            "acquisition bundle contains duplicate measurement IDs",
+        ));
+    }
+    let mut archive = source.clone();
+    for (session, checkpoint) in bundle.sessions.iter().zip(&bundle.checkpoints) {
+        if session.status == crate::acquisition::MeasurementAcquisitionStatus::Running
+            || checkpoint.session.as_ref() != session
+            || checkpoint.measurement_acquisition_checkpoint_hash
+                != measurement_acquisition_checkpoint_hash(checkpoint)?
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationAcquisitionCheckpointCorrupt,
+                "only stopped acquisition sessions with exact checkpoints may be archived",
+            ));
+        }
+        let result = session.result()?;
+        if result.measurement_acquisition_result_hash
+            != measurement_acquisition_result_hash(&result)?
+            || result.work.replay_hardware_calls != 0
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationAcquisitionResultCorrupt,
+                "acquisition result failed zero-device offline replay validation",
+            ));
+        }
+        for (id, hash) in result
+            .measurement_ids
+            .iter()
+            .zip(&result.measurement_hashes)
+        {
+            let record = records.get(id).ok_or_else(|| {
+                EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationAcquisitionMeasurementMissing,
+                    "acquisition bundle omits a completed production measurement",
+                )
+            })?;
+            if record.measurement_hash.as_str() != hash
+                || agentir_core::backend::measurement_hash(record)
+                    .map_err(|error| {
+                        EvaluationDiagnostic::new(
+                            EvaluationErrorCode::EvaluationAcquisitionMeasurementMissing,
+                            error.to_string(),
+                        )
+                    })?
+                    .as_str()
+                    != hash
+            {
+                return Err(EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationAcquisitionMeasurementMissing,
+                    "acquisition bundle measurement hash is corrupt",
+                ));
+            }
+        }
+        archive
+            .measurement_acquisition_plans
+            .push(session.plan.clone());
+        archive
+            .measurement_acquisition_sessions
+            .push(session.clone());
+        archive
+            .measurement_acquisition_checkpoints
+            .push(checkpoint.clone());
+        archive
+            .measurement_acquisition_traces
+            .push(session.trace.clone());
+        archive.measurement_acquisition_results.push(result.clone());
+        archive
+            .measurement_acquisition_replay_statuses
+            .insert(result.measurement_acquisition_result_hash, true);
+    }
+    archive
+        .measurement_acquisition_records
+        .extend(bundle.records);
+    archive
+        .measurement_acquisition_cohort_links
+        .extend(bundle.cohort_links);
+    archive
+        .measurement_acquisition_plans
+        .sort_by(|left, right| {
+            left.measurement_acquisition_plan_hash
+                .cmp(&right.measurement_acquisition_plan_hash)
+        });
+    archive
+        .measurement_acquisition_plans
+        .dedup_by(|left, right| {
+            left.measurement_acquisition_plan_hash == right.measurement_acquisition_plan_hash
+        });
+    archive
+        .measurement_acquisition_sessions
+        .sort_by(|left, right| left.session_id.cmp(&right.session_id));
+    archive
+        .measurement_acquisition_checkpoints
+        .sort_by(|left, right| {
+            left.measurement_acquisition_checkpoint_hash
+                .cmp(&right.measurement_acquisition_checkpoint_hash)
+        });
+    archive
+        .measurement_acquisition_traces
+        .sort_by(|left, right| {
+            left.measurement_acquisition_trace_hash
+                .cmp(&right.measurement_acquisition_trace_hash)
+        });
+    archive
+        .measurement_acquisition_results
+        .sort_by(|left, right| {
+            left.measurement_acquisition_result_hash
+                .cmp(&right.measurement_acquisition_result_hash)
+        });
+    archive
+        .measurement_acquisition_records
+        .sort_by(|left, right| {
+            left.record
+                .measurement_hash
+                .cmp(&right.record.measurement_hash)
+        });
+    archive.measurement_acquisition_history_status =
+        if archive.measurement_acquisition_results.is_empty() {
+            MeasurementAcquisitionHistoryStatus::NoAcquisitionHistory
+        } else {
+            MeasurementAcquisitionHistoryStatus::AcquisitionHistoryPresent
+        };
+    archive.archive_hash.clear();
+    archive.archive_hash = archive_hash(&archive)?;
+    verify_archive(&archive)?;
+    Ok(archive)
+}
+
 fn sort_stage6c_artifacts(archive: &mut EvaluationArchive) {
     archive.ranking_datasets.sort_by(|left, right| {
         left.manifest
@@ -2917,6 +3147,213 @@ fn has_measured_fields(archive: &EvaluationArchive) -> bool {
         || !archive.measured_objectives.is_empty()
         || !archive.measured_search_runs.is_empty()
         || !archive.measured_recommendations.is_empty()
+}
+
+fn has_acquisition_fields(archive: &EvaluationArchive) -> bool {
+    !archive.measurement_acquisition_plans.is_empty()
+        || !archive.measurement_acquisition_sessions.is_empty()
+        || !archive.measurement_acquisition_checkpoints.is_empty()
+        || !archive.measurement_acquisition_traces.is_empty()
+        || !archive.measurement_acquisition_results.is_empty()
+        || !archive.measurement_acquisition_records.is_empty()
+        || !archive.measurement_acquisition_cohort_links.is_empty()
+        || !archive.measurement_acquisition_replay_statuses.is_empty()
+}
+
+fn verify_archive_v6_acquisition(archive: &EvaluationArchive) -> EvaluationResult<()> {
+    match archive.measurement_acquisition_history_status {
+        MeasurementAcquisitionHistoryStatus::Unspecified => {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationArchiveInvalid,
+                "evaluation archive v6 must classify acquisition history",
+            ));
+        }
+        MeasurementAcquisitionHistoryStatus::NoAcquisitionHistory => {
+            if has_acquisition_fields(archive) {
+                return Err(EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationArchiveInvalid,
+                    "archive declares no acquisition history but retains Stage 7C records",
+                ));
+            }
+            return Ok(());
+        }
+        MeasurementAcquisitionHistoryStatus::AcquisitionHistoryPresent => {}
+    }
+    let plans = archive
+        .measurement_acquisition_plans
+        .iter()
+        .map(|plan| {
+            plan.verify()?;
+            Ok((plan.measurement_acquisition_plan_hash.as_str(), plan))
+        })
+        .collect::<EvaluationResult<BTreeMap<_, _>>>()?;
+    if plans.len() != archive.measurement_acquisition_plans.len() {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationAcquisitionPlanCorrupt,
+            "archive v6 contains duplicate acquisition plans",
+        ));
+    }
+    let records = archive
+        .measurement_acquisition_records
+        .iter()
+        .map(|entry| {
+            let hash = agentir_core::backend::measurement_hash(&entry.record)
+                .map_err(|error| {
+                    EvaluationDiagnostic::new(
+                        EvaluationErrorCode::EvaluationAcquisitionMeasurementMissing,
+                        error.to_string(),
+                    )
+                })?
+                .to_string();
+            if hash != entry.record.measurement_hash.to_string() {
+                return Err(EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationAcquisitionMeasurementMissing,
+                    "archive v6 acquisition measurement hash is corrupt",
+                ));
+            }
+            Ok((entry.measurement_id.clone(), &entry.record))
+        })
+        .collect::<EvaluationResult<BTreeMap<_, _>>>()?;
+    if records.len() != archive.measurement_acquisition_records.len() {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationAcquisitionMeasurementDuplicate,
+            "archive v6 contains duplicate acquisition measurement IDs",
+        ));
+    }
+    let traces = archive
+        .measurement_acquisition_traces
+        .iter()
+        .map(|trace| {
+            if trace.measurement_acquisition_trace_hash
+                != measurement_acquisition_trace_hash(trace)?
+            {
+                return Err(EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationAcquisitionTraceCorrupt,
+                    "archive v6 acquisition trace hash is corrupt",
+                ));
+            }
+            Ok((trace.measurement_acquisition_trace_hash.as_str(), trace))
+        })
+        .collect::<EvaluationResult<BTreeMap<_, _>>>()?;
+    if traces.len() != archive.measurement_acquisition_traces.len() {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationAcquisitionTraceCorrupt,
+            "archive v6 contains duplicate acquisition traces",
+        ));
+    }
+    let results = archive
+        .measurement_acquisition_results
+        .iter()
+        .map(|result| {
+            if result.measurement_acquisition_result_hash
+                != measurement_acquisition_result_hash(result)?
+                || !archive
+                    .measurement_acquisition_replay_statuses
+                    .get(&result.measurement_acquisition_result_hash)
+                    .copied()
+                    .unwrap_or(false)
+                || !plans.contains_key(result.measurement_acquisition_plan_hash.as_str())
+                || !traces.contains_key(result.measurement_acquisition_trace_hash.as_str())
+            {
+                return Err(EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationAcquisitionResultCorrupt,
+                    "archive v6 acquisition result is corrupt, stale, or unreplayed",
+                ));
+            }
+            if result.measurement_ids.len() != result.measurement_hashes.len()
+                || result
+                    .measurement_hashes
+                    .iter()
+                    .collect::<BTreeSet<_>>()
+                    .len()
+                    != result.measurement_hashes.len()
+            {
+                return Err(EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationAcquisitionMeasurementDuplicate,
+                    "archive v6 result measurement anchors are duplicated or misaligned",
+                ));
+            }
+            for (id, hash) in result
+                .measurement_ids
+                .iter()
+                .zip(&result.measurement_hashes)
+            {
+                if records
+                    .get(id)
+                    .is_none_or(|record| record.measurement_hash.as_str() != hash)
+                {
+                    return Err(EvaluationDiagnostic::new(
+                        EvaluationErrorCode::EvaluationAcquisitionMeasurementMissing,
+                        "archive v6 result references a missing completed measurement",
+                    ));
+                }
+            }
+            Ok((result.measurement_acquisition_result_hash.as_str(), result))
+        })
+        .collect::<EvaluationResult<BTreeMap<_, _>>>()?;
+    if results.len() != archive.measurement_acquisition_results.len()
+        || archive.measurement_acquisition_sessions.len()
+            != archive.measurement_acquisition_checkpoints.len()
+        || archive.measurement_acquisition_sessions.len()
+            != archive.measurement_acquisition_results.len()
+    {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationArchiveInvalid,
+            "archive v6 acquisition session/checkpoint/result cardinality is invalid",
+        ));
+    }
+    let sessions = archive
+        .measurement_acquisition_sessions
+        .iter()
+        .map(|session| (session.session_id.as_str(), session))
+        .collect::<BTreeMap<_, _>>();
+    if sessions.len() != archive.measurement_acquisition_sessions.len() {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationArchiveInvalid,
+            "archive v6 contains duplicate acquisition session IDs",
+        ));
+    }
+    for session in sessions.values() {
+        let result = session.result()?;
+        if session.status == crate::acquisition::MeasurementAcquisitionStatus::Running
+            || !plans.contains_key(session.plan.measurement_acquisition_plan_hash.as_str())
+            || !traces.contains_key(session.trace.measurement_acquisition_trace_hash.as_str())
+            || !results.contains_key(result.measurement_acquisition_result_hash.as_str())
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationAcquisitionResultCorrupt,
+                "archive v6 acquisition session is running, stale, or missing its result",
+            ));
+        }
+    }
+    for checkpoint in &archive.measurement_acquisition_checkpoints {
+        if checkpoint.measurement_acquisition_checkpoint_hash
+            != measurement_acquisition_checkpoint_hash(checkpoint)?
+            || !plans.contains_key(checkpoint.measurement_acquisition_plan_hash.as_str())
+            || sessions
+                .get(checkpoint.session.session_id.as_str())
+                .is_none_or(|session| *session != checkpoint.session.as_ref())
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationAcquisitionCheckpointCorrupt,
+                "archive v6 acquisition checkpoint is corrupt",
+            ));
+        }
+    }
+    for (result_hash, cohort_hash) in &archive.measurement_acquisition_cohort_links {
+        if !results.contains_key(result_hash.as_str())
+            || !archive
+                .measurement_cohorts
+                .iter()
+                .any(|cohort| cohort.measurement_cohort_hash == *cohort_hash)
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationMeasuredAnchorStale,
+                "archive v6 acquisition cohort handoff link is stale",
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn verify_archive_v5_measured(archive: &EvaluationArchive) -> EvaluationResult<()> {

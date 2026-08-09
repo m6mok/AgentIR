@@ -9,6 +9,7 @@ rust-version.workspace = true
 [dependencies]
 agentir-core = { path = "../agentir-core" }
 agentir-protocol = { path = "../agentir-protocol" }
+agentir-runtime-wgpu = { path = "../agentir-runtime-wgpu" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

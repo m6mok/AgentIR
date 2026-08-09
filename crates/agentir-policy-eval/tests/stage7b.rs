@@ -212,6 +212,8 @@ fn v4_to_v5_migration_is_pure_and_protocol_rejects_client_timing_data() {
     let mut legacy = harness.archive(&[]).unwrap();
     legacy.manifest.version = 4;
     legacy.measured_search_history_status = MeasuredSearchHistoryStatus::Unspecified;
+    legacy.measurement_acquisition_history_status =
+        agentir_policy_eval::MeasurementAcquisitionHistoryStatus::Unspecified;
     legacy.archive_hash.clear();
     legacy.archive_hash = domain_hash(ARCHIVE_HASH_V4_DOMAIN, &legacy).unwrap();
     verify_archive(&legacy).unwrap();

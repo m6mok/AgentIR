@@ -1,11 +1,20 @@
 //! Bounded JSONL transport for external Stage 6A agents.
 
 use crate::{
+    acquisition::{
+        MeasurementAcquisitionCatalog, MeasurementAcquisitionCheckpoint,
+        MeasurementAcquisitionExecutor, MeasurementAcquisitionFailurePolicy,
+        MeasurementAcquisitionOrderingPolicy, MeasurementAcquisitionPlan,
+        MeasurementAcquisitionPlanRequest, MeasurementAcquisitionSession,
+        MeasurementAcquisitionStatus, SyntheticMeasurementAcquisitionExecutor,
+        SyntheticMeasurementAcquisitionStore, WgpuMeasurementAcquisitionExecutor,
+    },
     engine::{EvaluationHarness, RankingSubmission, external_policy, scripted_policy},
     measured::{
         MeasuredMetric, MeasuredObjectiveDescriptor, MeasurementAggregationMethod,
         MeasurementCohort, MeasurementCohortRequest, MeasurementReference,
-        MeasurementValidationPolicy, measured_recommendation, measurement_cohort_from_workspace,
+        MeasurementValidationPolicy, measured_recommendation,
+        measurement_cohort_from_verified_records, measurement_cohort_from_workspace,
     },
     model::{EvaluationDiagnostic, EvaluationTaskId, PolicyDecision, PolicyKind, TokenUsage},
     ranking::{RankingDecision, aggregate_ranking_metrics, feature_schema_v1, scripted_ranker},
@@ -19,9 +28,89 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, path::Path};
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AcquisitionBenchmarkConfigRequest {
+    warmups: u32,
+    iterations: u32,
+    input_distribution: String,
+    tensor_dimensions: Vec<u64>,
+}
+
+impl From<AcquisitionBenchmarkConfigRequest> for agentir_core::backend_ir::HardwareBenchmarkConfig {
+    fn from(request: AcquisitionBenchmarkConfigRequest) -> Self {
+        Self {
+            warmups: request.warmups,
+            iterations: request.iterations,
+            input_distribution: request.input_distribution,
+            tensor_dimensions: request.tensor_dimensions,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(tag = "command", deny_unknown_fields)]
 enum EvaluationRequest {
+    #[serde(rename = "evaluation.measurement_acquisition.start")]
+    MeasurementAcquisitionStart {
+        request_id: String,
+        task: EvaluationTaskId,
+        root_anchor_hash: String,
+        artifact_hashes: Vec<String>,
+        benchmark_config: AcquisitionBenchmarkConfigRequest,
+        records_per_artifact: u64,
+        validation_policy: MeasurementValidationPolicy,
+        checkpoint_cadence_slots: u64,
+    },
+    #[serde(rename = "evaluation.measurement_acquisition.advance")]
+    MeasurementAcquisitionAdvance {
+        request_id: String,
+        session: String,
+        measurement_acquisition_plan_hash: String,
+        maximum_slots: u64,
+    },
+    #[serde(rename = "evaluation.measurement_acquisition.status")]
+    MeasurementAcquisitionStatus {
+        request_id: String,
+        session: String,
+        measurement_acquisition_plan_hash: String,
+    },
+    #[serde(rename = "evaluation.measurement_acquisition.checkpoint")]
+    MeasurementAcquisitionCheckpoint {
+        request_id: String,
+        session: String,
+        measurement_acquisition_plan_hash: String,
+    },
+    #[serde(rename = "evaluation.measurement_acquisition.resume")]
+    MeasurementAcquisitionResume {
+        request_id: String,
+        measurement_acquisition_checkpoint_hash: String,
+    },
+    #[serde(rename = "evaluation.measurement_acquisition.cancel")]
+    MeasurementAcquisitionCancel {
+        request_id: String,
+        session: String,
+        measurement_acquisition_plan_hash: String,
+    },
+    #[serde(rename = "evaluation.measurement_acquisition.result")]
+    MeasurementAcquisitionResult {
+        request_id: String,
+        session: String,
+        measurement_acquisition_plan_hash: String,
+    },
+    #[serde(rename = "evaluation.measurement_acquisition.replay")]
+    MeasurementAcquisitionReplay {
+        request_id: String,
+        session: String,
+        measurement_acquisition_result_hash: String,
+    },
+    #[serde(rename = "evaluation.measurement_acquisition.create_cohort")]
+    MeasurementAcquisitionCreateCohort {
+        request_id: String,
+        session: String,
+        measurement_acquisition_result_hash: String,
+        aggregation_method: MeasurementAggregationMethod,
+    },
     #[serde(rename = "evaluation.measurement_cohort.create")]
     MeasurementCohortCreate {
         request_id: String,
@@ -271,7 +360,16 @@ enum EvaluationRequest {
 impl EvaluationRequest {
     fn request_id(&self) -> &str {
         match self {
-            Self::MeasurementCohortCreate { request_id, .. }
+            Self::MeasurementAcquisitionStart { request_id, .. }
+            | Self::MeasurementAcquisitionAdvance { request_id, .. }
+            | Self::MeasurementAcquisitionStatus { request_id, .. }
+            | Self::MeasurementAcquisitionCheckpoint { request_id, .. }
+            | Self::MeasurementAcquisitionResume { request_id, .. }
+            | Self::MeasurementAcquisitionCancel { request_id, .. }
+            | Self::MeasurementAcquisitionResult { request_id, .. }
+            | Self::MeasurementAcquisitionReplay { request_id, .. }
+            | Self::MeasurementAcquisitionCreateCohort { request_id, .. }
+            | Self::MeasurementCohortCreate { request_id, .. }
             | Self::MeasurementCohortQuery { request_id, .. }
             | Self::MeasuredSearchStart { request_id, .. }
             | Self::MeasuredSearchAdvance { request_id, .. }
@@ -315,6 +413,12 @@ impl EvaluationRequest {
     }
 }
 
+#[derive(Debug)]
+enum AcquisitionProtocolExecutor {
+    Hardware(WgpuMeasurementAcquisitionExecutor),
+    Synthetic(Box<SyntheticMeasurementAcquisitionExecutor>),
+}
+
 /// Stateful one-line-in/one-line-out evaluation protocol engine.
 #[derive(Debug)]
 pub struct EvaluationProtocol {
@@ -325,6 +429,13 @@ pub struct EvaluationProtocol {
     measurement_cohorts: BTreeMap<String, MeasurementCohort>,
     measured_objectives: BTreeMap<String, MeasuredObjectiveDescriptor>,
     measured_search_anchors: BTreeMap<String, (String, String)>,
+    acquisition_catalog: Option<MeasurementAcquisitionCatalog>,
+    acquisition_plans: BTreeMap<String, MeasurementAcquisitionPlan>,
+    acquisition_sessions: BTreeMap<String, MeasurementAcquisitionSession>,
+    acquisition_checkpoints: BTreeMap<String, MeasurementAcquisitionCheckpoint>,
+    acquisition_results: BTreeMap<String, crate::acquisition::MeasurementAcquisitionResult>,
+    acquisition_executor: AcquisitionProtocolExecutor,
+    synthetic_acquisition_store: SyntheticMeasurementAcquisitionStore,
     max_request_bytes: u64,
 }
 
@@ -339,6 +450,15 @@ impl EvaluationProtocol {
             measurement_cohorts: BTreeMap::new(),
             measured_objectives: BTreeMap::new(),
             measured_search_anchors: BTreeMap::new(),
+            acquisition_catalog: None,
+            acquisition_plans: BTreeMap::new(),
+            acquisition_sessions: BTreeMap::new(),
+            acquisition_checkpoints: BTreeMap::new(),
+            acquisition_results: BTreeMap::new(),
+            acquisition_executor: AcquisitionProtocolExecutor::Hardware(
+                WgpuMeasurementAcquisitionExecutor { adapter_index: 0 },
+            ),
+            synthetic_acquisition_store: SyntheticMeasurementAcquisitionStore::default(),
             max_request_bytes: 4 * 1024 * 1024,
         })
     }
@@ -350,6 +470,22 @@ impl EvaluationProtocol {
     pub fn with_measurement_workspace(workspace: Workspace) -> Result<Self, EvaluationDiagnostic> {
         let mut protocol = Self::new()?;
         protocol.measurement_workspace = Some(workspace);
+        Ok(protocol)
+    }
+
+    /// Creates a study/test-only protocol with an explicit synthetic catalog.
+    pub fn with_synthetic_acquisition_catalog(
+        catalog: MeasurementAcquisitionCatalog,
+    ) -> Result<Self, EvaluationDiagnostic> {
+        if !catalog.synthetic_fixture {
+            return Err(EvaluationDiagnostic::new(
+                crate::model::EvaluationErrorCode::EvaluationAcquisitionUnsupportedMode,
+                "synthetic protocol requires an explicitly labelled fixture catalog",
+            ));
+        }
+        let mut protocol = Self::new()?;
+        protocol.acquisition_catalog = Some(catalog);
+        protocol.acquisition_executor = AcquisitionProtocolExecutor::Synthetic(Box::default());
         Ok(protocol)
     }
 
@@ -394,6 +530,400 @@ impl EvaluationProtocol {
 
     fn handle(&mut self, request: EvaluationRequest) -> Result<Value, EvaluationDiagnostic> {
         match request {
+            EvaluationRequest::MeasurementAcquisitionStart {
+                task,
+                root_anchor_hash,
+                artifact_hashes,
+                benchmark_config,
+                records_per_artifact,
+                validation_policy,
+                checkpoint_cadence_slots,
+                ..
+            } => {
+                self.harness.task(&task)?;
+                let catalog = if let Some(catalog) = &self.acquisition_catalog {
+                    if catalog.root_anchor_hash != root_anchor_hash {
+                        return Err(EvaluationDiagnostic::new(
+                            crate::model::EvaluationErrorCode::EvaluationAcquisitionArtifactSetInvalid,
+                            "acquisition root differs from the server-owned fixture catalog",
+                        ));
+                    }
+                    catalog.clone()
+                } else {
+                    let workspace = self.measurement_workspace.as_ref().ok_or_else(|| {
+                        EvaluationDiagnostic::new(
+                            crate::model::EvaluationErrorCode::EvaluationAcquisitionArtifactSetInvalid,
+                            "acquisition protocol has no verified production workspace",
+                        )
+                    })?;
+                    MeasurementAcquisitionCatalog::from_workspace(
+                        workspace,
+                        root_anchor_hash.clone(),
+                    )?
+                };
+                let plan = MeasurementAcquisitionPlan::new(
+                    &catalog,
+                    MeasurementAcquisitionPlanRequest {
+                        corpus_hash: self.harness.corpus().corpus_hash.clone(),
+                        task_id: task,
+                        root_anchor_hash,
+                        artifact_hashes,
+                        benchmark_config: benchmark_config.into(),
+                        records_per_artifact,
+                        validation_policy,
+                        ordering_policy:
+                            MeasurementAcquisitionOrderingPolicy::RoundRobinArtifactHashV1,
+                        failure_policy: MeasurementAcquisitionFailurePolicy::StopOnFirstFailureV1,
+                        checkpoint_cadence_slots,
+                    },
+                )?;
+                let session = match &mut self.acquisition_executor {
+                    AcquisitionProtocolExecutor::Hardware(executor) => {
+                        let workspace = self.measurement_workspace.as_ref().ok_or_else(|| {
+                            EvaluationDiagnostic::new(
+                                crate::model::EvaluationErrorCode::EvaluationAcquisitionArtifactSetInvalid,
+                                "hardware acquisition has no production workspace",
+                            )
+                        })?;
+                        MeasurementAcquisitionSession::start(
+                            plan.clone(),
+                            &catalog,
+                            Some(workspace),
+                            executor,
+                        )?
+                    }
+                    AcquisitionProtocolExecutor::Synthetic(executor) => {
+                        MeasurementAcquisitionSession::start(
+                            plan.clone(),
+                            &catalog,
+                            None,
+                            executor.as_mut(),
+                        )?
+                    }
+                };
+                let session_id = session.session_id.clone();
+                let plan_hash = plan.measurement_acquisition_plan_hash.clone();
+                self.acquisition_catalog = Some(catalog);
+                self.acquisition_plans.insert(plan_hash.clone(), plan);
+                self.acquisition_sessions
+                    .insert(session_id.clone(), session.clone());
+                Ok(json!({
+                    "session": session_id,
+                    "status": session.status,
+                    "measurement_acquisition_plan_hash": plan_hash,
+                    "next_slot": session.next_slot,
+                    "total_slots": session.slots.len(),
+                }))
+            }
+            EvaluationRequest::MeasurementAcquisitionAdvance {
+                session,
+                measurement_acquisition_plan_hash,
+                maximum_slots,
+                ..
+            } => {
+                let catalog = self.acquisition_catalog.clone().ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationAcquisitionArtifactSetInvalid,
+                        "acquisition catalog is missing",
+                    )
+                })?;
+                let mut staged_session = acquisition_session(
+                    &self.acquisition_sessions,
+                    &session,
+                    &measurement_acquisition_plan_hash,
+                )?
+                .clone();
+                match &mut self.acquisition_executor {
+                    AcquisitionProtocolExecutor::Hardware(executor) => {
+                        let mut staged_workspace = self.measurement_workspace.clone().ok_or_else(|| {
+                            EvaluationDiagnostic::new(
+                                crate::model::EvaluationErrorCode::EvaluationAcquisitionArtifactSetInvalid,
+                                "hardware acquisition workspace is missing",
+                            )
+                        })?;
+                        let read_workspace = staged_workspace.clone();
+                        staged_session.advance(
+                            &mut staged_workspace,
+                            &catalog,
+                            Some(&read_workspace),
+                            executor,
+                            maximum_slots,
+                        )?;
+                        self.measurement_workspace = Some(staged_workspace);
+                    }
+                    AcquisitionProtocolExecutor::Synthetic(executor) => {
+                        let mut staged_store = self.synthetic_acquisition_store.clone();
+                        staged_session.advance(
+                            &mut staged_store,
+                            &catalog,
+                            None,
+                            executor.as_mut(),
+                            maximum_slots,
+                        )?;
+                        self.synthetic_acquisition_store = staged_store;
+                    }
+                }
+                let status = staged_session.status;
+                let next_slot = staged_session.next_slot;
+                self.acquisition_sessions
+                    .insert(session.clone(), staged_session);
+                Ok(json!({"session":session,"status":status,"next_slot":next_slot}))
+            }
+            EvaluationRequest::MeasurementAcquisitionStatus {
+                session,
+                measurement_acquisition_plan_hash,
+                ..
+            } => {
+                let retained = acquisition_session(
+                    &self.acquisition_sessions,
+                    &session,
+                    &measurement_acquisition_plan_hash,
+                )?;
+                Ok(json!({
+                    "session":session,
+                    "status":retained.status,
+                    "next_slot":retained.next_slot,
+                    "total_slots":retained.slots.len(),
+                    "work":retained.work,
+                }))
+            }
+            EvaluationRequest::MeasurementAcquisitionCheckpoint {
+                session,
+                measurement_acquisition_plan_hash,
+                ..
+            } => {
+                let checkpoint = acquisition_session(
+                    &self.acquisition_sessions,
+                    &session,
+                    &measurement_acquisition_plan_hash,
+                )?
+                .checkpoint()?;
+                let hash = checkpoint.measurement_acquisition_checkpoint_hash.clone();
+                self.acquisition_checkpoints
+                    .insert(hash.clone(), checkpoint);
+                Ok(json!({"session":session,"measurement_acquisition_checkpoint_hash":hash}))
+            }
+            EvaluationRequest::MeasurementAcquisitionResume {
+                measurement_acquisition_checkpoint_hash,
+                ..
+            } => {
+                let checkpoint = self
+                    .acquisition_checkpoints
+                    .get(&measurement_acquisition_checkpoint_hash)
+                    .ok_or_else(|| {
+                        EvaluationDiagnostic::new(
+                            crate::model::EvaluationErrorCode::EvaluationAcquisitionCheckpointCorrupt,
+                            "acquisition checkpoint does not exist",
+                        )
+                    })?
+                    .clone();
+                let catalog = self.acquisition_catalog.clone().ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationAcquisitionCheckpointStale,
+                        "acquisition catalog is missing",
+                    )
+                })?;
+                let resumed = match &mut self.acquisition_executor {
+                    AcquisitionProtocolExecutor::Hardware(executor) => {
+                        let workspace = self.measurement_workspace.as_ref().ok_or_else(|| {
+                            EvaluationDiagnostic::new(
+                                crate::model::EvaluationErrorCode::EvaluationAcquisitionCheckpointStale,
+                                "production workspace is missing",
+                            )
+                        })?;
+                        let current = executor.preflight(
+                            Some(workspace),
+                            &catalog,
+                            &checkpoint.session.plan,
+                        )?;
+                        MeasurementAcquisitionSession::resume(
+                            &checkpoint,
+                            workspace,
+                            &catalog,
+                            &current,
+                        )?
+                    }
+                    AcquisitionProtocolExecutor::Synthetic(executor) => {
+                        let current = executor.as_mut().preflight(
+                            None,
+                            &catalog,
+                            &checkpoint.session.plan,
+                        )?;
+                        MeasurementAcquisitionSession::resume(
+                            &checkpoint,
+                            &self.synthetic_acquisition_store,
+                            &catalog,
+                            &current,
+                        )?
+                    }
+                };
+                let session = resumed.session_id.clone();
+                let status = resumed.status;
+                self.acquisition_sessions.insert(session.clone(), resumed);
+                Ok(json!({"session":session,"status":status,"hardware_benchmark_calls":0}))
+            }
+            EvaluationRequest::MeasurementAcquisitionCancel {
+                session,
+                measurement_acquisition_plan_hash,
+                ..
+            } => {
+                let retained = self.acquisition_sessions.get_mut(&session).ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationRunNotFound,
+                        "acquisition session does not exist",
+                    )
+                })?;
+                if retained.plan.measurement_acquisition_plan_hash
+                    != measurement_acquisition_plan_hash
+                {
+                    return Err(EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationAcquisitionPlanCorrupt,
+                        "acquisition plan hash is stale",
+                    ));
+                }
+                let status = retained.cancel()?;
+                Ok(json!({"session":session,"status":status}))
+            }
+            EvaluationRequest::MeasurementAcquisitionResult {
+                session,
+                measurement_acquisition_plan_hash,
+                ..
+            } => {
+                let result = acquisition_session(
+                    &self.acquisition_sessions,
+                    &session,
+                    &measurement_acquisition_plan_hash,
+                )?
+                .result()?;
+                let hash = result.measurement_acquisition_result_hash.clone();
+                self.acquisition_results.insert(hash, result.clone());
+                serde_json::to_value(result).map_err(|error| serialization_error(&error))
+            }
+            EvaluationRequest::MeasurementAcquisitionReplay {
+                session,
+                measurement_acquisition_result_hash,
+                ..
+            } => {
+                let retained = self.acquisition_sessions.get(&session).ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationRunNotFound,
+                        "acquisition session does not exist",
+                    )
+                })?;
+                let catalog = self.acquisition_catalog.as_ref().ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationAcquisitionArtifactSetInvalid,
+                        "acquisition catalog is missing",
+                    )
+                })?;
+                let replayed = match &self.acquisition_executor {
+                    AcquisitionProtocolExecutor::Hardware(_) => retained.replay(
+                        self.measurement_workspace.as_ref().ok_or_else(|| {
+                            EvaluationDiagnostic::new(
+                                crate::model::EvaluationErrorCode::EvaluationAcquisitionMeasurementMissing,
+                                "production workspace is missing",
+                            )
+                        })?,
+                        catalog,
+                    )?,
+                    AcquisitionProtocolExecutor::Synthetic(_) => {
+                        retained.replay(&self.synthetic_acquisition_store, catalog)?
+                    }
+                };
+                if replayed.measurement_acquisition_result_hash
+                    != measurement_acquisition_result_hash
+                {
+                    return Err(EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationAcquisitionResultCorrupt,
+                        "acquisition replay result hash mismatch",
+                    ));
+                }
+                Ok(json!({
+                    "session":session,
+                    "measurement_acquisition_result_hash":measurement_acquisition_result_hash,
+                    "replayed":true,
+                    "benchmark_calls":0,
+                    "device_calls":0,
+                }))
+            }
+            EvaluationRequest::MeasurementAcquisitionCreateCohort {
+                session,
+                measurement_acquisition_result_hash,
+                aggregation_method,
+                ..
+            } => {
+                let retained = self.acquisition_sessions.get(&session).ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationRunNotFound,
+                        "acquisition session does not exist",
+                    )
+                })?;
+                let result = retained.result()?;
+                if result.status != MeasurementAcquisitionStatus::Complete
+                    || result.measurement_acquisition_result_hash
+                        != measurement_acquisition_result_hash
+                {
+                    return Err(EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationAcquisitionUnequalRecords,
+                        "only a complete exact acquisition result can create a cohort",
+                    ));
+                }
+                let request = MeasurementCohortRequest {
+                    corpus_hash: retained.plan.corpus_hash.clone(),
+                    task_id: retained.plan.task_id.clone(),
+                    initial_anchor_hash: retained.plan.root_anchor_hash.clone(),
+                    validation_policy: retained.plan.validation_policy,
+                    records_per_artifact: retained.plan.records_per_artifact,
+                    aggregation_method,
+                };
+                let cohort = match &self.acquisition_executor {
+                    AcquisitionProtocolExecutor::Hardware(_) => {
+                        let workspace = self.measurement_workspace.as_ref().ok_or_else(|| {
+                            EvaluationDiagnostic::new(
+                                crate::model::EvaluationErrorCode::EvaluationAcquisitionMeasurementMissing,
+                                "production workspace is missing",
+                            )
+                        })?;
+                        let references = result
+                            .measurement_ids
+                            .iter()
+                            .cloned()
+                            .map(MeasurementReference::Id)
+                            .collect::<Vec<_>>();
+                        measurement_cohort_from_workspace(workspace, &references, request)?
+                    }
+                    AcquisitionProtocolExecutor::Synthetic(_) => {
+                        let records = result
+                            .measurement_ids
+                            .iter()
+                            .map(|id| {
+                                self.synthetic_acquisition_store
+                                    .records
+                                    .get(id)
+                                    .cloned()
+                                    .map(|record| crate::measured::MeasurementCohortRecord {
+                                        measurement_id: id.clone(),
+                                        record,
+                                    })
+                                    .ok_or_else(|| {
+                                        EvaluationDiagnostic::new(
+                                            crate::model::EvaluationErrorCode::EvaluationAcquisitionMeasurementMissing,
+                                            "synthetic completed measurement is missing",
+                                        )
+                                    })
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
+                        measurement_cohort_from_verified_records(records, request)?
+                    }
+                };
+                let hash = cohort.measurement_cohort_hash.clone();
+                self.measurement_cohorts.insert(hash.clone(), cohort);
+                Ok(json!({
+                    "measurement_acquisition_result_hash":measurement_acquisition_result_hash,
+                    "measurement_cohort_hash":hash,
+                    "hardware_calls":0,
+                }))
+            }
             EvaluationRequest::MeasurementCohortCreate {
                 task,
                 initial_anchor_hash,
@@ -1262,6 +1792,26 @@ fn validate_search_request<'a>(
         ));
     }
     Ok(session)
+}
+
+fn acquisition_session<'a>(
+    sessions: &'a BTreeMap<String, MeasurementAcquisitionSession>,
+    session: &str,
+    plan_hash: &str,
+) -> Result<&'a MeasurementAcquisitionSession, EvaluationDiagnostic> {
+    let retained = sessions.get(session).ok_or_else(|| {
+        EvaluationDiagnostic::new(
+            crate::model::EvaluationErrorCode::EvaluationRunNotFound,
+            "measurement acquisition session does not exist",
+        )
+    })?;
+    if retained.plan.measurement_acquisition_plan_hash != plan_hash {
+        return Err(EvaluationDiagnostic::new(
+            crate::model::EvaluationErrorCode::EvaluationAcquisitionPlanCorrupt,
+            "measurement acquisition plan hash is stale",
+        ));
+    }
+    Ok(retained)
 }
 
 fn validate_measured_search_request(
