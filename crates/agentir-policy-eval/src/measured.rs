@@ -797,7 +797,7 @@ pub fn measured_recommendation(
     Ok(recommendation)
 }
 
-fn terminal_artifact_hash(
+pub(crate) fn terminal_artifact_hash(
     session: &SearchSession,
     terminal: &SearchNodeId,
 ) -> EvaluationResult<Option<String>> {
