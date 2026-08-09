@@ -449,7 +449,7 @@ fn main() -> Result<(), String> {
     archive.learned_models.push(model);
     archive.archive_hash.clear();
     archive.archive_hash = agentir_policy_eval::hashing::domain_hash(
-        agentir_policy_eval::hashing::ARCHIVE_HASH_V5_DOMAIN,
+        agentir_policy_eval::hashing::ARCHIVE_HASH_V6_DOMAIN,
         &archive,
     )
     .expect("archive hash");
@@ -583,7 +583,7 @@ fn main() -> Result<(), String> {
         &output.join("checkpoints.json"),
         &archive.search_checkpoints,
     );
-    write_json(&output.join("archive-v5.json"), &archive);
+    write_json(&output.join("archive-v6.json"), &archive);
     write_json(
         &output.join("mutation-classifications.json"),
         &json!({

@@ -376,7 +376,7 @@ fn mutation_results(archive: &EvaluationArchive) -> EvaluationResult<Vec<Value>>
         }
         mutated.archive_hash.clear();
         mutated.archive_hash = agentir_policy_eval::hashing::domain_hash(
-            agentir_policy_eval::hashing::ARCHIVE_HASH_V4_DOMAIN,
+            agentir_policy_eval::hashing::ARCHIVE_HASH_V6_DOMAIN,
             &mutated,
         )?;
         let diagnostic = verify_archive(&mutated).unwrap_err();
