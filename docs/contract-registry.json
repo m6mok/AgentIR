@@ -2,12 +2,12 @@
   "registry_version": 1,
   "archive_families": [
     {"name":"workspace","current":9,"legacy":[1,2,3,4,5,6,7,8],"document":"docs/persistence.md"},
-    {"name":"evaluation","current":7,"legacy":[1,2,3,4,5,6],"document":"docs/evaluation-archive-v7.md"}
+    {"name":"evaluation","current":8,"legacy":[1,2,3,4,5,6,7],"document":"docs/evaluation-archive-v8.md"}
   ],
   "migration_edges": [
     "workspace:1->2","workspace:2->3","workspace:3->4","workspace:4->5",
     "workspace:5->6","workspace:6->7","workspace:7->8","workspace:8->9",
-    "evaluation:1->2","evaluation:2->3","evaluation:3->4","evaluation:4->5","evaluation:5->6","evaluation:6->7"
+    "evaluation:1->2","evaluation:2->3","evaluation:3->4","evaluation:4->5","evaluation:5->6","evaluation:6->7","evaluation:7->8"
   ],
   "hash_domains": [
     "agentir.content.exact.v1","agentir.spec.semantic.v1","agentir.impl.semantic.v1",
@@ -46,7 +46,12 @@
     "agentir.evaluation.measurement_acquisition_recovery_journal.v1",
     "agentir.evaluation.measurement_acquisition_prepared_slot.v1",
     "agentir.evaluation.measurement_acquisition_reconciliation.v1",
-    "agentir.evaluation.archive.v7"
+    "agentir.evaluation.archive.v7","agentir.evaluation.archive.v8",
+    "agentir.evaluation.autotuning_campaign_plan.v1",
+    "agentir.evaluation.autotuning_campaign_session.v1",
+    "agentir.evaluation.autotuning_campaign_checkpoint.v1",
+    "agentir.evaluation.autotuning_campaign_trace.v1",
+    "agentir.evaluation.autotuning_campaign_result.v1"
   ],
   "id_prefixes": [
     "w","r","t","d","p","c","v","o","h","ob","ca","cr","pr","ir","iv",
@@ -113,11 +118,16 @@
     "EvaluationAcquisitionRecoveryAlreadyResolved","EvaluationAcquisitionRecoveryRetryNotAuthorized",
     "EvaluationAcquisitionRecoveryAmbiguous","EvaluationAcquisitionRecoveryIncompatiblePublication",
     "EvaluationAcquisitionRecoverySnapshotCorrupt","EvaluationAcquisitionRecoveryLimitExceeded",
+    "EvaluationAutotuningCampaignNotFound","EvaluationAutotuningCampaignPlanInvalid",
+    "EvaluationAutotuningCampaignPlanCorrupt","EvaluationAutotuningCampaignInvalidTransition",
+    "EvaluationAutotuningCampaignAnchorStale","EvaluationAutotuningCampaignCheckpointCorrupt",
+    "EvaluationAutotuningCampaignReplayMismatch","EvaluationAutotuningCampaignLimitExceeded",
+    "EvaluationAutotuningCampaignCounterOverflow","EvaluationAutotuningCampaignClientDataForbidden",
     "TokenAccountingUnavailable"
   ],
   "resource_limit_families": [
     "core","candidate","equality","memory","schedule","backend","artifact","device",
-    "evaluation","ranking","continuation","dataset","training","model","inference","search","search-checkpoint","measurement-cohort","measured-objective","measured-replay","measurement-acquisition","acquisition-checkpoint","acquisition-replay","measurement-acquisition-recovery","recovery-checkpoint","recovery-replay","archive-replay"
+    "evaluation","ranking","continuation","dataset","training","model","inference","search","search-checkpoint","measurement-cohort","measured-objective","measured-replay","measurement-acquisition","acquisition-checkpoint","acquisition-replay","measurement-acquisition-recovery","recovery-checkpoint","recovery-replay","autotuning-campaign","campaign-checkpoint","campaign-replay","archive-replay"
   ],
   "public_contract_documents": [
     "docs/architecture.md","docs/resource-budgets.md","docs/continuation-cursors.md",
@@ -136,6 +146,10 @@
     "docs/stage-7c-readiness.md","docs/stage-7d-scope.md",
     "docs/measurement-acquisition-recovery.md","docs/measurement-acquisition-reconciliation.md",
     "docs/measurement-acquisition-crash-semantics.md","docs/evaluation-archive-v7.md",
-    "docs/stage-7d-readiness.md"
+    "docs/stage-7d-readiness.md","docs/stage-7e-scope.md",
+    "docs/autotuning-campaign-plans.md","docs/autotuning-campaign-sessions.md",
+    "docs/autotuning-campaign-checkpoints.md","docs/autotuning-campaign-replay.md",
+    "docs/autotuning-campaign-fairness.md","docs/evaluation-archive-v8.md",
+    "docs/stage-7e-readiness.md","docs/stage-7-readiness.md"
   ]
 }

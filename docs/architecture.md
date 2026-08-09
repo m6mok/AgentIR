@@ -41,7 +41,7 @@ immutable corpus + policy descriptor
   ↓ exact observation / bounded decision
 agentir-policy-eval ─ production outcome → ranking/learning → isolated bounded search
   ↓ separate format
-evaluation archive v7 (v1→v2→v3→v4→v5→v6→v7 migration; never workspace archive v9)
+evaluation archive v8 (v1→v2→v3→v4→v5→v6→v7→v8 migration; never workspace archive v9)
 ```
 
 The dependency direction is one-way: `core` knows nothing about JSONL sessions, policy evaluation, learned models, search plans/frontiers, transcripts or filesystems; the reference evaluator and store depend on `core`; `protocol` composes production components; `agentir-policy-eval` invokes that production surface and owns offline ranking, learning and bounded search; both CLIs only stream lines.
@@ -121,3 +121,7 @@ One proved MemoryIR revision plus one immutable TargetManifest anchors an indepe
 # Stage 5 backend and runtime boundary
 
 `agentir-core` owns BackendIR, hashes, certificates, lifecycle, events and package models without depending on Naga or wgpu. `agentir-backend-wgsl` is the trusted lowering/emission adapter and uses Naga for mandatory offline validation. `agentir-runtime-wgpu` is optional and has no correctness authority. `agentir-protocol` composes these components but never accepts source or proof payloads from clients.
+
+# Stage 7E integrated evaluation campaign
+
+`agentir-policy-eval` alone owns the Stage 7E campaign graph. It retains exact Stage 7A search, Stage 7C acquisition, Stage 7D recovery, and Stage 7B cohort/recommendation records without copying their semantics. The executor is available only to explicit prepared-slot execution. Evaluation archive v8 persists campaign history separately from workspace archive v9.

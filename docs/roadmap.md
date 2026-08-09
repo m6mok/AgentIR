@@ -150,6 +150,10 @@ Stage 7B is offline selection, not live autotuning, performance proof, global op
 Deferred beyond Stage 7D: concurrent writers, remote/distributed workers,
 multi-device pooling, automatic retry, live tuning, prediction/training, energy
 objectives, statistical inference, and new search/ranking algorithms.
+
+## Implemented Stage 7E; closure gate pending
+
+Stage 7E integrates existing Stage 7A–7D records into a checkpointable campaign with one explicit hardware boundary, zero-device replay, and evaluation archive v8. Offline synthetic studies are deterministic. Full Stage 7 closure and any Stage 8 scope remain blocked until the controlled two-artifact production WebGPU smoke in `stage-7-readiness.md` succeeds.
 - byte-identical synthetic orchestration study without performance claims.
 
 Concurrent/remote acquisition, multi-device pooling, new search algorithms, prediction, raw-sample significance, energy records, training during acquisition and live publication remain later work.

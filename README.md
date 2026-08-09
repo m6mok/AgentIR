@@ -2,7 +2,7 @@
 
 AgentIR — экспериментальная агентно-нативная компиляционная среда для численных вычислений. В ней программа хранится не как исходный текст, а как типизированный граф. Агент меняет граф небольшими атомарными ActionIR-транзакциями, а compiler core выводит типы, проверяет формы и сохраняет каждое принятое состояние как неизменяемую ревизию.
 
-Сейчас репозиторий содержит узкий Stage 7D reference prototype. Поверх exact Stage 1–5 compiler stack, Stage 6A–6C, immutable Stage 7A search, Stage 7B offline selection и Stage 7C acquisition он добавляет prepare-before-hardware journal, crash reconciliation без device calls, explicit retry authorization и evaluation archive v7. Это single-writer recovery contract, а не exactly-once hardware, full autotuning, performance/correctness proof или global-optimality claim.
+Сейчас репозиторий содержит Stage 7E reference prototype. Поверх exact Stage 1–5 compiler stack и Stage 6A–7D он объединяет bounded search, explicit acquisition, durable crash recovery и offline recommendation в restartable campaign с evaluation archive v8. Это single-workspace/single-writer evaluation contract, а не exactly-once hardware, performance/correctness proof, live publication или global-optimality claim. Полное закрытие Stage 7 всё ещё требует controlled real-device gate.
 
 ## Что уже работает
 
@@ -104,7 +104,7 @@ cargo run -p agentir-cli --bin agentir < examples/equality_to_schedule.jsonl
 - `agentir-store` — atomic file persistence, archive integrity и deterministic replay;
 - `agentir-protocol` — wire types и stateful command engine;
 - `agentir-cli` — тонкий JSONL stdin/stdout frontend.
-- `agentir-policy-eval` — immutable corpus, ranking/search, explicit measurement acquisition, durable recovery/reconciliation, replay, metrics, fairness и evaluation archive v7;
+- `agentir-policy-eval` — immutable corpus, ranking/search, explicit measurement acquisition, durable recovery/reconciliation, integrated campaigns, replay, metrics, fairness и evaluation archive v8;
 - `agentir-eval` CLI — bounded JSONL transport для scripted и внешних agent policies.
 
 Stage 6A quick check:
@@ -150,7 +150,7 @@ Evaluation harness измеряет взаимодействие и policy-owned
 
 ## Roadmap
 
-Stage 6B завершает воспроизводимую ranking основу. Learned ranking, autotuning и автоматический выбор остаются Stage 6C или позже. См. [docs/roadmap.md](docs/roadmap.md).
+Stage 7E composes bounded search, explicit acquisition, durable recovery, and offline measured recommendation into a restartable evaluation campaign. Hardware remains behind one explicit execute command; replay and archive verification are zero-device. The controlled real-device closure gate is still required before Stage 8 scope; see [Stage 7 readiness](docs/stage-7-readiness.md) and [the roadmap](docs/roadmap.md).
 
 ## Документация
 

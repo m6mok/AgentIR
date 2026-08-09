@@ -751,3 +751,31 @@ Potential persistent references inside generic semantic attributes are rejected 
 ## ADR-172: Broader recovery remains deferred
 
 **Decision.** Concurrency, distribution, cross-device comparison, automatic retry, live artifact publication, prediction/training, statistical significance, energy objectives and new search/ranking algorithms remain out of Stage 7D.
+
+## ADR-173: Integrated campaigns are evaluation-owned composition
+
+**Decision.** Stage 7E lives only in `agentir-policy-eval` and retains exact Stage 7A–7D records. It adds no compiler semantics, proof authority, search algorithm, ranker, or contract substitution.
+
+## ADR-174: Terminal selection is deterministic and timing-blind
+
+**Decision.** V1 uses every distinct proved/offline-valid terminal artifact from the frozen Stage 7A graph, ordered by artifact hash and bounded by an explicit cap. No timing or new policy preselects artifacts.
+
+## ADR-175: Campaign hardware has one explicit boundary
+
+**Decision.** Only `execute_prepared` accepts the server-owned executor. All other campaign operations, including replay and verification, are zero-device. Retry remains an explicit Stage 7D authorization with a new attempt ID; physical exactly-once execution is not claimed.
+
+## ADR-176: Campaign selection never publishes live state
+
+**Decision.** A measured recommendation is non-correctness evaluation data. Campaign finalization records it but cannot publish an artifact or claim performance superiority, portability, significance, or global optimality.
+
+## ADR-177: Evaluation archive v8 adds campaign history only
+
+**Decision.** Workspace archive v9, `HardwareMeasurementRecord` v1, and Stage 1–7D hashes remain immutable. V7→v8 first verifies v7 and adds `NoCampaignHistory`; it invents no older-stage records.
+
+## ADR-178: Full Stage 7 closure requires a controlled device gate
+
+**Decision.** Offline tests and synthetic byte identity are necessary but insufficient. Stage 8 scope remains blocked until a production workspace, WebGPU adapter, at least two compatible terminal artifacts, post-publication crash/restart/reconciliation, final checkpoint, and zero-device replay complete successfully.
+
+## ADR-179: Broader autotuning remains deferred
+
+**Decision.** Stage 7E stays single-workspace/single-writer. Concurrency, distribution, remote workers, multi-device pools, prediction, interpolation, training, energy objectives, statistical inference, automatic retry, and new search/ranking algorithms are later scope.

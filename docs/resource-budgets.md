@@ -126,3 +126,7 @@ Central limits cover target manifests/revisions/events/capabilities/canonical by
 # Stage 5 budgets
 
 Central limits cover backend plans/revisions/events/kernels/values/expressions/statements/source nodes/bindings/parameters/dispatches/guards/work units/obligations/evidence/canonical bytes; artifact packages/modules/entry points/WGSL/manifest/events/validation work; execution buffers/elements/bytes/traces/tasks; benchmark warmups/iterations/records/bytes/wall time; generated cases; and backend/archive bytes. Checks precede persistent ID, shader, buffer, device-task, and publication work. Policy remains excluded from all correctness and reproducibility hashes.
+
+# Stage 7E campaign budgets
+
+Campaign limits bound retained sessions, terminal artifacts, transitions, trace events, retained sub-stage references, checkpoint bytes, resume/replay work, production requests, archive-v8 bytes, and total semantic work. Exact limits are accepted; limit-plus-one and checked overflow reject before publication. Limits and work counters are excluded from campaign semantic hashes.

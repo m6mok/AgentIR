@@ -88,6 +88,10 @@
 - **Prepared slot** — immutable attempt record created before hardware authorization, including an exact production publication snapshot.
 - **Reconciliation** — server-owned zero-device classification of compatible production measurements appearing after a prepared boundary.
 - **Indeterminate hardware execution** — a state in which a benchmark may have run but exactly-once execution cannot be proved; automatic retry is forbidden.
+- **Autotuning campaign** — Stage 7E evaluation-only composition of frozen search, acquisition, recovery, cohort, and recommendation records.
+- **Campaign checkpoint** — exact zero-device restart snapshot carrying campaign and current Stage 7A–7D anchors.
+- **Campaign result** — non-authoritative final recommendation record; it neither publishes an artifact nor advances correctness.
+- **Stage 7 closure gate** — offline determinism plus a controlled two-artifact production WebGPU crash/restart/reconciliation smoke required before Stage 8 scope.
 - **Acquisition slot** — one complete benchmark/publication unit; checkpoint and cancellation occur only between slots.
 - **Acquisition checkpoint** — independently hashed completed-prefix snapshot whose device/build/runtime/record anchors are revalidated before resume.
 - **Acquisition result** — non-correctness terminal orchestration record; it is not a cohort, recommendation or performance proof.

@@ -11,3 +11,5 @@ Stage 6C additionally requires the same dataset input schema, feature codec, com
 Stage 7A comparisons additionally require exact initial anchors, objective hash, algorithm/version, beam/depth/child envelope, checkpoint semantics and successful safety limits. Complete/bounded/cancelled/failed and terminal/no-terminal runs remain separate. After search divergence only task-level comparison under the same envelope is permitted; see [search-fairness.md](search-fairness.md).
 
 Stage 7B comparisons additionally require exact cohort/objective identity and same device, target, build, runtime, config, distribution, dimensions, status policy, and record count. Measured/unmeasured terminal outcomes remain separate; see [measured-search-fairness.md](measured-search-fairness.md).
+
+Stage 7E comparisons additionally require exact campaign plan, terminal set, acquisition/recovery records, cohort/objective, and stopping status. Synthetic fixtures remain separate from hardware evidence, and wall clock is excluded from semantic byte comparisons; see [autotuning-campaign-fairness.md](autotuning-campaign-fairness.md).

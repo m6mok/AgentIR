@@ -73,6 +73,7 @@ Start with the root [README](../README.md), then choose the document matching th
 - [Contract registry](contract-registry.json) — machine-checked version/hash/ID/diagnostic inventory.
 - [Pre-Stage-7 audit](pre-stage-7-architecture-audit.md) and [readiness gate](pre-stage-7-readiness.md).
 - [Stage 7A scope](stage-7a-scope.md), [objectives](search-objectives.md), [plans](search-plans.md), [graph](search-graph.md), [checkpoints](search-checkpoints.md), [replay](search-replay.md), and [fairness](search-fairness.md).
+- [Stage 7E scope](stage-7e-scope.md), [plans](autotuning-campaign-plans.md), [sessions](autotuning-campaign-sessions.md), [checkpoints](autotuning-campaign-checkpoints.md), [replay](autotuning-campaign-replay.md), [fairness](autotuning-campaign-fairness.md), [archive v8](evaluation-archive-v8.md), and [full Stage 7 readiness](stage-7-readiness.md).
 - [Evaluation archive v4](evaluation-archive-v4.md), [external search protocol](external-search-protocol.md), and [Stage 7A readiness](stage-7a-readiness.md).
 - [Development](development.md) — repository layout, checks, tests and baseline harness.
 - [Glossary](glossary.md) — short definitions of AgentIR terms.

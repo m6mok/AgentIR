@@ -110,6 +110,10 @@ Update the canonical `Opcode`, type/shape inference, region policy if relevant, 
 ## Dependency policy
 
 Dependencies are deliberately small: `serde`, `serde_json` and `sha2`. Prefer the standard library and deterministic collections. GPU/compiler-framework dependencies belong to later stages and should enter behind a new crate boundary.
+
+## Stage 7E campaign checks
+
+Run `cargo test -p agentir-policy-eval --test stage7e`, then run `stage7e_study` twice and compare with `stage7e_compare`. Semantic files must be byte-identical; `operational.json` is deliberately excluded. Real-device material belongs only under `target/stage7e-study/device/` and must never be committed.
 # Stage 4 checks
 
 Run every `schedule_*.jsonl` example and `equality_to_schedule.jsonl` in addition to the earlier quality gate. A valid scheduled SAXPY result remains `[12.0,24.0,36.0,48.0]`. Stage 4 changes require coverage for atomic rejection, hash independence, target/resource limits, schedule replay, v7 → v8 migration, and corrupted v8 state.

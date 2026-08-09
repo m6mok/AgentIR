@@ -62,6 +62,13 @@ AgentIR is an agent-native compiler prototype. Preserve these invariants in ever
 56. Stage 7A/7B/7C hashes, workspace archive v9, measurement record v1, compiler hashes and proof frontiers are immutable under Stage 7D.
 57. Evaluation archive v1–v6 are immutable legacy inputs; new evaluation saves use v7 and migrate only v1→v2→v3→v4→v5→v6→v7 without invented recovery history.
 58. Stage 7D contains no concurrency, remote workers, multi-device pooling, automatic retry, live tuning, prediction, training, statistical claims, or new search/ranking algorithms.
+59. Stage 7E lives only in `agentir-policy-eval` and composes existing Stage 7A–7D records without changing their contracts or gaining correctness authority.
+60. Campaign terminal artifacts are the canonical artifact-hash-ordered distinct proved/offline-valid terminals from the frozen Stage 7A result; timing cannot preselect them.
+61. Only explicit campaign `execute_prepared` may perform hardware work; status, checkpoint, resume, reconcile, cohort, recommendation, result, replay, and archive verification are zero-device.
+62. Campaign recovery remains Stage 7D single-writer prepare/reconcile/explicit-retry semantics and makes no exactly-once physical execution claim.
+63. Campaign recommendations never publish a live artifact and do not prove speed, portability, significance, correctness, or global optimality.
+64. Evaluation archive v1–v7 are immutable legacy inputs; new evaluation saves use v8 and migrate only v1→v2→v3→v4→v5→v6→v7→v8 without invented campaign history.
+65. Stage 7 is not fully closed and Stage 8 scope must not begin until both the offline gate and controlled two-artifact real-device campaign smoke pass.
 
 ## Where to look before changing code
 
@@ -155,6 +162,7 @@ cargo test -p agentir-policy-eval --test stage7a
 cargo test -p agentir-policy-eval --test stage7b
 cargo test -p agentir-policy-eval --test stage7c
 cargo test -p agentir-policy-eval --test stage7d
+cargo test -p agentir-policy-eval --test stage7e
 cargo run --release -p agentir-policy-eval --example stage6c_study -- --output target/stage6c-study/run-1
 cargo run --release -p agentir-policy-eval --example stage6c_study -- --output target/stage6c-study/run-2
 cargo run --release -p agentir-policy-eval --example stage6c_compare -- target/stage6c-study/run-1 target/stage6c-study/run-2
@@ -167,6 +175,9 @@ cargo run --release -p agentir-policy-eval --example stage7c_compare -- target/s
 cargo run --release -p agentir-policy-eval --example stage7d_study -- --output target/stage7d-study/run-1
 cargo run --release -p agentir-policy-eval --example stage7d_study -- --output target/stage7d-study/run-2
 cargo run --release -p agentir-policy-eval --example stage7d_compare -- target/stage7d-study/run-1 target/stage7d-study/run-2
+cargo run --release -p agentir-policy-eval --example stage7e_study -- --output target/stage7e-study/run-1
+cargo run --release -p agentir-policy-eval --example stage7e_study -- --output target/stage7e-study/run-2
+cargo run --release -p agentir-policy-eval --example stage7e_compare -- target/stage7e-study/run-1 target/stage7e-study/run-2
 ```
 
 The final SAXPY response must contain `[12.0,24.0,36.0,48.0]`.
