@@ -15,7 +15,6 @@ const SEMANTIC_FILES: &[&str] = &[
     "mutations.json",
     "archive-v6.json",
     "metrics.json",
-    "device-skip.json",
 ];
 
 fn main() -> Result<(), String> {

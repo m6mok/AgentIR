@@ -592,7 +592,12 @@ fn main() -> Result<(), String> {
     write_json(&output.join("mutations.json"), &mutations)?;
     write_json(&output.join("archive-v6.json"), &archive)?;
     write_json(&output.join("metrics.json"), &metrics)?;
-    write_json(&output.join("device-skip.json"), &device_skip)?;
+    let device_output = output
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("device");
+    fs::create_dir_all(&device_output).map_err(|error| error.to_string())?;
+    write_json(&device_output.join("structured-skip.json"), &device_skip)?;
     write_json(
         &output.join("timing-observations.json"),
         &json!({"wall_clock_ns":u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX)}),
