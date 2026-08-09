@@ -10,6 +10,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod acquisition;
 pub mod continuation;
 pub mod corpus;
 pub mod engine;
@@ -23,6 +24,7 @@ pub mod repairs;
 pub mod search;
 pub mod work;
 
+pub use acquisition::*;
 pub use continuation::*;
 pub use corpus::{builtin_corpus, builtin_ranked_corpus};
 pub use engine::{

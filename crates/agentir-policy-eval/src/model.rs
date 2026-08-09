@@ -801,6 +801,58 @@ pub enum LearningEpisodeStatus {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum EvaluationErrorCode {
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionUnsupportedMode,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionArtifactSetInvalid,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionArtifactInvalid,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionMixedSpec,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionMixedTarget,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionDeviceUnavailable,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionDeviceChanged,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionCompilerBuildChanged,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionRuntimeChanged,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionBenchmarkConfigInvalid,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionPlanInvalid,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionPlanCorrupt,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionCheckpointCorrupt,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionCheckpointStale,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionTraceCorrupt,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionResultCorrupt,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionMeasurementMissing,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionMeasurementDuplicate,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionSlotOrderMismatch,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionUnequalRecords,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionBenchmarkFailed,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionIndeterminateAfterCrash,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionClientDataForbidden,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionLimitExceeded,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionCounterOverflow,
+    /// Stable Stage 7C wire variant.
+    EvaluationAcquisitionReplayHardwareWork,
     /// Stable wire variant.
     EvaluationCorpusNotFound,
     /// Stable wire variant.
