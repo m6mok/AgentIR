@@ -8,6 +8,9 @@ use crate::learned::{
     DatasetSplit, InferenceRecord, LearnedModelArtifact, RankingDataset, RankingInput,
     TrainingConfiguration, TrainingRun,
 };
+use crate::measured::{
+    MeasuredObjectiveDescriptor, MeasuredRecommendation, MeasuredSearchRunRecord, MeasurementCohort,
+};
 use crate::ranking::{
     EvaluationChoiceSet, FeatureSchema, RankingPolicyDescriptor, RankingTrace, SelectionOutcome,
 };
@@ -712,8 +715,46 @@ pub struct EvaluationArchive {
     /// Stage 7A deterministic non-correctness work counters. Empty in v1/v2/v3.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub search_work_counters: Vec<SearchWorkCounters>,
+    /// Explicit v5 classification of measured-search-history presence.
+    #[serde(
+        default,
+        skip_serializing_if = "MeasuredSearchHistoryStatus::is_unspecified"
+    )]
+    pub measured_search_history_status: MeasuredSearchHistoryStatus,
+    /// Stage 7B frozen verified measurement cohorts. Empty in v1–v4.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub measurement_cohorts: Vec<MeasurementCohort>,
+    /// Stage 7B hardware objective descriptors. Empty in v1–v4.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub measured_objectives: Vec<MeasuredObjectiveDescriptor>,
+    /// Stage 7B measured-search run anchors. Empty in v1–v4.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub measured_search_runs: Vec<MeasuredSearchRunRecord>,
+    /// Stage 7B non-authoritative measured recommendations. Empty in v1–v4.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub measured_recommendations: Vec<MeasuredRecommendation>,
     /// Stable serialized contract field.
     pub archive_hash: String,
+}
+
+/// Measured-search presence recorded explicitly by evaluation archive v5.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MeasuredSearchHistoryStatus {
+    /// Legacy decoding default; forbidden in a verified v5 archive.
+    #[default]
+    Unspecified,
+    /// Pure migration retained no synthetic measured-search history.
+    NoMeasuredSearchHistory,
+    /// One or more verified measured recommendations are retained.
+    MeasuredSearchHistoryPresent,
+}
+
+impl MeasuredSearchHistoryStatus {
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    fn is_unspecified(&self) -> bool {
+        matches!(self, Self::Unspecified)
+    }
 }
 
 /// Search-history presence recorded explicitly by evaluation archive v4.
@@ -878,6 +919,48 @@ pub enum EvaluationErrorCode {
     EvaluationSearchReplayMismatch,
     /// Stable wire variant.
     EvaluationSearchIncomplete,
+    /// Stable wire variant.
+    EvaluationMeasuredMetricUnsupported,
+    /// Stable wire variant.
+    EvaluationMeasurementMissing,
+    /// Stable wire variant.
+    EvaluationMeasurementNotFound,
+    /// Stable wire variant.
+    EvaluationMeasurementDuplicate,
+    /// Stable wire variant.
+    EvaluationMeasurementMixedDevice,
+    /// Stable wire variant.
+    EvaluationMeasurementMixedTarget,
+    /// Stable wire variant.
+    EvaluationMeasurementMixedBuild,
+    /// Stable wire variant.
+    EvaluationMeasurementMixedRuntime,
+    /// Stable wire variant.
+    EvaluationMeasurementMixedConfig,
+    /// Stable wire variant.
+    EvaluationMeasurementMixedInput,
+    /// Stable wire variant.
+    EvaluationMeasurementValidationInvalid,
+    /// Stable wire variant.
+    EvaluationUnequalMeasurementRecords,
+    /// Stable wire variant.
+    EvaluationMeasuredTerminalUnavailable,
+    /// Stable wire variant.
+    EvaluationMeasurementCorrupt,
+    /// Stable wire variant.
+    EvaluationMeasurementCohortCorrupt,
+    /// Stable wire variant.
+    EvaluationMeasuredObjectiveInvalid,
+    /// Stable wire variant.
+    EvaluationMeasuredObjectiveCorrupt,
+    /// Stable wire variant.
+    EvaluationMeasuredRecommendationCorrupt,
+    /// Stable wire variant.
+    EvaluationMeasuredAnchorStale,
+    /// Stable wire variant.
+    EvaluationClientMeasurementDataForbidden,
+    /// Stable wire variant.
+    EvaluationMeasuredArithmeticOverflow,
     /// Stable wire variant.
     TokenAccountingUnavailable,
 }
