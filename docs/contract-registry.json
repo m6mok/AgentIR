@@ -2,12 +2,12 @@
   "registry_version": 1,
   "archive_families": [
     {"name":"workspace","current":9,"legacy":[1,2,3,4,5,6,7,8],"document":"docs/persistence.md"},
-    {"name":"evaluation","current":6,"legacy":[1,2,3,4,5],"document":"docs/evaluation-archive-v6.md"}
+    {"name":"evaluation","current":7,"legacy":[1,2,3,4,5,6],"document":"docs/evaluation-archive-v7.md"}
   ],
   "migration_edges": [
     "workspace:1->2","workspace:2->3","workspace:3->4","workspace:4->5",
     "workspace:5->6","workspace:6->7","workspace:7->8","workspace:8->9",
-    "evaluation:1->2","evaluation:2->3","evaluation:3->4","evaluation:4->5","evaluation:5->6"
+    "evaluation:1->2","evaluation:2->3","evaluation:3->4","evaluation:4->5","evaluation:5->6","evaluation:6->7"
   ],
   "hash_domains": [
     "agentir.content.exact.v1","agentir.spec.semantic.v1","agentir.impl.semantic.v1",
@@ -42,7 +42,11 @@
     "agentir.evaluation.measurement_acquisition_checkpoint.v1",
     "agentir.evaluation.measurement_acquisition_trace.v1",
     "agentir.evaluation.measurement_acquisition_result.v1",
-    "agentir.evaluation.archive.v6"
+    "agentir.evaluation.archive.v6",
+    "agentir.evaluation.measurement_acquisition_recovery_journal.v1",
+    "agentir.evaluation.measurement_acquisition_prepared_slot.v1",
+    "agentir.evaluation.measurement_acquisition_reconciliation.v1",
+    "agentir.evaluation.archive.v7"
   ],
   "id_prefixes": [
     "w","r","t","d","p","c","v","o","h","ob","ca","cr","pr","ir","iv",
@@ -105,11 +109,15 @@
     "EvaluationAcquisitionBenchmarkFailed","EvaluationAcquisitionIndeterminateAfterCrash",
     "EvaluationAcquisitionClientDataForbidden","EvaluationAcquisitionLimitExceeded",
     "EvaluationAcquisitionCounterOverflow","EvaluationAcquisitionReplayHardwareWork",
+    "EvaluationAcquisitionRecoveryNotPrepared","EvaluationAcquisitionRecoveryJournalCorrupt",
+    "EvaluationAcquisitionRecoveryAlreadyResolved","EvaluationAcquisitionRecoveryRetryNotAuthorized",
+    "EvaluationAcquisitionRecoveryAmbiguous","EvaluationAcquisitionRecoveryIncompatiblePublication",
+    "EvaluationAcquisitionRecoverySnapshotCorrupt","EvaluationAcquisitionRecoveryLimitExceeded",
     "TokenAccountingUnavailable"
   ],
   "resource_limit_families": [
     "core","candidate","equality","memory","schedule","backend","artifact","device",
-    "evaluation","ranking","continuation","dataset","training","model","inference","search","search-checkpoint","measurement-cohort","measured-objective","measured-replay","measurement-acquisition","acquisition-checkpoint","acquisition-replay","archive-replay"
+    "evaluation","ranking","continuation","dataset","training","model","inference","search","search-checkpoint","measurement-cohort","measured-objective","measured-replay","measurement-acquisition","acquisition-checkpoint","acquisition-replay","measurement-acquisition-recovery","recovery-checkpoint","recovery-replay","archive-replay"
   ],
   "public_contract_documents": [
     "docs/architecture.md","docs/resource-budgets.md","docs/continuation-cursors.md",
@@ -125,6 +133,9 @@
     "docs/stage-7c-scope.md","docs/measurement-acquisition-plans.md",
     "docs/measurement-acquisition-sessions.md","docs/measurement-acquisition-replay.md",
     "docs/measurement-acquisition-fairness.md","docs/evaluation-archive-v6.md",
-    "docs/stage-7c-readiness.md"
+    "docs/stage-7c-readiness.md","docs/stage-7d-scope.md",
+    "docs/measurement-acquisition-recovery.md","docs/measurement-acquisition-reconciliation.md",
+    "docs/measurement-acquisition-crash-semantics.md","docs/evaluation-archive-v7.md",
+    "docs/stage-7d-readiness.md"
   ]
 }

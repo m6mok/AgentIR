@@ -703,3 +703,51 @@ Potential persistent references inside generic semantic attributes are rejected 
 ## ADR-160: Broader acquisition remains deferred
 
 **Decision.** Concurrency, remote workers, multi-device pooling, prediction/interpolation, energy objectives, raw-sample inference and training during acquisition require later contracts.
+
+## ADR-161: Recovery makes no exactly-once hardware claim
+
+**Decision.** Stage 7D proves no silent automatic rerun and at most one accepted measurement per Stage 7C slot. A physical benchmark may have executed before a crash; the journal never promotes that uncertainty into an exactly-once claim.
+
+## ADR-162: Recovery v1 is single-workspace and single-writer
+
+**Decision.** One recovery journal protects one canonical slot against one production measurement store. Concurrent writers, distributed transactions, remote workers and multi-device pools require a later contract.
+
+## ADR-163: Durable preparation precedes hardware authorization
+
+**Decision.** `prepare` verifies all Stage 7C anchors, snapshots production publications and assigns an attempt ID before any benchmark. Only a separate explicit `execute` operation receives an executor.
+
+## ADR-164: Publication snapshots are server owned
+
+**Decision.** The prepared boundary is the canonical ordered set of existing production measurement IDs and reverified hashes. Clients cannot supply timing/device/build/validation data, record selections, outcomes, execution claims or recovery certificates.
+
+## ADR-165: Reconciliation uses zero/one/multiple semantics
+
+**Decision.** Zero compatible post-boundary publications remains an observed absence; one may be atomically attached to the pending Stage 7C slot; multiple remain typed ambiguous. Incompatible or changed anchors block without hardware work.
+
+## ADR-166: Retry requires a new explicit authorization
+
+**Decision.** Only a latest zero-publication reconciliation permits `authorize_retry`. It creates a new immutable attempt ID and trace event; the prior attempt is never rewritten or silently executed again.
+
+## ADR-167: Indeterminate slots never rerun silently
+
+**Decision.** Crashes before benchmark, after benchmark and after publication all retain an explicit indeterminate recovery state until reconciliation, retry authorization or abandonment. Ordinary Stage 7C resume does not bypass the journal.
+
+## ADR-168: Recovery replay is zero-device
+
+**Decision.** Status, checkpoint, restore, reconciliation, result, replay and archive verification accept no executor. Replay rehashes journals and referenced production records and rejects any non-zero replay hardware-call accounting.
+
+## ADR-169: Stage 7A, 7B and 7C contracts remain immutable
+
+**Decision.** Stage 7D adds independent journal, prepared-slot and reconciliation domains. Existing search, measurement cohort, measured recommendation, acquisition plan/checkpoint/trace/result hashes and ordering semantics are unchanged.
+
+## ADR-170: Workspace v9 and measurement record v1 remain immutable
+
+**Decision.** Recovery is implemented in `agentir-policy-eval` over the existing read/publish store boundary. It does not change workspace archives, `HardwareMeasurementRecord`, compiler semantics, hashes or proof frontiers.
+
+## ADR-171: Evaluation archive v7 retains recovery provenance
+
+**Decision.** V6→v7 first verifies v6 and adds `NoRecoveryHistory` without synthetic records. New saves use v7; the only load chain is v1→v2→v3→v4→v5→v6→v7.
+
+## ADR-172: Broader recovery remains deferred
+
+**Decision.** Concurrency, distribution, cross-device comparison, automatic retry, live artifact publication, prediction/training, statistical significance, energy objectives and new search/ranking algorithms remain out of Stage 7D.

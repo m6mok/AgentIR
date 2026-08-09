@@ -138,6 +138,18 @@ Stage 7B is offline selection, not live autotuning, performance proof, global op
 - canonical artifact-hash round robin with fixed records per artifact;
 - atomic complete-slot publication, checkpoint/resume/cancel and typed failures;
 - separate Stage 7B cohort handoff, zero-device replay and evaluation archive v6;
+
+## Completed Stage 7D: durable acquisition recovery
+
+- durable prepare-before-hardware records with exact production publication snapshots;
+- explicit execution and safe crash-boundary injection;
+- server-owned zero/one/multiple reconciliation with no automatic rerun;
+- explicit retry authorization with a new attempt ID and explicit abandonment;
+- zero-device restore/replay, Stage 7C/7B handoff and evaluation archive v7.
+
+Deferred beyond Stage 7D: concurrent writers, remote/distributed workers,
+multi-device pooling, automatic retry, live tuning, prediction/training, energy
+objectives, statistical inference, and new search/ranking algorithms.
 - byte-identical synthetic orchestration study without performance claims.
 
 Concurrent/remote acquisition, multi-device pooling, new search algorithms, prediction, raw-sample significance, energy records, training during acquisition and live publication remain later work.

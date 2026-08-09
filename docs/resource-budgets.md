@@ -12,6 +12,13 @@ Stage 7B additionally bounds measurement references/cohorts/records/artifacts, m
 
 Stage 7C v1 defaults bound one plan to 1,024 artifact references, 10,000 records per artifact and 1,000,000 total slots, and bound an encoded checkpoint to 256 MiB. An advance can inspect only the already-bounded remaining slot vector. Checked overflow and exact-limit/limit-plus-one policy reject before allocation or publication. Limits, progress and work counters enter no plan identity; replay hardware calls must remain zero. Protocol-wide retained-session/archive caps remain deployment work rather than a semantic contract.
 
+Stage 7D v1 separately bounds retained recovery journals, prepared attempts,
+publication-snapshot records, reconciliation candidates, retry attempts,
+recovery trace events, checkpoint bytes, replay work and archive-v7 bytes.
+Checks use exact-limit acceptance and limit-plus-one rejection before caller
+state or ID allocation is published. Recovery limits and all work counters are
+operational and excluded from journal, prepared-slot and reconciliation hashes.
+
 Memory budgets cover plans/revisions/events, buffers/operations/accesses, alias facts/domains, lifetime uses, obligations, reuse attempts, guard dependencies and fallback depth, layout entries, per-buffer/total abstract bytes, canonical/archive bytes, evaluation elements, trace events/bytes, and generated cases. Projected hard-limit failures happen against a staged store before publication; resource policy never enters `memory_hash`.
 
 `ResourceLimits`, `ResourceKind`, `ResourceUsage` and `BudgetCheck` provide one structured policy across core, evaluator, store, protocol and CLI. Limits are excluded from `Program`, snapshots and every hash identity.

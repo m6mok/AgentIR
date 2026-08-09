@@ -84,6 +84,10 @@
 - **Continuation cursor** — opaque versioned compiler-owned token for resuming an exact bounded enumeration at unchanged anchors.
 - **Typed repair** — bounded compiler-owned descriptor anchored to an exact diagnostic/base; it still traverses the production verifier and does not promise acceptance.
 - **Measurement acquisition plan** — immutable Stage 7C workspace/artifact/config contract with canonical artifact-hash round-robin order.
+- **Recovery journal** — Stage 7D single-writer record that durably anchors one prepared Stage 7C slot and every explicit recovery decision.
+- **Prepared slot** — immutable attempt record created before hardware authorization, including an exact production publication snapshot.
+- **Reconciliation** — server-owned zero-device classification of compatible production measurements appearing after a prepared boundary.
+- **Indeterminate hardware execution** — a state in which a benchmark may have run but exactly-once execution cannot be proved; automatic retry is forbidden.
 - **Acquisition slot** — one complete benchmark/publication unit; checkpoint and cancellation occur only between slots.
 - **Acquisition checkpoint** — independently hashed completed-prefix snapshot whose device/build/runtime/record anchors are revalidated before resume.
 - **Acquisition result** — non-correctness terminal orchestration record; it is not a cohort, recommendation or performance proof.

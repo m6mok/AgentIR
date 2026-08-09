@@ -2,7 +2,7 @@
 
 AgentIR — экспериментальная агентно-нативная компиляционная среда для численных вычислений. В ней программа хранится не как исходный текст, а как типизированный граф. Агент меняет граф небольшими атомарными ActionIR-транзакциями, а compiler core выводит типы, проверяет формы и сохраняет каждое принятое состояние как неизменяемую ревизию.
 
-Сейчас репозиторий содержит узкий Stage 7C reference prototype. Поверх exact Stage 1–5 compiler stack, Stage 6A–6C, immutable Stage 7A search и Stage 7B offline selection он добавляет explicit bounded hardware acquisition, canonical round robin, slot-boundary checkpoint/resume/cancel, zero-device replay, отдельный cohort handoff и evaluation archive v6. Это не full autotuning, performance/correctness proof и не global-optimality claim.
+Сейчас репозиторий содержит узкий Stage 7D reference prototype. Поверх exact Stage 1–5 compiler stack, Stage 6A–6C, immutable Stage 7A search, Stage 7B offline selection и Stage 7C acquisition он добавляет prepare-before-hardware journal, crash reconciliation без device calls, explicit retry authorization и evaluation archive v7. Это single-writer recovery contract, а не exactly-once hardware, full autotuning, performance/correctness proof или global-optimality claim.
 
 ## Что уже работает
 
@@ -104,7 +104,7 @@ cargo run -p agentir-cli --bin agentir < examples/equality_to_schedule.jsonl
 - `agentir-store` — atomic file persistence, archive integrity и deterministic replay;
 - `agentir-protocol` — wire types и stateful command engine;
 - `agentir-cli` — тонкий JSONL stdin/stdout frontend.
-- `agentir-policy-eval` — immutable corpus, ranking/search, explicit measurement acquisition, replay, metrics, fairness и evaluation archive v6;
+- `agentir-policy-eval` — immutable corpus, ranking/search, explicit measurement acquisition, durable recovery/reconciliation, replay, metrics, fairness и evaluation archive v7;
 - `agentir-eval` CLI — bounded JSONL transport для scripted и внешних agent policies.
 
 Stage 6A quick check:

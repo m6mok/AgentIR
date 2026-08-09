@@ -41,7 +41,7 @@ immutable corpus + policy descriptor
   ↓ exact observation / bounded decision
 agentir-policy-eval ─ production outcome → ranking/learning → isolated bounded search
   ↓ separate format
-evaluation archive v6 (v1→v2→v3→v4→v5→v6 migration; never workspace archive v9)
+evaluation archive v7 (v1→v2→v3→v4→v5→v6→v7 migration; never workspace archive v9)
 ```
 
 The dependency direction is one-way: `core` knows nothing about JSONL sessions, policy evaluation, learned models, search plans/frontiers, transcripts or filesystems; the reference evaluator and store depend on `core`; `protocol` composes production components; `agentir-policy-eval` invokes that production surface and owns offline ranking, learning and bounded search; both CLIs only stream lines.
@@ -57,6 +57,17 @@ Stage 7B leaves Stage 7A byte contracts unchanged and post-processes only termin
 ## Stage 7C acquisition boundary
 
 Stage 7C adds only evaluation-owned orchestration above retained Stage 5 artifacts and measurements. Explicit start performs server-owned preflight; explicit advance executes complete round-robin slots and atomically publishes a production record with session progress. Checkpoint/resume/cancel occur between slots. Replay/archive load have no executor and zero device calls. Stage 7A/7B hashes, core, store, workspace v9 and measurement-record v1 are unchanged.
+
+## Stage 7D recovery boundary
+
+Stage 7D wraps one pending Stage 7C slot in an evaluation-owned durable journal.
+Prepare snapshots exact production measurement IDs/hashes before hardware is
+authorized. Only explicit execute receives an executor. After uncertainty,
+reconciliation observes the server-owned production store without hardware and
+classifies zero, one, multiple, incompatible, or changed-anchor publications.
+Zero requires separate retry authorization; one can advance the existing Stage
+7C session; multiple remains ambiguous. V1 is single-workspace/single-writer and
+makes no distributed-atomicity or exactly-once execution claim.
 
 ## Candidate boundary
 
