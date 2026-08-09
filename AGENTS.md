@@ -32,6 +32,9 @@ AgentIR is an agent-native compiler prototype. Preserve these invariants in ever
 26. WGSL is a deterministic artifact, never canonical program input; clients cannot supply source, bindings, dispatch formulas, guards or certificates.
 27. Offline validation, device execution and hardware measurements never advance the correctness frontier.
 28. `backend_hash`, `artifact_hash`, `device_fingerprint_hash`, and `measurement_hash` are independent contracts and exclude interactive resource policy.
+29. Stage 6A evaluation is a separate non-correctness layer; records, metrics, tokens, replay, and performance observations never advance compiler proofs.
+30. `corpus_hash`, `policy_hash`, `observation_hash`, `episode_hash`, `evaluation_hash`, and evaluation `archive_hash` are independent from compiler hashes and workspace archive v1–v9.
+31. Free, menu, and hybrid all use the production verifier/atomic transaction path; menu forbids arbitrary escape and hybrid escape remains bounded and untrusted.
 
 ## Where to look before changing code
 
@@ -50,6 +53,7 @@ Use `docs/` instead of expanding this file with broad background:
 - Stage 3 physical boundary: `docs/stage-3-scope.md`, `docs/memory-ir.md`, `docs/bufferization.md`, `docs/alias-and-lifetimes.md`, `docs/guarded-memory-reuse.md`;
 - Stage 4 scheduling boundary: `docs/stage-4-scope.md`, `docs/schedule-ir.md`, `docs/target-manifest.md`, `docs/schedule-legality.md`;
 - Stage 5 executable boundary: `docs/stage-5-scope.md`, `docs/backend-ir.md`, `docs/backend-lowering.md`, `docs/artifact-format.md`, `docs/artifact-correctness.md`, `docs/webgpu-runtime.md`;
+- Stage 6A evaluation boundary: `docs/stage-6a-scope.md`, `docs/agent-policy-evaluation.md`, `docs/evaluation-replay.md`, `docs/evaluation-fairness.md`;
 - architectural trade-offs: `DECISIONS.md`.
 
 When documentation and behavior disagree, consult `docs/reference/stage-1-brief.md` first for Stage 1, then `docs/reference/agentir-spec-0.1.md`. Record intentional deviations in `DECISIONS.md`.
@@ -113,6 +117,8 @@ cargo run -p agentir-cli --bin agentir < examples/backend_guarded_memory.jsonl
 cargo run -p agentir-cli --bin agentir < examples/equality_to_artifact.jsonl
 cargo run -p agentir-cli --bin agentir < examples/backend_rejected_reduce.jsonl
 cargo run --release -p agentir-protocol --example baseline
+cargo run -p agentir-eval -- < examples/eval_free_saxpy.jsonl
+cargo run --release -p agentir-policy-eval --example evaluation_baseline
 ```
 
 The final SAXPY response must contain `[12.0,24.0,36.0,48.0]`.

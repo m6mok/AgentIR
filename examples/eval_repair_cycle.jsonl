@@ -1,0 +1,2 @@
+{"command":"evaluation.run.start","request_id":"run","policy":"free_reference_v1","tasks":["backend-unsupported-small"],"seeds":[0],"scripted":true}
+{"command":"evaluation.aggregate","request_id":"aggregate","run":"run1"}

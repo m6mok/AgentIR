@@ -423,3 +423,55 @@ Potential persistent references inside generic semantic attributes are rejected 
 ## ADR-090: Stage 5 completes without comparative search
 
 **Decision.** Stage 5 explicitly lowers/emits/executes the client-selected ScheduleIR revision and records bounded measurements. It has no autotuning, cost model, best-plan/artifact selection, beam/population search, learned policy, profile-guided specialization or performance-derived correctness claim; those policies begin no earlier than Stage 6.
+
+## ADR-091: Evaluation is a separate non-correctness layer
+
+**Decision.** Stage 6A records interaction efficiency above the production protocol. Evaluation success, replay, metrics, tokens, testing, and performance observations never create or strengthen compiler evidence.
+
+## ADR-092: Policy evaluation has a separate crate
+
+**Decision.** `agentir-policy-eval` owns corpus, episodes, transcripts, replay, aggregates, comparisons, and evaluation archives. Core remains unaware of experiment orchestration and provider metadata.
+
+## ADR-093: Task corpora are immutable and ordered
+
+**Decision.** Exact ordered task definitions, including fixed task budgets and success criteria, are versioned and covered by `corpus_hash`. Reordering changes identity.
+
+## ADR-094: Free, menu, and hybrid expose distinct surfaces
+
+**Decision.** Free exposes the production schema without choices; menu accepts only generated choice IDs; hybrid adds one bounded typed escape. Every resolved action uses the same production verifier and atomic transaction path.
+
+## ADR-095: Compiler outcomes and success are harness owned
+
+**Decision.** Clients cannot submit success, rejection classes, outcomes, hashes, semantic scores, metrics, guards, or certificates. The harness derives them from structured production responses and task criteria.
+
+## ADR-096: Transcripts replay without an agent or device
+
+**Decision.** Replay resolves recorded decisions, rebuilds fresh production sessions, and compares exact structured outcomes. It performs no provider, network, model, GPU, adapter, or benchmark call.
+
+## ADR-097: Token sources retain explicit trust
+
+**Decision.** Deterministic bytes/tokens, provider reports, and agent self-reports are separate. Missing values remain unknown and externally reported values are provenance, not trusted correctness data.
+
+## ADR-098: Evaluation hashes are independent
+
+**Decision.** Corpus, policy, observation, episode, aggregate/evaluation, and evaluation archive v1 use distinct `agentir.evaluation.*.v1` domains. None substitutes for or enters a compiler hash.
+
+## ADR-099: Evaluation archives are separate from workspace v9
+
+**Decision.** `agentir.evaluation.archive` v1 stores only reproducibility manifests, corpus/policy descriptors, transcripts/outcomes, raw aggregates, and optional hardware anchors. Workspace archive v1–v9 codecs remain unchanged.
+
+## ADR-100: Comparisons enforce exact fairness anchors
+
+**Decision.** Corpus, compiler build, task definitions/budgets, seed set, initial state, runtime inputs, criteria, and—when relevant—device fingerprint must match. Failed episodes remain visible and no implicit weighted score is produced.
+
+## ADR-101: Scripted policies are deterministic controls
+
+**Decision.** Five named scripted baselines cover CI and harness replay. They make no learned-policy claim and perform no hidden ranking.
+
+## ADR-102: Hardware observations remain separate
+
+**Decision.** Optional hardware observations require proved/offline-valid artifacts and retain artifact, measurement, and device hashes. They are comparable only on the same device fingerprint and never advance proof.
+
+## ADR-103: Stage 6A stops before tuning and ranking
+
+**Decision.** Stage 6A contains no autotuning, learned policy/ranking, prompt optimization, cost model, beam/population search, automatic extraction, schedule mutation, or best-artifact selection. These begin no earlier than Stage 6B.

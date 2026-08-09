@@ -2,7 +2,7 @@
 
 AgentIR — экспериментальная агентно-нативная компиляционная среда для численных вычислений. В ней программа хранится не как исходный текст, а как типизированный граф. Агент меняет граф небольшими атомарными ActionIR-транзакциями, а compiler core выводит типы, проверяет формы и сохраняет каждое принятое состояние как неизменяемую ревизию.
 
-Сейчас репозиторий содержит завершённый exact reference prototype Stage 5. Поверх SpecIR, ImplIR/equality, MemoryIR и ScheduleIR он добавляет отдельный typed BackendIR, первый `webgpu_wgsl_v1` backend, deterministic WGSL artifacts, обязательную offline validation и опциональное исполнение через wgpu.
+Сейчас репозиторий содержит завершённый Stage 6A reference prototype. Поверх exact Stage 1–5 compiler stack он добавляет отдельный воспроизводимый evaluation harness для честного сравнения `free`, `menu` и `hybrid` policies без расширения proof boundary.
 
 ## Что уже работает
 
@@ -104,10 +104,20 @@ cargo run -p agentir-cli --bin agentir < examples/equality_to_schedule.jsonl
 - `agentir-store` — atomic file persistence, archive integrity и deterministic replay;
 - `agentir-protocol` — wire types и stateful command engine;
 - `agentir-cli` — тонкий JSONL stdin/stdout frontend.
+- `agentir-policy-eval` — immutable corpus, policy descriptors, episodes, replay, metrics, fairness и отдельный evaluation archive;
+- `agentir-eval` CLI — bounded JSONL transport для scripted и внешних agent policies.
 
-## Ограничения Stage 5
+Stage 6A quick check:
 
-Первый backend намеренно поддерживает только одномерные f32 elementwise kernels. Единственный memory guard — compiler-owned `NoOverlap` с fully proved fresh fallback. В прототипе нет agent certificates, arbitrary target capability input, reductions/shared memory/subgroups, autotuning, ranking/search или LLVM/MLIR. Device execution и hardware measurements являются confidence evidence, а не proof. Shape solver намеренно sound, но incomplete. Известные компромиссы подробно перечислены в [DECISIONS.md](DECISIONS.md).
+```bash
+cargo run -p agentir-eval -- < examples/eval_free_saxpy.jsonl
+cargo run -p agentir-eval -- < examples/eval_compare_policies.jsonl
+cargo run --release -p agentir-policy-eval --example evaluation_baseline
+```
+
+## Ограничения Stage 6A
+
+Evaluation harness измеряет взаимодействие, но не выполняет autotuning, learned ranking, prompt optimization или automatic best-artifact selection. Первый backend по-прежнему ограничен одномерными f32 elementwise kernels. Device execution и hardware measurements являются confidence evidence, а evaluation success означает только выполнение task criterion. Подробности — в [Stage 6A scope](docs/stage-6a-scope.md).
 
 ## Независимые hash-контракты
 
@@ -126,12 +136,13 @@ cargo run -p agentir-cli --bin agentir < examples/equality_to_schedule.jsonl
 - `device_fingerprint_hash` идентифицирует runtime adapter provenance, но не correctness;
 - `measurement_hash` идентифицирует completed confidence-only benchmark record;
 - `archive_hash` проверяет конкретный versioned on-disk archive.
+- `corpus_hash`, `policy_hash`, `observation_hash`, `episode_hash`, `evaluation_hash` и evaluation `archive_hash` идентифицируют только Stage 6A экспериментальные данные.
 
 Подробный контракт canonical form — в [docs/semantic-canonicalization.md](docs/semantic-canonicalization.md), migration pipeline — в [docs/persistence.md](docs/persistence.md).
 
 ## Roadmap
 
-Следующий технический шаг после завершения Stage 5 — обучение и сравнение agent policies без расширения proof boundary. См. [docs/roadmap.md](docs/roadmap.md).
+Stage 6A завершает воспроизводимую сравнительную основу. Learned ranking, autotuning и автоматический выбор остаются Stage 6B или позже. См. [docs/roadmap.md](docs/roadmap.md).
 
 ## Документация
 

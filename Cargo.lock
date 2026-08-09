@@ -32,9 +32,18 @@ dependencies = [
 name = "agentir-eval"
 version = "0.1.0"
 dependencies = [
+ "agentir-policy-eval",
+]
+
+[[package]]
+name = "agentir-policy-eval"
+version = "0.1.0"
+dependencies = [
  "agentir-core",
+ "agentir-protocol",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -43,12 +52,21 @@ version = "0.1.0"
 dependencies = [
  "agentir-backend-wgsl",
  "agentir-core",
- "agentir-eval",
+ "agentir-reference-eval",
  "agentir-runtime-wgpu",
  "agentir-store",
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "agentir-reference-eval"
+version = "0.1.0"
+dependencies = [
+ "agentir-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -67,7 +85,7 @@ name = "agentir-store"
 version = "0.1.0"
 dependencies = [
  "agentir-core",
- "agentir-eval",
+ "agentir-reference-eval",
  "serde",
  "serde_json",
  "sha2",

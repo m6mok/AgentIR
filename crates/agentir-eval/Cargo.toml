@@ -1,5 +1,5 @@
 [package]
-name = "agentir-eval"
+name = "agentir-reference-eval"
 description = "Deterministic CPU reference interpreter for AgentIR SpecIR"
 version.workspace = true
 edition.workspace = true
@@ -11,6 +11,8 @@ agentir-core = { path = "../agentir-core" }
 serde.workspace = true
 serde_json.workspace = true
 
+[lib]
+name = "agentir_eval"
+
 [lints]
 workspace = true
-

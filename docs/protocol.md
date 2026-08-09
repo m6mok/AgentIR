@@ -1,5 +1,7 @@
 # JSONL protocol
 
+Stage 6A policy evaluation uses a separate bounded JSONL frontend documented in [external-agent-protocol.md](external-agent-protocol.md). Its `evaluation.*` commands orchestrate immutable tasks and recorded production requests; they do not change this compiler command enum or archive v9 semantics. One physical input line still yields exactly one structured response.
+
 ## MemoryIR commands
 
 Stage 3 adds `memory.create`, `memory.query`, `memory.check`, `memory.apply`, `memory.fork`, `memory.seal`, `memory.evaluate`, `memory.alias_query`, `memory.buffer_query`, and `memory.continuation`. Mutations name an explicit base revision and exact `memory_hash`; `memory.apply` also supplies the immutable `impl_hash` and a bounded list of desired compiler-verified actions. Proof payloads and guard expressions are unknown fields and are rejected.

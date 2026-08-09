@@ -28,3 +28,7 @@ A proposal record is provenance, not EvidenceIR correctness. The proof frontier 
 # Stage 5 evidence
 
 `BackendEquivalentToSchedule` and `ArtifactEquivalentToBackend` are compiler-owned structural relations. WGSL parsing/validation establishes well-formedness only; reference/device differential execution and hardware measurements remain confidence evidence. Neither device success nor benchmark speed can advance, replace, or rank correctness certificates.
+
+# Stage 6A evaluation records
+
+Episode success, accepted-action counts, token metrics, repair cycles, replay identity, policy comparisons, and optional performance observations are not correctness evidence and are not stored in compiler EvidenceIR. They never advance a proof frontier and live only in the separate evaluation artifact.

@@ -9,7 +9,7 @@ rust-version.workspace = true
 [dependencies]
 agentir-core = { path = "../agentir-core" }
 agentir-backend-wgsl = { path = "../agentir-backend-wgsl" }
-agentir-eval = { path = "../agentir-eval" }
+agentir-eval = { package = "agentir-reference-eval", path = "../agentir-eval" }
 agentir-runtime-wgpu = { path = "../agentir-runtime-wgpu" }
 agentir-store = { path = "../agentir-store" }
 serde.workspace = true

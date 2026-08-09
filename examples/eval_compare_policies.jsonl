@@ -1,0 +1,4 @@
+{"command":"evaluation.run.start","request_id":"free","policy":"free_reference_v1","tasks":["saxpy-end-to-end-large"],"seeds":[0],"scripted":true}
+{"command":"evaluation.run.start","request_id":"menu","policy":"menu_goal_directed_v1","tasks":["saxpy-end-to-end-large"],"seeds":[0],"scripted":true}
+{"command":"evaluation.run.start","request_id":"hybrid","policy":"hybrid_bounded_escape_v1","tasks":["saxpy-end-to-end-large"],"seeds":[0],"scripted":true}
+{"command":"evaluation.compare","request_id":"compare","runs":["run1","run2","run3"]}

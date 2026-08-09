@@ -11,6 +11,17 @@ Start with the root [README](../README.md), then choose the document matching th
 - [Stage 3 scope](stage-3-scope.md) — exact MemoryIR completion and the ScheduleIR boundary.
 - [Stage 4 scope](stage-4-scope.md) — exact scheduling completion and backend boundary.
 - [Stage 5 scope](stage-5-scope.md) — typed BackendIR, deterministic WGSL artifacts and optional WebGPU execution.
+- [Stage 6A scope](stage-6a-scope.md) — reproducible policy evaluation without ranking or autotuning.
+- [Stage 6A compatibility audit](stage-6a-compatibility-audit.md) — base commit, hash domains, and frozen v8/v9 bytes.
+- [Agent policy evaluation](agent-policy-evaluation.md) — run model, scripted baselines, and trust boundary.
+- [Evaluation corpus](evaluation-corpus.md) — immutable tasks, categories, variants, and budgets.
+- [Evaluation episodes](evaluation-episodes.md) — observation/decision/outcome state machine.
+- [Free, menu, hybrid](free-menu-hybrid.md) — distinct bounded action surfaces.
+- [Evaluation metrics](evaluation-metrics.md) — token trust, rejection, repair, and aggregates.
+- [Evaluation replay](evaluation-replay.md) — deterministic model/device-free verification.
+- [Evaluation artifact format](evaluation-artifact-format.md) — separate archive v1.
+- [Evaluation fairness](evaluation-fairness.md) — compatibility rules for comparison.
+- [External agent protocol](external-agent-protocol.md) — Stage 6A JSONL commands.
 - [ImplIR](implir.md) — separate implementation graph, identity lowering, verifier and hash.
 - [CandidateForest](candidate-forest.md) — candidate branches, revisions, transactions and continuations.
 - [Equivalence and EvidenceIR](equivalence-and-evidence.md) — trusted proof composition and confidence evidence.

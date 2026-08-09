@@ -2,6 +2,8 @@
 
 Stage 5 offline checks require no GPU. Run `cargo test --workspace` and the backend examples normally; set `AGENTIR_RUN_GPU_TESTS=1` only to opt into compatible real-device differential tests. The workspace pins the wgpu/Naga 24 family to retain the repository Rust 1.85 MSRV while using matching WGSL validation/runtime APIs.
 
+Stage 6A adds an offline `agentir-policy-eval` library and `agentir-eval` JSONL CLI. Run every `eval_*.jsonl` example plus `cargo run --release -p agentir-policy-eval --example evaluation_baseline`; no provider account, network, GPU, or model call is required.
+
 Stage 3 changes should additionally run the four MemoryIR JSONL examples and verify fresh/reuse/guarded outputs agree, the unsafe reuse request is rejected without preventing the following transaction, v6 fixtures retain their pinned bytes, and v7 save/replay reproduces memory IDs/hashes. `cargo test --workspace` includes core atomicity/replay and protocol branch-laziness coverage.
 
 ## Repository layout
@@ -14,6 +16,8 @@ crates/agentir-backend-wgsl deterministic BackendIR/WGSL compiler and offline va
 crates/agentir-runtime-wgpu optional WebGPU discovery, execution and measurements
 crates/agentir-protocol   wire requests, responses, workspace registry
 crates/agentir-cli        stdin/stdout JSONL process
+crates/agentir-policy-eval immutable corpus, episodes, replay, metrics, archive v1
+crates/agentir-eval-cli   Stage 6A stdin/stdout JSONL process
 examples                  reproducible protocol sessions
 docs                      project and reference documentation
 ```
@@ -56,6 +60,10 @@ cargo run -p agentir-cli --bin agentir < examples/backend_guarded_memory.jsonl
 cargo run -p agentir-cli --bin agentir < examples/equality_to_artifact.jsonl
 cargo run -p agentir-cli --bin agentir < examples/backend_rejected_reduce.jsonl
 cargo run --release -p agentir-protocol --example baseline
+cargo run -p agentir-eval -- < examples/eval_free_saxpy.jsonl
+cargo run -p agentir-eval -- < examples/eval_compare_policies.jsonl
+cargo run -p agentir-eval -- < examples/eval_replay.jsonl
+cargo run --release -p agentir-policy-eval --example evaluation_baseline
 ```
 
 Tests are split by responsibility: small inference/shape/canonical unit tests in core; workspace, candidate and equality atomicity, revisions, continuations and replay as core integration tests; semantic execution plus the fixed-seed known-rewrite oracle in eval; archive round-trip/tamper handling and pinned corruption fixtures in store; line-level envelopes, persistence commands and full examples in protocol.

@@ -1,5 +1,15 @@
 # Glossary
 
+- **Evaluation corpus**: immutable ordered Stage 6A task definitions identified by `corpus_hash`.
+- **Policy descriptor**: versioned free/menu/hybrid visible surface and deterministic configuration identified by `policy_hash`.
+- **Evaluation observation**: exact agent-visible task/compiler/budget state and bounded continuation, identified by `observation_hash`.
+- **Evaluation episode**: ordered observation/decision/compiler-outcome transcript with compiler-derived result and `episode_hash`.
+- **Evaluation archive**: separate `agentir.evaluation.archive` v1; never a workspace archive or correctness proof.
+- **Repair cycle**: interval from one rejected decision through the first accepted progress-producing decision or episode completion.
+- **Free policy**: schema-valid production action surface without a generated menu.
+- **Menu policy**: compiler-generated choice-only surface with no arbitrary escape.
+- **Hybrid policy**: compiler choices plus a bounded typed escape that returns to the production verifier.
+
 - **BackendIR**: separate typed executable kernel graph anchored to one proved ScheduleIR revision.
 - **BackendEquivalentToSchedule**: compiler-owned structural certificate for exact backend lowering.
 - **Artifact package**: deterministic manifest, complete runtime ABI and exact WGSL module bytes.

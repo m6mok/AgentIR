@@ -47,3 +47,7 @@ Benchmark schema v2 remains wire-compatible. Stage 4 coverage measures median/p9
 # Stage 5 workloads
 
 The dependency-light baseline remains GPU-independent and adds BackendIR lowering/verification, deterministic WGSL emission, offline Naga validation, artifact hashing, v8→v9 migration and v9 replay. Device timing is recorded separately through the bounded benchmark protocol described in [hardware-benchmarking.md](hardware-benchmarking.md); those machine-specific measurements are confidence evidence and are not committed as baseline expectations.
+
+# Stage 6A workloads
+
+Benchmark schema v2 remains unchanged. `agentir-policy-eval --example evaluation_baseline` reports deterministic scripted free/menu/hybrid SAXPY completion and replay. The evaluation workload contract covers corpus canonicalization at 10/100/1,000 tasks; observation/menu construction; free/hybrid validation; step apply; rejection and repair accounting; episode hashing/replay at 10/100/1,000 steps; aggregates/comparisons; archive save/load; and mutation rejection. Canonical sizes for task, observation, menu, decision, outcome, transcript, episode, aggregate, and archive are separate from timing. Machine-specific output is never committed.

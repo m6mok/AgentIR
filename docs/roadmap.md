@@ -86,6 +86,15 @@ Completion mapping: SpecIR → Stage 1; ImplIR/CandidateForest → Stage 2A; pro
 
 Stage 5 deliberately contains no reduction lowering, shared memory/subgroups, arbitrary GPU IR, autotuning, cost model, ranking or best-artifact search.
 
-## Stage 6: agent evaluation
+## Completed Stage 6A: reproducible agent policy evaluation
 
-Compare free, menu and hybrid policies using accepted actions per token, rejection rate, repair cycles, context size, semantic correctness and measured kernel performance.
+- separate `agentir-policy-eval` crate and `agentir-eval` JSONL CLI;
+- immutable twenty-category offline task corpus and five deterministic scripted baselines;
+- distinct free/menu/hybrid surfaces with production verifier execution;
+- explicit observations, decisions, compiler outcomes, rejection/repair accounting and compiler-owned success;
+- independent evaluation hashes, deterministic model/device-free replay, raw aggregates and fairness checks;
+- separate evaluation archive v1 and optional same-device performance anchors.
+
+## Stage 6B and later
+
+Learned policies, compact learned codecs, cost models, prompt optimization, autotuning, population/beam search and automatic best-artifact selection remain future work. They may consume Stage 6A data but may not weaken the compiler proof boundary.

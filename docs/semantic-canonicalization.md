@@ -63,3 +63,7 @@ Target canonical v1 uses `agentir.target.manifest.v1\0`; schedule canonical v1 u
 # Backend, build, artifact, device and measurement hashes
 
 Stage 5 adds independent domains `agentir.backend.wgsl.exact.v1\0`, `agentir.compiler.build.v1\0`, `agentir.artifact.wgsl.package.v1\0`, `agentir.device.fingerprint.v1\0`, and `agentir.measurement.hardware.v1\0`. Backend identity covers typed lowering/proofs; artifact identity covers the reproducible package and exact WGSL. Device and measurement identities are runtime provenance only. Resource limits participate in none of them.
+
+# Stage 6A evaluation identities
+
+Evaluation adds separate domains `agentir.evaluation.corpus.v1\0`, `agentir.evaluation.policy.v1\0`, `agentir.evaluation.observation.v1\0`, `agentir.evaluation.episode.v1\0`, `agentir.evaluation.aggregate.v1\0`, and `agentir.evaluation.archive.v1\0`. These identify experiment definitions and transcripts only and never substitute for a compiler correctness or workspace archive hash.

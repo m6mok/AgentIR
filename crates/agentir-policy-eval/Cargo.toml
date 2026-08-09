@@ -1,6 +1,6 @@
 [package]
-name = "agentir-store"
-description = "Versioned atomic workspace persistence and replay for AgentIR"
+name = "agentir-policy-eval"
+description = "Reproducible free/menu/hybrid policy evaluation harness for AgentIR"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,12 +8,13 @@ rust-version.workspace = true
 
 [dependencies]
 agentir-core = { path = "../agentir-core" }
+agentir-protocol = { path = "../agentir-protocol" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 
 [dev-dependencies]
-agentir-eval = { package = "agentir-reference-eval", path = "../agentir-eval" }
+serde_json.workspace = true
 
 [lints]
 workspace = true

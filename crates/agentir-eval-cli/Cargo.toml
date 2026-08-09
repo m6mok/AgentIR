@@ -1,0 +1,18 @@
+[package]
+name = "agentir-eval"
+description = "JSONL CLI for reproducible AgentIR policy evaluation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "agentir-eval"
+path = "src/main.rs"
+doc = false
+
+[dependencies]
+agentir-policy-eval = { path = "../agentir-policy-eval" }
+
+[lints]
+workspace = true

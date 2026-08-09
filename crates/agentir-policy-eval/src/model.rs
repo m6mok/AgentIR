@@ -1,0 +1,709 @@
+//! Typed, transport-independent Stage 6A evaluation records.
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::BTreeMap;
+
+/// Stable task identity assigned by the harness.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct EvaluationTaskId(pub String);
+
+/// Stable policy version.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PolicyVersion(pub String);
+
+/// Workload category represented by a corpus task.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskCategory {
+    /// Stable wire variant.
+    SpecIrConstruction,
+    /// Stable wire variant.
+    HoleRepair,
+    /// Stable wire variant.
+    ConstraintDischarge,
+    /// Stable wire variant.
+    ExactCandidateRewrite,
+    /// Stable wire variant.
+    SpeculativeProposalRepair,
+    /// Stable wire variant.
+    EqualityExpansionMaterialization,
+    /// Stable wire variant.
+    FreshMemoryCreation,
+    /// Stable wire variant.
+    LegalStaticReuse,
+    /// Stable wire variant.
+    GuardedReuse,
+    /// Stable wire variant.
+    ScheduleSerialBaseline,
+    /// Stable wire variant.
+    ExactTilingRemainder,
+    /// Stable wire variant.
+    LegalFusion,
+    /// Stable wire variant.
+    VectorizationUnrolling,
+    /// Stable wire variant.
+    IllegalScheduleRepair,
+    /// Stable wire variant.
+    BackendLowering,
+    /// Stable wire variant.
+    UnsupportedBackendRepair,
+    /// Stable wire variant.
+    DeterministicArtifactEmission,
+    /// Stable wire variant.
+    EqualityToArtifact,
+    /// Stable wire variant.
+    ArchiveMigrationReplay,
+    /// Stable wire variant.
+    EndToEndSaxpy,
+}
+
+/// Human-readable objective and stable machine tags.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskObjective {
+    /// Stable serialized contract field.
+    pub summary: String,
+    #[serde(default)]
+    /// Stable serialized contract field.
+    pub tags: Vec<String>,
+}
+
+/// Deterministic initial state and ordered production-protocol actions.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TaskInitialState {
+    /// Stable serialized contract field.
+    pub source_archive_hash: Option<String>,
+    /// Stable serialized contract field.
+    pub production_requests: Vec<Value>,
+    /// Stable serialized contract field.
+    pub runtime_inputs: BTreeMap<String, Value>,
+}
+
+/// Compiler-owned completion predicate for an episode.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TaskSuccessCriterion {
+    /// Stable wire variant.
+    AllActionsAccepted,
+    /// Stable wire variant.
+    JsonPointerEquals {
+        /// JSON pointer evaluated against the final compiler response.
+        pointer: String,
+        /// Exact expected JSON value.
+        expected: Value,
+    },
+    /// Stable wire variant.
+    RejectionThenAccepted {
+        /// Stable compiler code that must precede an accepted repair.
+        rejection_code: String,
+    },
+}
+
+/// Fixed task budgets; these values participate in `corpus_hash`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskBudget {
+    /// Stable serialized contract field.
+    pub max_actions: u64,
+    /// Stable serialized contract field.
+    pub max_rejections: u64,
+    /// Stable serialized contract field.
+    pub max_context_bytes: u64,
+    /// Stable serialized contract field.
+    pub max_deterministic_tokens: Option<u64>,
+    /// Stable serialized contract field.
+    pub max_wall_time_ms: Option<u64>,
+}
+
+/// One immutable, versioned evaluation task.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EvaluationTask {
+    /// Stable serialized contract field.
+    pub id: EvaluationTaskId,
+    /// Stable serialized contract field.
+    pub corpus_version: String,
+    /// Stable serialized contract field.
+    pub category: TaskCategory,
+    /// Stable serialized contract field.
+    pub size: String,
+    /// Stable serialized contract field.
+    pub objective: TaskObjective,
+    /// Stable serialized contract field.
+    pub initial_state: TaskInitialState,
+    /// Stable serialized contract field.
+    pub success_criterion: TaskSuccessCriterion,
+    /// Stable serialized contract field.
+    pub allowed_modes: Vec<PolicyKind>,
+    /// Stable serialized contract field.
+    pub budget: TaskBudget,
+    /// Stable serialized contract field.
+    pub required_final_state: String,
+    /// Stable serialized contract field.
+    pub reference_output: Option<Value>,
+    /// Stable serialized contract field.
+    pub selected_target: Option<String>,
+    /// Stable serialized contract field.
+    pub metadata: BTreeMap<String, String>,
+}
+
+/// Immutable ordered task corpus.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EvaluationCorpus {
+    /// Stable serialized contract field.
+    pub name: String,
+    /// Stable serialized contract field.
+    pub version: String,
+    /// Stable serialized contract field.
+    pub tasks: Vec<EvaluationTask>,
+    /// Stable serialized contract field.
+    pub corpus_hash: String,
+}
+
+/// Evaluated interaction surface.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PolicyKind {
+    /// Stable wire variant.
+    Free,
+    /// Stable wire variant.
+    Menu,
+    /// Stable wire variant.
+    Hybrid,
+}
+
+/// Fields and escape rights visible to a policy.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolicyCapabilities {
+    /// Stable serialized contract field.
+    pub observation_fields: Vec<String>,
+    /// Stable serialized contract field.
+    pub action_surface: String,
+    /// Stable serialized contract field.
+    pub menu_selection: bool,
+    /// Stable serialized contract field.
+    pub typed_escape: bool,
+}
+
+/// Provenance of a policy implementation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PolicyOrigin {
+    /// Stable wire variant.
+    Scripted,
+    /// Stable wire variant.
+    External,
+}
+
+/// Stable descriptor hashed independently from compiler state.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PolicyDescriptor {
+    /// Stable serialized contract field.
+    pub kind: PolicyKind,
+    /// Stable serialized contract field.
+    pub name: String,
+    /// Stable serialized contract field.
+    pub version: PolicyVersion,
+    /// Stable serialized contract field.
+    pub configuration: BTreeMap<String, Value>,
+    /// Stable serialized contract field.
+    pub capabilities: PolicyCapabilities,
+    /// Stable serialized contract field.
+    pub accounting_method: String,
+    /// Stable serialized contract field.
+    pub external_model_id: Option<String>,
+    /// Stable serialized contract field.
+    pub prompt_hash: Option<String>,
+    /// Stable serialized contract field.
+    pub origin: PolicyOrigin,
+    /// Stable serialized contract field.
+    pub policy_hash: String,
+}
+
+/// Compiler-generated choice in one bounded continuation frame.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EvaluationContinuation {
+    /// Stable serialized contract field.
+    pub choice_id: String,
+    /// Stable serialized contract field.
+    pub description: String,
+    /// Stable serialized contract field.
+    pub action: Value,
+}
+
+/// Exact policy-visible state for one step.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EvaluationObservation {
+    /// Stable serialized contract field.
+    pub run_id: String,
+    /// Stable serialized contract field.
+    pub episode_id: String,
+    /// Stable serialized contract field.
+    pub step_id: String,
+    /// Stable serialized contract field.
+    pub interaction_mode: PolicyKind,
+    /// Stable serialized contract field.
+    pub task_id: EvaluationTaskId,
+    /// Stable serialized contract field.
+    pub task_objective: TaskObjective,
+    /// Stable serialized contract field.
+    pub visible_workspace_summary: Value,
+    /// Stable serialized contract field.
+    pub selected_revisions_and_hashes: BTreeMap<String, String>,
+    /// Stable serialized contract field.
+    pub open_obligations: Vec<Value>,
+    /// Stable serialized contract field.
+    pub diagnostics: Vec<Value>,
+    /// Stable serialized contract field.
+    pub continuation_frame: Vec<EvaluationContinuation>,
+    /// Stable serialized contract field.
+    pub remaining_budget: TaskBudget,
+    /// Stable serialized contract field.
+    pub previous_compiler_outcome: Option<Value>,
+    /// Stable serialized contract field.
+    pub allowed_action_schema: Value,
+    /// Stable serialized contract field.
+    pub context_bytes: u64,
+    /// Stable serialized contract field.
+    pub deterministic_tokens: Option<u64>,
+    /// Stable serialized contract field.
+    pub observation_hash: String,
+}
+
+/// Trust level for externally supplied token counts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UsageTrust {
+    /// Stable wire variant.
+    Deterministic,
+    /// Stable wire variant.
+    ProviderReported,
+    /// Stable wire variant.
+    AgentSelfReported,
+}
+
+/// Optional token report. Missing counts remain `None`, never zero.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TokenUsage {
+    /// Stable serialized contract field.
+    pub input_tokens: Option<u64>,
+    /// Stable serialized contract field.
+    pub output_tokens: Option<u64>,
+    /// Stable serialized contract field.
+    pub trust: UsageTrust,
+    /// Stable serialized contract field.
+    pub tokenizer: Option<String>,
+}
+
+/// Byte/token context accounting for one step.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextMeasurement {
+    /// Stable serialized contract field.
+    pub observation_bytes: u64,
+    /// Stable serialized contract field.
+    pub decision_bytes: u64,
+    /// Stable serialized contract field.
+    pub cumulative_context_bytes: u64,
+    /// Stable serialized contract field.
+    pub deterministic_tokens: Option<u64>,
+    /// Stable serialized contract field.
+    pub reported_usage: Option<TokenUsage>,
+}
+
+/// Agent decision accepted by the evaluation protocol.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PolicyDecision {
+    /// Stable wire variant.
+    MenuChoice {
+        /// Compiler-generated choice identity from the observation.
+        choice_id: String,
+    },
+    /// Stable wire variant.
+    Action {
+        /// Typed production protocol request.
+        action: Value,
+        /// Whether this is a bounded hybrid escape.
+        escape: bool,
+    },
+    /// Stable wire variant.
+    Finish,
+}
+
+/// Stable compiler-owned rejection classes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RejectionClassification {
+    /// Stable wire variant.
+    MalformedRequest,
+    /// Stable wire variant.
+    StaleBaseOrHash,
+    /// Stable wire variant.
+    InvalidReference,
+    /// Stable wire variant.
+    TypeError,
+    /// Stable wire variant.
+    OpenObligation,
+    /// Stable wire variant.
+    UnsupportedAction,
+    /// Stable wire variant.
+    ResourceLimit,
+    /// Stable wire variant.
+    UnsupportedBackendLowering,
+    /// Stable wire variant.
+    DeviceUnavailable,
+    /// Stable wire variant.
+    PolicyViolation,
+    /// Stable wire variant.
+    EvaluationBudgetExceeded,
+    /// Stable wire variant.
+    OtherCompilerRejection,
+}
+
+/// Outcome produced by the production compiler path.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CompilerOutcome {
+    /// Stable serialized contract field.
+    pub accepted: bool,
+    /// Stable serialized contract field.
+    pub progress_producing: bool,
+    /// Stable serialized contract field.
+    pub response: Value,
+    /// Stable serialized contract field.
+    pub rejection: Option<RejectionClassification>,
+    /// Stable serialized contract field.
+    pub compiler_error_code: Option<String>,
+}
+
+/// One closed repair interval after a rejected decision.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepairCycle {
+    /// Stable serialized contract field.
+    pub start_step: u64,
+    /// Stable serialized contract field.
+    pub end_step: u64,
+    /// Stable serialized contract field.
+    pub length: u64,
+    /// Stable serialized contract field.
+    pub repeated_identical_rejection: bool,
+}
+
+/// One observation/decision/compiler-outcome triplet.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EpisodeStep {
+    /// Stable serialized contract field.
+    pub ordinal: u64,
+    /// Stable serialized contract field.
+    pub observation: EvaluationObservation,
+    /// Stable serialized contract field.
+    pub decision: PolicyDecision,
+    /// Stable serialized contract field.
+    pub outcome: CompilerOutcome,
+    /// Stable serialized contract field.
+    pub context: ContextMeasurement,
+    /// Stable serialized contract field.
+    pub external_request_correlation_id: Option<String>,
+}
+
+/// Episode lifecycle.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EpisodeStatus {
+    /// Stable wire variant.
+    Ready,
+    /// Stable wire variant.
+    Running,
+    /// Stable wire variant.
+    Succeeded,
+    /// Stable wire variant.
+    Failed,
+    /// Stable wire variant.
+    BudgetExhausted,
+    /// Stable wire variant.
+    Cancelled,
+}
+
+/// Compiler-derived semantic completion result.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SemanticResult {
+    /// Stable serialized contract field.
+    pub criterion_satisfied: bool,
+    /// Stable serialized contract field.
+    pub checked_by: String,
+    /// Stable serialized contract field.
+    pub final_response: Option<Value>,
+}
+
+/// Optional same-device, confidence-only performance observation.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PerformanceObservation {
+    /// Stable serialized contract field.
+    pub artifact_hash: String,
+    /// Stable serialized contract field.
+    pub measurement_hash: String,
+    /// Stable serialized contract field.
+    pub device_fingerprint_hash: String,
+    /// Stable serialized contract field.
+    pub tensor_dimensions: BTreeMap<String, u64>,
+    /// Stable serialized contract field.
+    pub guard_outcomes: BTreeMap<String, u64>,
+    /// Stable serialized contract field.
+    pub min_ns: u64,
+    /// Stable serialized contract field.
+    pub median_ns: u64,
+    /// Stable serialized contract field.
+    pub p95_ns: u64,
+    /// Stable serialized contract field.
+    pub max_ns: u64,
+    /// Stable serialized contract field.
+    pub validation_status: String,
+}
+
+/// Final metrics and semantic result for one episode.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EpisodeResult {
+    /// Stable serialized contract field.
+    pub success: bool,
+    /// Stable serialized contract field.
+    pub semantic: SemanticResult,
+    /// Stable serialized contract field.
+    pub total_decisions: u64,
+    /// Stable serialized contract field.
+    pub accepted_decisions: u64,
+    /// Stable serialized contract field.
+    pub rejected_decisions: u64,
+    /// Stable serialized contract field.
+    pub no_op_decisions: u64,
+    /// Stable serialized contract field.
+    pub repair_cycles: Vec<RepairCycle>,
+    /// Stable serialized contract field.
+    pub context_bytes: u64,
+    /// Stable serialized contract field.
+    pub deterministic_tokens: Option<u64>,
+    /// Stable serialized contract field.
+    pub provider_input_tokens: Option<u64>,
+    /// Stable serialized contract field.
+    pub provider_output_tokens: Option<u64>,
+    /// Stable serialized contract field.
+    pub budget_exhausted: bool,
+    /// Stable serialized contract field.
+    pub performance: Option<PerformanceObservation>,
+}
+
+/// One replayable episode.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EvaluationEpisode {
+    /// Stable serialized contract field.
+    pub id: String,
+    /// Stable serialized contract field.
+    pub run_id: String,
+    /// Stable serialized contract field.
+    pub task_id: EvaluationTaskId,
+    /// Stable serialized contract field.
+    pub policy_hash: String,
+    /// Stable serialized contract field.
+    pub deterministic_seed: u64,
+    /// Stable serialized contract field.
+    pub status: EpisodeStatus,
+    /// Stable serialized contract field.
+    pub steps: Vec<EpisodeStep>,
+    /// Stable serialized contract field.
+    pub result: Option<EpisodeResult>,
+    /// Stable serialized contract field.
+    pub episode_hash: Option<String>,
+}
+
+/// Ordered collection of episodes evaluated under one policy.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EvaluationRun {
+    /// Stable serialized contract field.
+    pub id: String,
+    /// Stable serialized contract field.
+    pub corpus_hash: String,
+    /// Stable serialized contract field.
+    pub policy: PolicyDescriptor,
+    /// Stable serialized contract field.
+    pub compiler_build_hash: String,
+    /// Stable serialized contract field.
+    pub seeds: Vec<u64>,
+    /// Stable serialized contract field.
+    pub episodes: Vec<EvaluationEpisode>,
+    /// Stable serialized contract field.
+    pub cancelled: bool,
+    /// Stable serialized contract field.
+    pub evaluation_hash: Option<String>,
+}
+
+/// Statistical aggregate with raw, non-weighted metrics.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EvaluationAggregate {
+    /// Stable serialized contract field.
+    pub run_id: String,
+    /// Stable serialized contract field.
+    pub count: u64,
+    /// Stable serialized contract field.
+    pub successes: u64,
+    /// Stable serialized contract field.
+    pub success_rate: f64,
+    /// Stable serialized contract field.
+    pub median_decisions: u64,
+    /// Stable serialized contract field.
+    pub p95_decisions: u64,
+    /// Stable serialized contract field.
+    pub median_rejections: u64,
+    /// Stable serialized contract field.
+    pub p95_rejections: u64,
+    /// Stable serialized contract field.
+    pub median_repair_cycles: u64,
+    /// Stable serialized contract field.
+    pub p95_repair_cycles: u64,
+    /// Stable serialized contract field.
+    pub median_context_bytes: u64,
+    /// Stable serialized contract field.
+    pub p95_context_bytes: u64,
+    /// Stable serialized contract field.
+    pub accepted_actions_per_token: Option<f64>,
+    /// Stable serialized contract field.
+    pub accepted_actions_per_decision: Option<f64>,
+    /// Stable serialized contract field.
+    pub budget_exhaustion_rate: f64,
+    /// Stable serialized contract field.
+    pub semantic_correctness_rate: f64,
+    /// Stable serialized contract field.
+    pub aggregate_hash: String,
+}
+
+/// Fair comparison of compatible aggregates.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EvaluationComparison {
+    /// Stable serialized contract field.
+    pub run_ids: Vec<String>,
+    /// Stable serialized contract field.
+    pub corpus_hash: String,
+    /// Stable serialized contract field.
+    pub compiler_build_hash: String,
+    /// Stable serialized contract field.
+    pub aggregates: Vec<EvaluationAggregate>,
+}
+
+/// Reproducibility metadata for a separate evaluation artifact.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EvaluationManifest {
+    /// Stable serialized contract field.
+    pub format: String,
+    /// Stable serialized contract field.
+    pub version: u32,
+    /// Stable serialized contract field.
+    pub corpus_version: String,
+    /// Stable serialized contract field.
+    pub corpus_hash: String,
+    /// Stable serialized contract field.
+    pub compiler_build_hash: String,
+    /// Stable serialized contract field.
+    pub source_workspace_hashes: Vec<String>,
+    /// Stable serialized contract field.
+    pub aggregation_configuration: BTreeMap<String, Value>,
+}
+
+/// Separate Stage 6A archive; never embedded in workspace archive v9.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EvaluationArchive {
+    /// Stable serialized contract field.
+    pub manifest: EvaluationManifest,
+    /// Stable serialized contract field.
+    pub corpus: EvaluationCorpus,
+    /// Stable serialized contract field.
+    pub runs: Vec<EvaluationRun>,
+    /// Stable serialized contract field.
+    pub aggregates: Vec<EvaluationAggregate>,
+    /// Stable serialized contract field.
+    pub archive_hash: String,
+}
+
+/// Stable evaluation-layer diagnostics.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum EvaluationErrorCode {
+    /// Stable wire variant.
+    EvaluationCorpusNotFound,
+    /// Stable wire variant.
+    EvaluationTaskNotFound,
+    /// Stable wire variant.
+    EvaluationPolicyNotFound,
+    /// Stable wire variant.
+    EvaluationRunNotFound,
+    /// Stable wire variant.
+    EvaluationEpisodeNotFound,
+    /// Stable wire variant.
+    EvaluationStepNotFound,
+    /// Stable wire variant.
+    EvaluationObservationMismatch,
+    /// Stable wire variant.
+    EvaluationPolicyViolation,
+    /// Stable wire variant.
+    EvaluationMenuChoiceInvalid,
+    /// Stable wire variant.
+    EvaluationBudgetExceeded,
+    /// Stable wire variant.
+    EvaluationAlreadyComplete,
+    /// Stable wire variant.
+    EvaluationReplayMismatch,
+    /// Stable wire variant.
+    EvaluationTranscriptInvalid,
+    /// Stable wire variant.
+    EvaluationMetricInvalid,
+    /// Stable wire variant.
+    EvaluationComparisonInvalid,
+    /// Stable wire variant.
+    EvaluationHashMismatch,
+    /// Stable wire variant.
+    EvaluationArchiveInvalid,
+    /// Stable wire variant.
+    EvaluationEventOrderInvalid,
+    /// Stable wire variant.
+    TokenAccountingUnavailable,
+}
+
+/// Structured deterministic evaluation failure.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EvaluationDiagnostic {
+    /// Stable serialized contract field.
+    pub code: EvaluationErrorCode,
+    /// Stable serialized contract field.
+    pub message: String,
+    /// Stable serialized contract field.
+    pub expected: Option<Value>,
+    /// Stable serialized contract field.
+    pub actual: Option<Value>,
+    /// Stable serialized contract field.
+    pub details: BTreeMap<String, Value>,
+    /// Stable serialized contract field.
+    pub repairs: Vec<String>,
+}
+
+impl EvaluationDiagnostic {
+    pub(crate) fn new(code: EvaluationErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            expected: None,
+            actual: None,
+            details: BTreeMap::new(),
+            repairs: Vec::new(),
+        }
+    }
+
+    pub(crate) fn expected_actual(mut self, expected: Value, actual: Value) -> Self {
+        self.expected = Some(expected);
+        self.actual = Some(actual);
+        self
+    }
+
+    pub(crate) fn repair(mut self, repair: impl Into<String>) -> Self {
+        self.repairs.push(repair.into());
+        self
+    }
+}
+
+/// Evaluation result alias.
+pub type EvaluationResult<T> = Result<T, EvaluationDiagnostic>;
