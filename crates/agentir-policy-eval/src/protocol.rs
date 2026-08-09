@@ -6,8 +6,9 @@ use crate::{
         MeasurementAcquisitionExecutor, MeasurementAcquisitionFailurePolicy,
         MeasurementAcquisitionOrderingPolicy, MeasurementAcquisitionPlan,
         MeasurementAcquisitionPlanRequest, MeasurementAcquisitionSession,
-        MeasurementAcquisitionStatus, SyntheticMeasurementAcquisitionExecutor,
-        SyntheticMeasurementAcquisitionStore, WgpuMeasurementAcquisitionExecutor,
+        MeasurementAcquisitionStatus, MeasurementAcquisitionStore,
+        SyntheticMeasurementAcquisitionExecutor, SyntheticMeasurementAcquisitionStore,
+        WgpuMeasurementAcquisitionExecutor,
     },
     engine::{EvaluationHarness, RankingSubmission, external_policy, scripted_policy},
     measured::{
@@ -18,6 +19,11 @@ use crate::{
     },
     model::{EvaluationDiagnostic, EvaluationTaskId, PolicyDecision, PolicyKind, TokenUsage},
     ranking::{RankingDecision, aggregate_ranking_metrics, feature_schema_v1, scripted_ranker},
+    recovery::{
+        MeasurementAcquisitionRecoveryArchiveBundle, MeasurementAcquisitionRecoveryCheckpoint,
+        MeasurementAcquisitionRecoveryFaultBoundary, MeasurementAcquisitionRecoveryJournal,
+        MeasurementAcquisitionRecoveryLimits,
+    },
     search::{
         ObjectiveDirection, SearchLimits, SearchObjectiveComponent, SearchObjectiveComponentKind,
         SearchObjectiveDescriptor, SearchPlan, SearchRanker, SearchSession, replay_search,
@@ -26,7 +32,7 @@ use crate::{
 use agentir_core::Workspace;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{collections::BTreeMap, path::Path};
+use std::{collections::BTreeMap, fs, path::Path};
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -51,6 +57,62 @@ impl From<AcquisitionBenchmarkConfigRequest> for agentir_core::backend_ir::Hardw
 #[derive(Debug, Deserialize)]
 #[serde(tag = "command", deny_unknown_fields)]
 enum EvaluationRequest {
+    #[serde(rename = "evaluation.measurement_acquisition.recovery.prepare")]
+    MeasurementAcquisitionRecoveryPrepare {
+        request_id: String,
+        session: String,
+        measurement_acquisition_plan_hash: String,
+    },
+    #[serde(rename = "evaluation.measurement_acquisition.recovery.execute")]
+    MeasurementAcquisitionRecoveryExecute {
+        request_id: String,
+        recovery_journal: String,
+        measurement_acquisition_recovery_journal_hash: String,
+        #[serde(default)]
+        fault_boundary: Option<MeasurementAcquisitionRecoveryFaultBoundary>,
+    },
+    #[serde(rename = "evaluation.measurement_acquisition.recovery.status")]
+    MeasurementAcquisitionRecoveryStatus {
+        request_id: String,
+        recovery_journal: String,
+        measurement_acquisition_recovery_journal_hash: String,
+    },
+    #[serde(rename = "evaluation.measurement_acquisition.recovery.checkpoint")]
+    MeasurementAcquisitionRecoveryCheckpoint {
+        request_id: String,
+        recovery_journal: String,
+        measurement_acquisition_recovery_journal_hash: String,
+    },
+    #[serde(rename = "evaluation.measurement_acquisition.recovery.reconcile")]
+    MeasurementAcquisitionRecoveryReconcile {
+        request_id: String,
+        recovery_journal: String,
+        measurement_acquisition_recovery_journal_hash: String,
+    },
+    #[serde(rename = "evaluation.measurement_acquisition.recovery.authorize_retry")]
+    MeasurementAcquisitionRecoveryAuthorizeRetry {
+        request_id: String,
+        recovery_journal: String,
+        measurement_acquisition_recovery_journal_hash: String,
+    },
+    #[serde(rename = "evaluation.measurement_acquisition.recovery.abandon")]
+    MeasurementAcquisitionRecoveryAbandon {
+        request_id: String,
+        recovery_journal: String,
+        measurement_acquisition_recovery_journal_hash: String,
+    },
+    #[serde(rename = "evaluation.measurement_acquisition.recovery.result")]
+    MeasurementAcquisitionRecoveryResult {
+        request_id: String,
+        recovery_journal: String,
+        measurement_acquisition_recovery_journal_hash: String,
+    },
+    #[serde(rename = "evaluation.measurement_acquisition.recovery.replay")]
+    MeasurementAcquisitionRecoveryReplay {
+        request_id: String,
+        recovery_journal: String,
+        measurement_acquisition_recovery_journal_hash: String,
+    },
     #[serde(rename = "evaluation.measurement_acquisition.start")]
     MeasurementAcquisitionStart {
         request_id: String,
@@ -360,7 +422,16 @@ enum EvaluationRequest {
 impl EvaluationRequest {
     fn request_id(&self) -> &str {
         match self {
-            Self::MeasurementAcquisitionStart { request_id, .. }
+            Self::MeasurementAcquisitionRecoveryPrepare { request_id, .. }
+            | Self::MeasurementAcquisitionRecoveryExecute { request_id, .. }
+            | Self::MeasurementAcquisitionRecoveryStatus { request_id, .. }
+            | Self::MeasurementAcquisitionRecoveryCheckpoint { request_id, .. }
+            | Self::MeasurementAcquisitionRecoveryReconcile { request_id, .. }
+            | Self::MeasurementAcquisitionRecoveryAuthorizeRetry { request_id, .. }
+            | Self::MeasurementAcquisitionRecoveryAbandon { request_id, .. }
+            | Self::MeasurementAcquisitionRecoveryResult { request_id, .. }
+            | Self::MeasurementAcquisitionRecoveryReplay { request_id, .. }
+            | Self::MeasurementAcquisitionStart { request_id, .. }
             | Self::MeasurementAcquisitionAdvance { request_id, .. }
             | Self::MeasurementAcquisitionStatus { request_id, .. }
             | Self::MeasurementAcquisitionCheckpoint { request_id, .. }
@@ -434,6 +505,8 @@ pub struct EvaluationProtocol {
     acquisition_sessions: BTreeMap<String, MeasurementAcquisitionSession>,
     acquisition_checkpoints: BTreeMap<String, MeasurementAcquisitionCheckpoint>,
     acquisition_results: BTreeMap<String, crate::acquisition::MeasurementAcquisitionResult>,
+    recovery_journals: BTreeMap<String, MeasurementAcquisitionRecoveryJournal>,
+    recovery_checkpoints: BTreeMap<String, MeasurementAcquisitionRecoveryCheckpoint>,
     acquisition_executor: AcquisitionProtocolExecutor,
     synthetic_acquisition_store: SyntheticMeasurementAcquisitionStore,
     max_request_bytes: u64,
@@ -455,6 +528,8 @@ impl EvaluationProtocol {
             acquisition_sessions: BTreeMap::new(),
             acquisition_checkpoints: BTreeMap::new(),
             acquisition_results: BTreeMap::new(),
+            recovery_journals: BTreeMap::new(),
+            recovery_checkpoints: BTreeMap::new(),
             acquisition_executor: AcquisitionProtocolExecutor::Hardware(
                 WgpuMeasurementAcquisitionExecutor { adapter_index: 0 },
             ),
@@ -487,6 +562,184 @@ impl EvaluationProtocol {
         protocol.acquisition_catalog = Some(catalog);
         protocol.acquisition_executor = AcquisitionProtocolExecutor::Synthetic(Box::default());
         Ok(protocol)
+    }
+
+    fn save_archive_with_recovery(
+        &mut self,
+        path: &Path,
+        runs: &[String],
+    ) -> Result<String, EvaluationDiagnostic> {
+        let mut archive = self.harness.archive(runs)?;
+        if !self.recovery_journals.is_empty() {
+            let catalog = self.acquisition_catalog.as_ref().ok_or_else(|| {
+                EvaluationDiagnostic::new(
+                    crate::model::EvaluationErrorCode::EvaluationAcquisitionArtifactSetInvalid,
+                    "recovery archive save requires the server-owned acquisition catalog",
+                )
+            })?;
+            let mut checkpoints = Vec::new();
+            let mut replay_statuses = BTreeMap::new();
+            for journal in self.recovery_journals.values() {
+                let checkpoint = self
+                    .recovery_checkpoints
+                    .values()
+                    .find(|checkpoint| checkpoint.journal.as_ref() == journal)
+                    .cloned()
+                    .ok_or_else(|| {
+                        EvaluationDiagnostic::new(
+                            crate::model::EvaluationErrorCode::EvaluationAcquisitionCheckpointCorrupt,
+                            "recovery archive save requires an exact explicit recovery checkpoint",
+                        )
+                    })?;
+                let session = self
+                    .acquisition_sessions
+                    .get(&journal.session_id)
+                    .ok_or_else(|| {
+                        EvaluationDiagnostic::new(
+                            crate::model::EvaluationErrorCode::EvaluationRunNotFound,
+                            "recovery archive save is missing its Stage 7C session",
+                        )
+                    })?;
+                match &self.acquisition_executor {
+                    AcquisitionProtocolExecutor::Hardware(_) => {
+                        journal.replay(
+                            session,
+                            self.measurement_workspace.as_ref().ok_or_else(|| {
+                                EvaluationDiagnostic::new(
+                                    crate::model::EvaluationErrorCode::EvaluationAcquisitionMeasurementMissing,
+                                    "recovery archive save is missing its production workspace",
+                                )
+                            })?,
+                            catalog,
+                            &MeasurementAcquisitionRecoveryLimits::default(),
+                        )?;
+                    }
+                    AcquisitionProtocolExecutor::Synthetic(_) => {
+                        journal.replay(
+                            session,
+                            &self.synthetic_acquisition_store,
+                            catalog,
+                            &MeasurementAcquisitionRecoveryLimits::default(),
+                        )?;
+                    }
+                }
+                replay_statuses.insert(
+                    journal
+                        .measurement_acquisition_recovery_journal_hash
+                        .clone(),
+                    true,
+                );
+                checkpoints.push(checkpoint);
+            }
+            let records = match &self.acquisition_executor {
+                AcquisitionProtocolExecutor::Hardware(_) => self
+                    .measurement_workspace
+                    .as_ref()
+                    .ok_or_else(|| {
+                        EvaluationDiagnostic::new(
+                            crate::model::EvaluationErrorCode::EvaluationAcquisitionMeasurementMissing,
+                            "recovery archive save is missing its production workspace",
+                        )
+                    })?
+                    .records(),
+                AcquisitionProtocolExecutor::Synthetic(_) => {
+                    self.synthetic_acquisition_store.records()
+                }
+            }
+            .into_iter()
+            .map(
+                |(measurement_id, record)| crate::measured::MeasurementCohortRecord {
+                    measurement_id,
+                    record,
+                },
+            )
+            .collect();
+            archive = crate::engine::attach_measurement_acquisition_recovery_artifacts(
+                &archive,
+                MeasurementAcquisitionRecoveryArchiveBundle {
+                    journals: self.recovery_journals.values().cloned().collect(),
+                    checkpoints,
+                    records,
+                    replay_statuses,
+                },
+            )?;
+        }
+        let bytes = serde_json::to_vec(&archive).map_err(|error| {
+            EvaluationDiagnostic::new(
+                crate::model::EvaluationErrorCode::EvaluationArchiveInvalid,
+                format!("evaluation archive encoding failed: {error}"),
+            )
+        })?;
+        if u64::try_from(bytes.len()).unwrap_or(u64::MAX)
+            > MeasurementAcquisitionRecoveryLimits::default().archive_v7_bytes
+        {
+            return Err(EvaluationDiagnostic::new(
+                crate::model::EvaluationErrorCode::EvaluationAcquisitionRecoveryLimitExceeded,
+                "evaluation archive v7 exceeds the Stage 7D byte limit",
+            ));
+        }
+        let temporary = path.with_extension("agentir-evaluation.tmp");
+        fs::write(&temporary, bytes).map_err(|error| {
+            EvaluationDiagnostic::new(
+                crate::model::EvaluationErrorCode::EvaluationArchiveInvalid,
+                format!("evaluation archive temporary write failed: {error}"),
+            )
+        })?;
+        fs::rename(&temporary, path).map_err(|error| {
+            EvaluationDiagnostic::new(
+                crate::model::EvaluationErrorCode::EvaluationArchiveInvalid,
+                format!("evaluation archive atomic rename failed: {error}"),
+            )
+        })?;
+        Ok(archive.archive_hash)
+    }
+
+    fn import_recovery_archive(
+        &mut self,
+        path: &Path,
+    ) -> Result<crate::model::EvaluationArchive, EvaluationDiagnostic> {
+        let archive = self.harness.import_archive(path)?;
+        if matches!(
+            &self.acquisition_executor,
+            AcquisitionProtocolExecutor::Synthetic(_)
+        ) {
+            self.synthetic_acquisition_store.restore_records(
+                archive
+                    .measurement_acquisition_records
+                    .iter()
+                    .map(|entry| (entry.measurement_id.clone(), entry.record.clone())),
+            )?;
+        }
+        if self.acquisition_catalog.is_none()
+            && let (Some(workspace), Some(journal)) = (
+                self.measurement_workspace.as_ref(),
+                archive.measurement_acquisition_recovery_journals.first(),
+            )
+        {
+            self.acquisition_catalog = Some(MeasurementAcquisitionCatalog::from_workspace(
+                workspace,
+                journal.root_anchor_hash.clone(),
+            )?);
+        }
+        for checkpoint in &archive.measurement_acquisition_recovery_checkpoints {
+            let journal = checkpoint.journal.as_ref().clone();
+            let session = checkpoint.session.as_ref().clone();
+            self.acquisition_plans.insert(
+                session.plan.measurement_acquisition_plan_hash.clone(),
+                session.plan.clone(),
+            );
+            self.acquisition_sessions
+                .insert(session.session_id.clone(), session);
+            self.recovery_journals
+                .insert(journal.recovery_journal_id.clone(), journal);
+            self.recovery_checkpoints.insert(
+                checkpoint
+                    .measurement_acquisition_recovery_checkpoint_hash
+                    .clone(),
+                checkpoint.clone(),
+            );
+        }
+        Ok(archive)
     }
 
     /// Maximum encoded bytes accepted for one physical JSONL line.
@@ -530,6 +783,409 @@ impl EvaluationProtocol {
 
     fn handle(&mut self, request: EvaluationRequest) -> Result<Value, EvaluationDiagnostic> {
         match request {
+            EvaluationRequest::MeasurementAcquisitionRecoveryPrepare {
+                session,
+                measurement_acquisition_plan_hash,
+                ..
+            } => {
+                let retained = acquisition_session(
+                    &self.acquisition_sessions,
+                    &session,
+                    &measurement_acquisition_plan_hash,
+                )?;
+                let catalog = self.acquisition_catalog.as_ref().ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationAcquisitionArtifactSetInvalid,
+                        "acquisition recovery catalog is missing",
+                    )
+                })?;
+                let journal = match &self.acquisition_executor {
+                    AcquisitionProtocolExecutor::Hardware(_) => {
+                        let workspace = self.measurement_workspace.as_ref().ok_or_else(|| {
+                            EvaluationDiagnostic::new(
+                                crate::model::EvaluationErrorCode::EvaluationAcquisitionMeasurementMissing,
+                                "acquisition recovery production workspace is missing",
+                            )
+                        })?;
+                        MeasurementAcquisitionRecoveryJournal::prepare(
+                            retained,
+                            workspace,
+                            catalog,
+                            &MeasurementAcquisitionRecoveryLimits::default(),
+                        )?
+                    }
+                    AcquisitionProtocolExecutor::Synthetic(_) => {
+                        MeasurementAcquisitionRecoveryJournal::prepare(
+                            retained,
+                            &self.synthetic_acquisition_store,
+                            catalog,
+                            &MeasurementAcquisitionRecoveryLimits::default(),
+                        )?
+                    }
+                };
+                let id = journal.recovery_journal_id.clone();
+                let hash = journal
+                    .measurement_acquisition_recovery_journal_hash
+                    .clone();
+                if self.recovery_journals.insert(id.clone(), journal).is_some() {
+                    return Err(EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationAcquisitionRecoveryAlreadyResolved,
+                        "recovery journal already exists for this acquisition slot",
+                    ));
+                }
+                Ok(json!({
+                    "recovery_journal":id,
+                    "measurement_acquisition_recovery_journal_hash":hash,
+                    "status":"prepared",
+                    "hardware_calls":0,
+                }))
+            }
+            EvaluationRequest::MeasurementAcquisitionRecoveryExecute {
+                recovery_journal,
+                measurement_acquisition_recovery_journal_hash,
+                fault_boundary,
+                ..
+            } => {
+                let mut journal = retained_recovery_journal(
+                    &self.recovery_journals,
+                    &recovery_journal,
+                    &measurement_acquisition_recovery_journal_hash,
+                )?
+                .clone();
+                let mut session = self
+                    .acquisition_sessions
+                    .get(&journal.session_id)
+                    .cloned()
+                    .ok_or_else(|| {
+                        EvaluationDiagnostic::new(
+                            crate::model::EvaluationErrorCode::EvaluationRunNotFound,
+                            "recovery Stage 7C session is missing",
+                        )
+                    })?;
+                let catalog = self.acquisition_catalog.clone().ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationAcquisitionArtifactSetInvalid,
+                        "acquisition recovery catalog is missing",
+                    )
+                })?;
+                let status = match &mut self.acquisition_executor {
+                    AcquisitionProtocolExecutor::Hardware(executor) => {
+                        let mut store = self.measurement_workspace.clone().ok_or_else(|| {
+                            EvaluationDiagnostic::new(
+                                crate::model::EvaluationErrorCode::EvaluationAcquisitionMeasurementMissing,
+                                "recovery production workspace is missing",
+                            )
+                        })?;
+                        let read_workspace = store.clone();
+                        let status = journal.execute(
+                            &mut session,
+                            &mut store,
+                            &catalog,
+                            Some(&read_workspace),
+                            executor,
+                            fault_boundary,
+                            &MeasurementAcquisitionRecoveryLimits::default(),
+                        )?;
+                        self.measurement_workspace = Some(store);
+                        status
+                    }
+                    AcquisitionProtocolExecutor::Synthetic(executor) => {
+                        let mut store = self.synthetic_acquisition_store.clone();
+                        let status = journal.execute(
+                            &mut session,
+                            &mut store,
+                            &catalog,
+                            None,
+                            executor.as_mut(),
+                            fault_boundary,
+                            &MeasurementAcquisitionRecoveryLimits::default(),
+                        )?;
+                        self.synthetic_acquisition_store = store;
+                        status
+                    }
+                };
+                let hash = journal
+                    .measurement_acquisition_recovery_journal_hash
+                    .clone();
+                self.acquisition_sessions
+                    .insert(session.session_id.clone(), session);
+                self.recovery_journals
+                    .insert(recovery_journal.clone(), journal);
+                Ok(json!({
+                    "recovery_journal":recovery_journal,
+                    "status":status,
+                    "measurement_acquisition_recovery_journal_hash":hash,
+                }))
+            }
+            EvaluationRequest::MeasurementAcquisitionRecoveryStatus {
+                recovery_journal: id,
+                measurement_acquisition_recovery_journal_hash,
+                ..
+            } => {
+                let journal = retained_recovery_journal(
+                    &self.recovery_journals,
+                    &id,
+                    &measurement_acquisition_recovery_journal_hash,
+                )?;
+                Ok(json!({
+                    "recovery_journal":id,
+                    "status":journal.status,
+                    "slot_index":journal.slot_index,
+                    "attempt_id":journal.current_prepared_slot()?.attempt_id,
+                    "work":journal.work,
+                    "hardware_calls":0,
+                }))
+            }
+            EvaluationRequest::MeasurementAcquisitionRecoveryCheckpoint {
+                recovery_journal: id,
+                measurement_acquisition_recovery_journal_hash,
+                ..
+            } => {
+                let mut journal = retained_recovery_journal(
+                    &self.recovery_journals,
+                    &id,
+                    &measurement_acquisition_recovery_journal_hash,
+                )?
+                .clone();
+                let session = self
+                    .acquisition_sessions
+                    .get(&journal.session_id)
+                    .ok_or_else(|| {
+                        EvaluationDiagnostic::new(
+                            crate::model::EvaluationErrorCode::EvaluationRunNotFound,
+                            "recovery checkpoint Stage 7C session is missing",
+                        )
+                    })?;
+                let checkpoint = journal
+                    .checkpoint(session, &MeasurementAcquisitionRecoveryLimits::default())?;
+                let checkpoint_hash = checkpoint
+                    .measurement_acquisition_recovery_checkpoint_hash
+                    .clone();
+                let journal_hash = journal
+                    .measurement_acquisition_recovery_journal_hash
+                    .clone();
+                self.recovery_checkpoints
+                    .insert(checkpoint_hash.clone(), checkpoint);
+                self.recovery_journals.insert(id.clone(), journal);
+                Ok(json!({
+                    "recovery_journal":id,
+                    "measurement_acquisition_recovery_journal_hash":journal_hash,
+                    "measurement_acquisition_recovery_checkpoint_hash":checkpoint_hash,
+                    "hardware_calls":0,
+                }))
+            }
+            EvaluationRequest::MeasurementAcquisitionRecoveryReconcile {
+                recovery_journal: id,
+                measurement_acquisition_recovery_journal_hash,
+                ..
+            } => {
+                let mut journal = retained_recovery_journal(
+                    &self.recovery_journals,
+                    &id,
+                    &measurement_acquisition_recovery_journal_hash,
+                )?
+                .clone();
+                let mut session = self
+                    .acquisition_sessions
+                    .get(&journal.session_id)
+                    .cloned()
+                    .ok_or_else(|| {
+                        EvaluationDiagnostic::new(
+                            crate::model::EvaluationErrorCode::EvaluationRunNotFound,
+                            "recovery Stage 7C session is missing",
+                        )
+                    })?;
+                let catalog = self.acquisition_catalog.as_ref().ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationAcquisitionArtifactSetInvalid,
+                        "acquisition recovery catalog is missing",
+                    )
+                })?;
+                let anchors =
+                    crate::recovery::MeasurementAcquisitionRecoveryAnchors::from_session(&session);
+                let result = match &self.acquisition_executor {
+                    AcquisitionProtocolExecutor::Hardware(_) => journal.reconcile(
+                        &mut session,
+                        self.measurement_workspace.as_ref().ok_or_else(|| {
+                            EvaluationDiagnostic::new(
+                                crate::model::EvaluationErrorCode::EvaluationAcquisitionMeasurementMissing,
+                                "recovery production workspace is missing",
+                            )
+                        })?,
+                        catalog,
+                        &anchors,
+                        &MeasurementAcquisitionRecoveryLimits::default(),
+                    )?,
+                    AcquisitionProtocolExecutor::Synthetic(_) => journal.reconcile(
+                        &mut session,
+                        &self.synthetic_acquisition_store,
+                        catalog,
+                        &anchors,
+                        &MeasurementAcquisitionRecoveryLimits::default(),
+                    )?,
+                };
+                let hash = journal
+                    .measurement_acquisition_recovery_journal_hash
+                    .clone();
+                self.acquisition_sessions
+                    .insert(session.session_id.clone(), session);
+                self.recovery_journals.insert(id.clone(), journal);
+                Ok(json!({
+                    "recovery_journal":id,
+                    "reconciliation":result,
+                    "measurement_acquisition_recovery_journal_hash":hash,
+                    "hardware_calls":0,
+                }))
+            }
+            EvaluationRequest::MeasurementAcquisitionRecoveryAuthorizeRetry {
+                recovery_journal: id,
+                measurement_acquisition_recovery_journal_hash,
+                ..
+            } => {
+                let mut journal = retained_recovery_journal(
+                    &self.recovery_journals,
+                    &id,
+                    &measurement_acquisition_recovery_journal_hash,
+                )?
+                .clone();
+                let session = self
+                    .acquisition_sessions
+                    .get(&journal.session_id)
+                    .ok_or_else(|| {
+                        EvaluationDiagnostic::new(
+                            crate::model::EvaluationErrorCode::EvaluationRunNotFound,
+                            "recovery Stage 7C session is missing",
+                        )
+                    })?;
+                let catalog = self.acquisition_catalog.as_ref().ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationAcquisitionArtifactSetInvalid,
+                        "acquisition recovery catalog is missing",
+                    )
+                })?;
+                let attempt_id = match &self.acquisition_executor {
+                    AcquisitionProtocolExecutor::Hardware(_) => journal
+                        .authorize_retry(
+                            session,
+                            self.measurement_workspace.as_ref().ok_or_else(|| {
+                                EvaluationDiagnostic::new(
+                                    crate::model::EvaluationErrorCode::EvaluationAcquisitionMeasurementMissing,
+                                    "recovery production workspace is missing",
+                                )
+                            })?,
+                            catalog,
+                            &MeasurementAcquisitionRecoveryLimits::default(),
+                        )?
+                        .attempt_id
+                        .clone(),
+                    AcquisitionProtocolExecutor::Synthetic(_) => journal
+                        .authorize_retry(
+                            session,
+                            &self.synthetic_acquisition_store,
+                            catalog,
+                            &MeasurementAcquisitionRecoveryLimits::default(),
+                        )?
+                        .attempt_id
+                        .clone(),
+                };
+                let hash = journal
+                    .measurement_acquisition_recovery_journal_hash
+                    .clone();
+                self.recovery_journals.insert(id.clone(), journal);
+                Ok(json!({
+                    "recovery_journal":id,
+                    "status":"retry_authorized",
+                    "attempt_id":attempt_id,
+                    "measurement_acquisition_recovery_journal_hash":hash,
+                    "hardware_calls":0,
+                }))
+            }
+            EvaluationRequest::MeasurementAcquisitionRecoveryAbandon {
+                recovery_journal: id,
+                measurement_acquisition_recovery_journal_hash,
+                ..
+            } => {
+                let mut journal = retained_recovery_journal(
+                    &self.recovery_journals,
+                    &id,
+                    &measurement_acquisition_recovery_journal_hash,
+                )?
+                .clone();
+                let status = journal.abandon(&MeasurementAcquisitionRecoveryLimits::default())?;
+                let hash = journal
+                    .measurement_acquisition_recovery_journal_hash
+                    .clone();
+                self.recovery_journals.insert(id.clone(), journal);
+                Ok(json!({
+                    "recovery_journal":id,
+                    "status":status,
+                    "measurement_acquisition_recovery_journal_hash":hash,
+                    "hardware_calls":0,
+                }))
+            }
+            EvaluationRequest::MeasurementAcquisitionRecoveryResult {
+                recovery_journal: id,
+                measurement_acquisition_recovery_journal_hash,
+                ..
+            } => serde_json::to_value(
+                retained_recovery_journal(
+                    &self.recovery_journals,
+                    &id,
+                    &measurement_acquisition_recovery_journal_hash,
+                )?
+                .result(),
+            )
+            .map_err(|error| serialization_error(&error)),
+            EvaluationRequest::MeasurementAcquisitionRecoveryReplay {
+                recovery_journal: id,
+                measurement_acquisition_recovery_journal_hash,
+                ..
+            } => {
+                let journal = retained_recovery_journal(
+                    &self.recovery_journals,
+                    &id,
+                    &measurement_acquisition_recovery_journal_hash,
+                )?;
+                let session = self
+                    .acquisition_sessions
+                    .get(&journal.session_id)
+                    .ok_or_else(|| {
+                        EvaluationDiagnostic::new(
+                            crate::model::EvaluationErrorCode::EvaluationRunNotFound,
+                            "recovery replay Stage 7C session is missing",
+                        )
+                    })?;
+                let catalog = self.acquisition_catalog.as_ref().ok_or_else(|| {
+                    EvaluationDiagnostic::new(
+                        crate::model::EvaluationErrorCode::EvaluationAcquisitionArtifactSetInvalid,
+                        "acquisition recovery catalog is missing",
+                    )
+                })?;
+                let replay = match &self.acquisition_executor {
+                    AcquisitionProtocolExecutor::Hardware(_) => journal.replay(
+                        session,
+                        self.measurement_workspace.as_ref().ok_or_else(|| {
+                            EvaluationDiagnostic::new(
+                                crate::model::EvaluationErrorCode::EvaluationAcquisitionMeasurementMissing,
+                                "recovery production workspace is missing",
+                            )
+                        })?,
+                        catalog,
+                        &MeasurementAcquisitionRecoveryLimits::default(),
+                    )?,
+                    AcquisitionProtocolExecutor::Synthetic(_) => journal.replay(
+                        session,
+                        &self.synthetic_acquisition_store,
+                        catalog,
+                        &MeasurementAcquisitionRecoveryLimits::default(),
+                    )?,
+                };
+                Ok(json!({
+                    "recovery":replay,
+                    "benchmark_calls":0,
+                    "device_calls":0,
+                }))
+            }
             EvaluationRequest::MeasurementAcquisitionStart {
                 task,
                 root_anchor_hash,
@@ -1753,14 +2409,15 @@ impl EvaluationProtocol {
             }
             EvaluationRequest::ArchiveSave { path, runs, .. } => Ok(json!({
                 "path": path,
-                "archive_hash": self.harness.save_archive(Path::new(&path), &runs)?
+                "archive_hash": self.save_archive_with_recovery(Path::new(&path), &runs)?
             })),
             EvaluationRequest::ArchiveLoad { path, .. } => {
-                let archive = self.harness.import_archive(Path::new(&path))?;
+                let archive = self.import_recovery_archive(Path::new(&path))?;
                 Ok(json!({
                     "path": path,
                     "archive_hash": archive.archive_hash,
                     "runs": archive.runs.len(),
+                    "recovery_journals": archive.measurement_acquisition_recovery_journals.len(),
                     "verified": true
                 }))
             }
@@ -1809,6 +2466,26 @@ fn acquisition_session<'a>(
         return Err(EvaluationDiagnostic::new(
             crate::model::EvaluationErrorCode::EvaluationAcquisitionPlanCorrupt,
             "measurement acquisition plan hash is stale",
+        ));
+    }
+    Ok(retained)
+}
+
+fn retained_recovery_journal<'a>(
+    journals: &'a BTreeMap<String, MeasurementAcquisitionRecoveryJournal>,
+    journal: &str,
+    journal_hash: &str,
+) -> Result<&'a MeasurementAcquisitionRecoveryJournal, EvaluationDiagnostic> {
+    let retained = journals.get(journal).ok_or_else(|| {
+        EvaluationDiagnostic::new(
+            crate::model::EvaluationErrorCode::EvaluationAcquisitionRecoveryNotPrepared,
+            "measurement acquisition recovery journal does not exist",
+        )
+    })?;
+    if retained.measurement_acquisition_recovery_journal_hash != journal_hash {
+        return Err(EvaluationDiagnostic::new(
+            crate::model::EvaluationErrorCode::EvaluationAcquisitionRecoveryJournalCorrupt,
+            "measurement acquisition recovery journal hash is stale",
         ));
     }
     Ok(retained)

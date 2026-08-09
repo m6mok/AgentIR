@@ -378,6 +378,8 @@ pub struct MeasurementAcquisitionRecoveryCheckpoint {
     pub version: u32,
     /// Exact journal snapshot.
     pub journal: Box<MeasurementAcquisitionRecoveryJournal>,
+    /// Exact Stage 7C session snapshot paired with the recovery journal.
+    pub session: Box<MeasurementAcquisitionSession>,
     /// Hash of the exact journal snapshot.
     pub measurement_acquisition_recovery_journal_hash: String,
     /// Independently checked checkpoint hash under the journal domain.
@@ -412,6 +414,8 @@ pub struct MeasurementAcquisitionRecoveryArchiveBundle {
     pub journals: Vec<MeasurementAcquisitionRecoveryJournal>,
     /// Durable recovery checkpoints.
     pub checkpoints: Vec<MeasurementAcquisitionRecoveryCheckpoint>,
+    /// Complete production-format records referenced by recovery history.
+    pub records: Vec<crate::measured::MeasurementCohortRecord>,
     /// Explicit zero-device replay status by journal hash.
     pub replay_statuses: BTreeMap<String, bool>,
 }
@@ -829,9 +833,6 @@ impl MeasurementAcquisitionRecoveryJournal {
             staged_journal.work.execute_commands = add(staged_journal.work.execute_commands, 1)?;
             staged_journal.work.prevented_automatic_reruns =
                 add(staged_journal.work.prevented_automatic_reruns, 1)?;
-            staged_journal.mark_current_preparation(
-                MeasurementAcquisitionPreparationStatus::IndeterminateAfterCrash,
-            )?;
             staged_journal.push_trace(
                 "crash_after_prepare_before_benchmark",
                 Some(prepared.attempt_id),
@@ -860,9 +861,6 @@ impl MeasurementAcquisitionRecoveryJournal {
                 staged_journal.status = RecoveryStatus::IndeterminateAfterCrash;
                 staged_journal.work.prevented_automatic_reruns =
                     add(staged_journal.work.prevented_automatic_reruns, 1)?;
-                staged_journal.mark_current_preparation(
-                    MeasurementAcquisitionPreparationStatus::IndeterminateAfterCrash,
-                )?;
                 staged_journal.push_trace(
                     "benchmark_returned_without_publication",
                     Some(prepared.attempt_id),
@@ -886,9 +884,6 @@ impl MeasurementAcquisitionRecoveryJournal {
             staged_journal.status = RecoveryStatus::IndeterminateAfterCrash;
             staged_journal.work.prevented_automatic_reruns =
                 add(staged_journal.work.prevented_automatic_reruns, 1)?;
-            staged_journal.mark_current_preparation(
-                MeasurementAcquisitionPreparationStatus::IndeterminateAfterCrash,
-            )?;
             staged_journal.push_trace(
                 "crash_after_benchmark_before_publication",
                 Some(prepared.attempt_id),
@@ -909,9 +904,6 @@ impl MeasurementAcquisitionRecoveryJournal {
             staged_journal.status = RecoveryStatus::IndeterminateAfterCrash;
             staged_journal.work.prevented_automatic_reruns =
                 add(staged_journal.work.prevented_automatic_reruns, 1)?;
-            staged_journal.mark_current_preparation(
-                MeasurementAcquisitionPreparationStatus::IndeterminateAfterCrash,
-            )?;
             staged_journal.push_trace(
                 "crash_after_publication_before_evaluation_checkpoint",
                 Some(prepared.attempt_id),
@@ -934,8 +926,6 @@ impl MeasurementAcquisitionRecoveryJournal {
         } else {
             RecoveryStatus::Reconciled
         };
-        staged_journal
-            .mark_current_preparation(MeasurementAcquisitionPreparationStatus::Reconciled)?;
         staged_journal.push_trace(
             if matches!(
                 fault,
@@ -1107,8 +1097,6 @@ impl MeasurementAcquisitionRecoveryJournal {
                 .copied()
                 .unwrap_or_else(|| expected_device_calls(&prepared));
             staged_session.attach_recovered_measurement(id.clone(), hash.clone(), device_calls)?;
-            staged_journal
-                .mark_current_preparation(MeasurementAcquisitionPreparationStatus::Reconciled)?;
             staged_journal.status =
                 if staged_session.status == MeasurementAcquisitionStatus::Complete {
                     RecoveryStatus::Complete
@@ -1270,7 +1258,6 @@ impl MeasurementAcquisitionRecoveryJournal {
         let attempt = staged.current_prepared_slot()?.attempt_id.clone();
         staged.status = RecoveryStatus::Abandoned;
         staged.work.abandonments = add(staged.work.abandonments, 1)?;
-        staged.mark_current_preparation(MeasurementAcquisitionPreparationStatus::Abandoned)?;
         staged.push_trace(
             "recovery_explicitly_abandoned",
             Some(attempt),
@@ -1285,6 +1272,7 @@ impl MeasurementAcquisitionRecoveryJournal {
     /// Encodes a durable recovery checkpoint without hardware work.
     pub fn checkpoint(
         &mut self,
+        session: &MeasurementAcquisitionSession,
         limits: &MeasurementAcquisitionRecoveryLimits,
     ) -> EvaluationResult<MeasurementAcquisitionRecoveryCheckpoint> {
         let mut staged = self.clone();
@@ -1293,6 +1281,7 @@ impl MeasurementAcquisitionRecoveryJournal {
         let mut checkpoint = MeasurementAcquisitionRecoveryCheckpoint {
             version: 1,
             journal: Box::new(staged.clone()),
+            session: Box::new(session.clone()),
             measurement_acquisition_recovery_journal_hash: staged
                 .measurement_acquisition_recovery_journal_hash
                 .clone(),
@@ -1330,6 +1319,7 @@ impl MeasurementAcquisitionRecoveryJournal {
                 != checkpoint
                     .journal
                     .measurement_acquisition_recovery_journal_hash
+            || checkpoint.session.as_ref() != session
         {
             return Err(recovery_error(
                 EvaluationErrorCode::EvaluationAcquisitionCheckpointCorrupt,
@@ -1384,23 +1374,6 @@ impl MeasurementAcquisitionRecoveryJournal {
                 .clone(),
             work: self.work.clone(),
         }
-    }
-
-    fn mark_current_preparation(
-        &mut self,
-        status: MeasurementAcquisitionPreparationStatus,
-    ) -> EvaluationResult<()> {
-        let prepared = self.prepared_slots.last_mut().ok_or_else(|| {
-            recovery_error(
-                EvaluationErrorCode::EvaluationAcquisitionIndeterminateAfterCrash,
-                "recovery journal has no current prepared slot",
-            )
-        })?;
-        prepared.preparation_status = status;
-        prepared.measurement_acquisition_prepared_slot_hash.clear();
-        prepared.measurement_acquisition_prepared_slot_hash =
-            measurement_acquisition_prepared_slot_hash(prepared)?;
-        Ok(())
     }
 
     fn push_trace(

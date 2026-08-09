@@ -1204,6 +1204,39 @@ impl MeasurementAcquisitionStore for SyntheticMeasurementAcquisitionStore {
     }
 }
 
+impl SyntheticMeasurementAcquisitionStore {
+    /// Restores fully verified synthetic records from an evaluation archive.
+    pub(crate) fn restore_records(
+        &mut self,
+        records: impl IntoIterator<Item = (MeasurementId, HardwareMeasurementRecord)>,
+    ) -> EvaluationResult<()> {
+        let mut restored = BTreeMap::new();
+        let mut next_id = 0_u64;
+        for (id, record) in records {
+            if record.validation_status != "synthetic_test_data_not_performance_evidence"
+                || measurement_hash(&record).map_err(|error| core_acquisition_error(&error))?
+                    != record.measurement_hash
+                || restored.insert(id.clone(), record).is_some()
+            {
+                return Err(acquisition_error(
+                    EvaluationErrorCode::EvaluationAcquisitionMeasurementDuplicate,
+                    "archived synthetic measurement is corrupt or duplicated",
+                ));
+            }
+            if let Some(ordinal) = id
+                .as_str()
+                .strip_prefix("synthetic-meas-")
+                .and_then(|value| value.parse::<u64>().ok())
+            {
+                next_id = next_id.max(ordinal);
+            }
+        }
+        self.records = restored;
+        self.next_id = next_id;
+        Ok(())
+    }
+}
+
 impl MeasurementAcquisitionSession {
     /// Starts only after successful server-owned preflight.
     pub fn start<E: MeasurementAcquisitionExecutor>(

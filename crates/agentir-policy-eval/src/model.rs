@@ -19,6 +19,12 @@ use crate::measured::{
 use crate::ranking::{
     EvaluationChoiceSet, FeatureSchema, RankingPolicyDescriptor, RankingTrace, SelectionOutcome,
 };
+use crate::recovery::{
+    MeasurementAcquisitionPreparedSlot, MeasurementAcquisitionPublicationSnapshot,
+    MeasurementAcquisitionReconciliationResult, MeasurementAcquisitionRecoveryCheckpoint,
+    MeasurementAcquisitionRecoveryJournal, MeasurementAcquisitionRecoveryWorkCounters,
+    MeasurementAcquisitionRetryAuthorization,
+};
 use crate::repairs::RepairDescriptor;
 use crate::search::{
     SearchCheckpoint, SearchEdge, SearchNode, SearchObjectiveDescriptor, SearchPlan,
@@ -640,7 +646,7 @@ pub struct EvaluationManifest {
     pub aggregation_configuration: BTreeMap<String, Value>,
 }
 
-/// Separate current evaluation archive v6; never embedded in workspace archive v9.
+/// Separate current evaluation archive v7; never embedded in workspace archive v9.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EvaluationArchive {
     /// Stable serialized contract field.
@@ -768,8 +774,60 @@ pub struct EvaluationArchive {
     /// Exact zero-device replay status by acquisition result hash.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub measurement_acquisition_replay_statuses: BTreeMap<String, bool>,
+    /// Explicit v7 classification of durable-recovery-history presence.
+    #[serde(
+        default,
+        skip_serializing_if = "MeasurementAcquisitionRecoveryHistoryStatus::is_no_history"
+    )]
+    pub measurement_acquisition_recovery_history_status:
+        MeasurementAcquisitionRecoveryHistoryStatus,
+    /// Stage 7D durable recovery journals. Empty in v1-v6.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub measurement_acquisition_recovery_journals: Vec<MeasurementAcquisitionRecoveryJournal>,
+    /// Flattened Stage 7D prepared-slot records. Empty in v1-v6.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub measurement_acquisition_prepared_slots: Vec<MeasurementAcquisitionPreparedSlot>,
+    /// Flattened server-owned publication snapshots. Empty in v1-v6.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub measurement_acquisition_publication_snapshots:
+        Vec<MeasurementAcquisitionPublicationSnapshot>,
+    /// Flattened Stage 7D reconciliation results. Empty in v1-v6.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub measurement_acquisition_reconciliation_results:
+        Vec<MeasurementAcquisitionReconciliationResult>,
+    /// Explicit retry authorizations. Empty in v1-v6.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub measurement_acquisition_retry_authorizations: Vec<MeasurementAcquisitionRetryAuthorization>,
+    /// Durable recovery checkpoints. Empty in v1-v6.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub measurement_acquisition_recovery_checkpoints: Vec<MeasurementAcquisitionRecoveryCheckpoint>,
+    /// Flattened deterministic recovery work counters. Empty in v1-v6.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub measurement_acquisition_recovery_work_counters:
+        Vec<MeasurementAcquisitionRecoveryWorkCounters>,
+    /// Exact zero-device replay status by recovery journal hash.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub measurement_acquisition_recovery_replay_statuses: BTreeMap<String, bool>,
     /// Stable serialized contract field.
     pub archive_hash: String,
+}
+
+/// Durable recovery presence recorded explicitly by evaluation archive v7.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MeasurementAcquisitionRecoveryHistoryStatus {
+    /// Pure migration retained no synthetic recovery history.
+    #[default]
+    NoRecoveryHistory,
+    /// One or more verified recovery journals are retained.
+    RecoveryHistoryPresent,
+}
+
+impl MeasurementAcquisitionRecoveryHistoryStatus {
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    fn is_no_history(&self) -> bool {
+        matches!(self, Self::NoRecoveryHistory)
+    }
 }
 
 /// Measurement-acquisition presence recorded explicitly by evaluation archive v6.
@@ -856,6 +914,22 @@ pub enum LearningEpisodeStatus {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum EvaluationErrorCode {
+    /// Stable Stage 7D wire variant.
+    EvaluationAcquisitionRecoveryNotPrepared,
+    /// Stable Stage 7D wire variant.
+    EvaluationAcquisitionRecoveryJournalCorrupt,
+    /// Stable Stage 7D wire variant.
+    EvaluationAcquisitionRecoveryAlreadyResolved,
+    /// Stable Stage 7D wire variant.
+    EvaluationAcquisitionRecoveryRetryNotAuthorized,
+    /// Stable Stage 7D wire variant.
+    EvaluationAcquisitionRecoveryAmbiguous,
+    /// Stable Stage 7D wire variant.
+    EvaluationAcquisitionRecoveryIncompatiblePublication,
+    /// Stable Stage 7D wire variant.
+    EvaluationAcquisitionRecoverySnapshotCorrupt,
+    /// Stable Stage 7D wire variant.
+    EvaluationAcquisitionRecoveryLimitExceeded,
     /// Stable Stage 7C wire variant.
     EvaluationAcquisitionUnsupportedMode,
     /// Stable Stage 7C wire variant.
