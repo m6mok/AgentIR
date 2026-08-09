@@ -449,7 +449,7 @@ fn main() -> Result<(), String> {
     archive.learned_models.push(model);
     archive.archive_hash.clear();
     archive.archive_hash = agentir_policy_eval::hashing::domain_hash(
-        agentir_policy_eval::hashing::ARCHIVE_HASH_V7_DOMAIN,
+        agentir_policy_eval::hashing::ARCHIVE_HASH_V8_DOMAIN,
         &archive,
     )
     .expect("archive hash");
