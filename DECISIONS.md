@@ -619,3 +619,47 @@ Potential persistent references inside generic semantic attributes are rejected 
 ## ADR-139: Evaluation archive v4 retains search provenance
 
 **Decision.** New evaluation saves use v4. Immutable v1/v2/v3 inputs migrate only v1→v2→v3→v4; v3→v4 explicitly records no search history and invents no objective, plan, node, checkpoint, trace or result. Workspace archives remain unrelated v1–v9.
+
+## ADR-140: Stage 7B remains evaluation-only
+
+**Decision.** Measurement cohorts, measured objectives, recommendation lifecycle/work and archive v5 live only in `agentir-policy-eval`. Core retains unchanged measurement-record v1 and workspace archive v9; Stage 7A contracts remain byte-frozen.
+
+## ADR-141: Cohorts contain only verified production records
+
+**Decision.** Cohort creation resolves compiler-assigned IDs/hashes from one production workspace, rehashes records, requires retained offline-valid artifacts, canonicalizes by measurement hash, rejects duplicates, and freezes exact validation/count/aggregation policy.
+
+## ADR-142: Cohort eligibility forbids pooling
+
+**Decision.** Target, compiler build, device fingerprint, runtime, warmups, iterations, input distribution and tensor dimensions must be identical. Cross-device/build/input/config records reject; missing measurements remain typed unavailable values.
+
+## ADR-143: Clients cannot supply measurement data
+
+**Decision.** Evaluation JSONL accepts measurement IDs/hashes only. Timing summaries, device metadata, validation status, arbitrary artifacts/backend source, guards and certificates are absent from request variants and rejected by `deny_unknown_fields`.
+
+## ADR-144: Hardware objectives are terminal-only and separate
+
+**Decision.** Immutable `SearchObjectiveDescriptor` v1 and Stage 7A ordering do not change. `MeasuredObjectiveDescriptor` v1 applies only after search stops to terminal artifacts with eligible cohort records; intermediate nodes receive no latency estimate.
+
+## ADR-145: Aggregation and indifference use checked integers
+
+**Decision.** V1 permits median/p95 record summaries, one-record or lower-median-of-record-summaries aggregation, minimize direction, and checked ppm indifference. Equivalent measurements resolve by artifact hash/node ID without a faster-than claim.
+
+## ADR-146: Measured recommendations are non-authoritative
+
+**Decision.** A recommendation says selected under one descriptor from one cohort, never proven fastest, statistically significant, portable, globally optimal or correctness evidence. It never publishes a live workspace.
+
+## ADR-147: Replay performs no hardware work
+
+**Decision.** Replay repeats ordinary Stage 7A production/ranker reconstruction then cohort validation, terminal eligibility, integer aggregation/ties and recommendation hashing. Benchmark/device/provider/network/training calls remain zero.
+
+## ADR-148: Evaluation archive v5 retains measured provenance
+
+**Decision.** New saves use v5 and `agentir.evaluation.archive.v5\0`. Immutable v1–v4 inputs migrate only v1→v2→v3→v4→v5; v4→v5 verifies first and records `NoMeasuredSearchHistory` without synthetic data.
+
+## ADR-149: Hardware observations remain non-correctness
+
+**Decision.** Cohorts, objectives, timing, recommendations, search and selection cannot advance proof frontiers, legalize compiler IR/artifacts, close obligations, or change any compiler semantic hash.
+
+## ADR-150: Stage 7C remains separately versioned
+
+**Decision.** Continuation-native snapshots, concurrent/new search algorithms, broader surfaces, live acquisition orchestration, energy objectives, prediction/interpolation, training during search and global optimization remain deferred to a separately frozen Stage 7C or later contract.

@@ -41,7 +41,7 @@ immutable corpus + policy descriptor
   ↓ exact observation / bounded decision
 agentir-policy-eval ─ production outcome → ranking/learning → isolated bounded search
   ↓ separate format
-evaluation archive v4 (v1→v2→v3→v4 migration; never workspace archive v9)
+evaluation archive v5 (v1→v2→v3→v4→v5 migration; never workspace archive v9)
 ```
 
 The dependency direction is one-way: `core` knows nothing about JSONL sessions, policy evaluation, learned models, search plans/frontiers, transcripts or filesystems; the reference evaluator and store depend on `core`; `protocol` composes production components; `agentir-policy-eval` invokes that production surface and owns offline ranking, learning and bounded search; both CLIs only stream lines.
@@ -49,6 +49,10 @@ The dependency direction is one-way: `core` knows nothing about JSONL sessions, 
 ## Stage 7A search boundary
 
 Stage 7A reconstructs each explored trajectory in a fresh `EvaluationHarness`, rebuilds exact choice sets, reruns the retained Stage 6B/6C ranker, and submits each selected menu action through `agentir-protocol::Engine`. Search-local graphs, checkpoints and results are evaluation records only. No live workspace is exploration state and no search dependency flows into core.
+
+## Stage 7B measured-search boundary
+
+Stage 7B leaves Stage 7A byte contracts unchanged and post-processes only terminal artifacts using frozen, production-hash-verified measurement cohorts. Cohort/objective/recommendation/archive-v5 types remain in `agentir-policy-eval`; core retains the unchanged measurement-record v1 and workspace archive v9. Search and replay never acquire hardware measurements.
 
 ## Candidate boundary
 

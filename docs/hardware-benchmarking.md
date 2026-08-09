@@ -5,3 +5,5 @@
 Completed records use the independent `agentir.measurement.hardware.v1\0` hash domain. They are confidence evidence only: they cannot modify ScheduleIR, choose an artifact, rank plans, change correctness hashes, or close proof obligations. Archive replay validates record provenance, event order, allocator state, and `measurement_hash` without repeating hardware work.
 
 The JSONL lifecycle exposes `benchmark.start`, `benchmark.status`, `benchmark.cancel`, and `benchmark.query`. The current bounded implementation completes synchronously; task records preserve the stable lifecycle surface. Device-dependent tests remain opt-in through `AGENTIR_RUN_GPU_TESTS=1`.
+
+Stage 7B consumes these completed records only after publication and verification. Measured search/replay cannot invoke this lifecycle; optional same-device acquisition remains an explicit operation completed before cohort creation.

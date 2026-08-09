@@ -1,5 +1,10 @@
 # Glossary
 
+- **Measurement cohort** — immutable same-device/build/runtime/config/input set of verified production measurement records, independently hashed for Stage 7B.
+- **Measured objective** — terminal-only integer median/p95 minimization descriptor anchored to a cohort and the frozen Stage 7A structural objective.
+- **Measured recommendation** — non-authoritative offline selection among eligible measured terminal artifacts; never a proof or global optimum.
+- **Indifference band** — versioned checked-integer ppm interval in which noisy measurement summaries are equivalent under one descriptor and resolve without a faster-than claim.
+
 - **SearchObjectiveDescriptor** — ordered structural evaluation objective anchored to one exact corpus/task/root.
 - **SearchPlan** — deterministic Stage 7A algorithmic envelope, distinct from runtime safety limits and ranker/model identity.
 - **SearchNode/SearchEdge** — evaluation-only trajectory provenance whose selected action and outcome are production verified.

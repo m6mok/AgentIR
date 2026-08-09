@@ -65,3 +65,7 @@ Schema v2 remains unchanged. `stage6c_study` measures dataset extraction/leakage
 # Stage 7A workloads
 
 `stage7a_study` measures root initialization, bounded search, deterministic continuation/ranking/branch counters, checkpoint encode/verify, full replay and evaluation archive v4 validation. It runs scripted and learned beam widths 1/2/4 over a documented deterministic task subset. `stage7a_compare` requires byte-identical semantic, result, checkpoint, mutation-classification and archive files; timing median/p95/p99 fields remain machine observations only.
+
+# Stage 7B workloads
+
+`stage7b_study` uses explicitly synthetic, production-format-verified fixture records to exercise three proved/offline-valid artifacts of one `spec_hash`, scripted/learned rankers, beam widths 1/2/4, median/p95 objectives, normal/indifference cohorts, structured rejection, replay, and archive v5. `stage7b_compare` requires byte-identical semantic/recommendation/checkpoint/mutation/archive files and excludes timing observations. Synthetic values are contract fixtures, never hardware-performance evidence. Optional real-device acquisition remains a separate `benchmark.start` operation and writes only under `target/stage7b-study/device/`.

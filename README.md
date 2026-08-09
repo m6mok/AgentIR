@@ -2,7 +2,7 @@
 
 AgentIR — экспериментальная агентно-нативная компиляционная среда для численных вычислений. В ней программа хранится не как исходный текст, а как типизированный граф. Агент меняет граф небольшими атомарными ActionIR-транзакциями, а compiler core выводит типы, проверяет формы и сохраняет каждое принятое состояние как неизменяемую ревизию.
 
-Сейчас репозиторий содержит узкий Stage 7A reference prototype. Поверх exact Stage 1–5 compiler stack и Stage 6A–6C evaluation/ranking foundation он добавляет детерминированный bounded offline beam search по compiler-generated menu choices, изолированные production-verified branches, checkpoints/replay и evaluation archive v4. Это не hardware autotuning и не correctness evidence.
+Сейчас репозиторий содержит узкий Stage 7B reference prototype. Поверх exact Stage 1–5 compiler stack, Stage 6A–6C evaluation/ranking foundation и immutable Stage 7A search он добавляет verified same-device measurement cohorts, integer median/p95 objectives, terminal-only offline recommendations, replay без hardware work и evaluation archive v5. Это не live autotuning, не performance/correctness proof и не global-optimality claim.
 
 ## Что уже работает
 

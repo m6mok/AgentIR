@@ -7,3 +7,5 @@ Replay never calls an agent/model, network, GPU, adapter discovery, or hardware 
 For ranked episodes replay also reconstructs the exact choice set, feature schema, submitted fixed-point preferences, deterministic tie result and selection hash before dispatching the recorded selected action. It never reruns a ranker.
 
 Stage 7A search replay is distinct: it reruns the retained scripted/learned ranker and every production branch outcome, objective vector, frontier order and stopping condition without training or external/device calls. See [search-replay.md](search-replay.md).
+
+Stage 7B replay then verifies frozen production measurement records, cohort eligibility, integer aggregation, indifference ties and recommendation identity. It never reacquires hardware measurements; see [measured-search-replay.md](measured-search-replay.md).

@@ -46,6 +46,10 @@ AgentIR is an agent-native compiler prototype. Preserve these invariants in ever
 40. Deterministic search-plan envelope fields are semantic, while runtime safety limits and wall-clock observations enter no search identity.
 41. Evaluation archive v1/v2/v3 remain immutable legacy inputs; new evaluation saves use v4 and migrate only v1→v2→v3→v4 without invented search history.
 42. Stage 7A results are observed recommendations or bounded-frontier records, never globally optimal claims or hardware-driven artifact selection.
+43. Stage 7B measurement cohorts/objectives/recommendations live only in `agentir-policy-eval` and leave every Stage 7A and compiler contract unchanged.
+44. Measured search uses only verified compiler-published records, applies hardware metrics only to terminal artifacts, and performs no hardware work during search or replay.
+45. Evaluation archive v1/v2/v3/v4 are immutable legacy inputs; new evaluation saves use v5 and migrate only v1→v2→v3→v4→v5 without invented measured history.
+46. Measurement indifference means equivalent under one descriptor/cohort, not proven faster, statistically significant, portable, globally optimal, or correctness evidence.
 
 ## Where to look before changing code
 
@@ -67,6 +71,7 @@ Use `docs/` instead of expanding this file with broad background:
 - Stage 6A evaluation boundary: `docs/stage-6a-scope.md`, `docs/agent-policy-evaluation.md`, `docs/evaluation-replay.md`, `docs/evaluation-fairness.md`;
 - Stage 6B ranking boundary: `docs/stage-6b-scope.md`, `docs/multi-choice-continuations.md`, `docs/ranking-policy-model.md`, `docs/ranking-transcripts.md`;
 - architectural trade-offs: `DECISIONS.md`.
+- Stage 7B measured search: `docs/stage-7b-scope.md`, `docs/measurement-cohorts.md`, `docs/measured-search-objectives.md`, `docs/measured-recommendations.md`, `docs/measured-search-replay.md`, `docs/measured-search-fairness.md`, `docs/evaluation-archive-v5.md`.
 
 When documentation and behavior disagree, consult `docs/reference/stage-1-brief.md` first for Stage 1, then `docs/reference/agentir-spec-0.1.md`. Record intentional deviations in `DECISIONS.md`.
 
@@ -135,6 +140,7 @@ cargo run --release -p agentir-policy-eval --example evaluation_baseline
 cargo test -p agentir-policy-eval --test stage6c
 cargo test -p agentir-policy-eval --test contract_registry
 cargo test -p agentir-policy-eval --test stage7a
+cargo test -p agentir-policy-eval --test stage7b
 cargo run --release -p agentir-policy-eval --example stage6c_study -- --output target/stage6c-study/run-1
 cargo run --release -p agentir-policy-eval --example stage6c_study -- --output target/stage6c-study/run-2
 cargo run --release -p agentir-policy-eval --example stage6c_compare -- target/stage6c-study/run-1 target/stage6c-study/run-2

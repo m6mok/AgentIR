@@ -9,3 +9,5 @@ Ranked comparison additionally requires the exact choice-set hash sequence, visi
 Stage 6C additionally requires the same dataset input schema, feature codec, complete/bounded continuation status, and inference limits. After a selected action causes frame divergence, later rows are explicitly incomparable. Train, validation, test, and excluded metrics remain separate; no weighted overall score or “best policy” claim is produced without a separately defined objective.
 
 Stage 7A comparisons additionally require exact initial anchors, objective hash, algorithm/version, beam/depth/child envelope, checkpoint semantics and successful safety limits. Complete/bounded/cancelled/failed and terminal/no-terminal runs remain separate. After search divergence only task-level comparison under the same envelope is permitted; see [search-fairness.md](search-fairness.md).
+
+Stage 7B comparisons additionally require exact cohort/objective identity and same device, target, build, runtime, config, distribution, dimensions, status policy, and record count. Measured/unmeasured terminal outcomes remain separate; see [measured-search-fairness.md](measured-search-fairness.md).

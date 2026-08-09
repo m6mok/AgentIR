@@ -122,6 +122,16 @@ Stage 5 deliberately contains no reduction lowering, shared memory/subgroups, ar
 
 Stage 7A is not full autotuning and makes no globally optimal, hardware-performance or correctness claim.
 
-## Stage 7B and later
+## Stage 7B: reproducible measurement-aware offline search
 
-Stage 7B semantics remain unspecified. Later hardware objectives, tuning, prompt, concurrent search, new algorithms or broader surfaces require separately versioned contracts and cannot weaken the compiler proof boundary or silently change frozen Stage 1–7A contracts.
+- frozen same-device/build/runtime/config measurement cohorts over production records;
+- separate integer median/p95 objective with ppm indifference semantics;
+- terminal-only measured recommendations after unchanged Stage 7A search;
+- deterministic checkpoint/resume/replay without hardware work;
+- evaluation archive v5 and byte-identical two-run offline study.
+
+Stage 7B is offline selection, not live autotuning, performance proof, global optimization, or correctness evidence.
+
+## Stage 7C and later
+
+Continuation-native snapshots, concurrent search, new algorithms/surfaces, live acquisition orchestration, cost/latency prediction, energy records, and broader tuning require separately versioned contracts.
