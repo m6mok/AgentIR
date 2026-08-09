@@ -1092,6 +1092,12 @@ pub struct EvaluationDiagnostic {
     pub typed_repairs: Vec<RepairDescriptor>,
 }
 
+impl std::fmt::Display for EvaluationDiagnostic {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{:?}: {}", self.code, self.message)
+    }
+}
+
 impl EvaluationDiagnostic {
     pub(crate) fn new(code: EvaluationErrorCode, message: impl Into<String>) -> Self {
         Self {
