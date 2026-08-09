@@ -494,6 +494,13 @@ pub enum AutotuningCampaignHistoryStatus {
     CampaignHistoryPresent,
 }
 
+impl AutotuningCampaignHistoryStatus {
+    /// Returns whether an older archive contains no Stage 7E history.
+    pub fn is_no_history(&self) -> bool {
+        *self == Self::NoCampaignHistory
+    }
+}
+
 /// Atomic Stage 7E archive attachment bundle.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct AutotuningCampaignArchiveBundle {

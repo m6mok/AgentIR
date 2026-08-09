@@ -8,6 +8,11 @@ use crate::acquisition::{
     MeasurementAcquisitionCheckpoint, MeasurementAcquisitionPlan, MeasurementAcquisitionResult,
     MeasurementAcquisitionSession, MeasurementAcquisitionTrace,
 };
+use crate::campaign::{
+    AutotuningCampaignCheckpoint, AutotuningCampaignHistoryStatus, AutotuningCampaignPlan,
+    AutotuningCampaignResult, AutotuningCampaignSession, AutotuningCampaignTrace,
+    AutotuningCampaignWorkCounters,
+};
 use crate::learned::{
     DatasetSplit, InferenceRecord, LearnedModelArtifact, RankingDataset, RankingInput,
     TrainingConfiguration, TrainingRun,
@@ -646,7 +651,7 @@ pub struct EvaluationManifest {
     pub aggregation_configuration: BTreeMap<String, Value>,
 }
 
-/// Separate current evaluation archive v7; never embedded in workspace archive v9.
+/// Separate current evaluation archive v8; never embedded in workspace archive v9.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EvaluationArchive {
     /// Stable serialized contract field.
@@ -808,6 +813,33 @@ pub struct EvaluationArchive {
     /// Exact zero-device replay status by recovery journal hash.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub measurement_acquisition_recovery_replay_statuses: BTreeMap<String, bool>,
+    /// Explicit v8 classification of integrated campaign-history presence.
+    #[serde(
+        default,
+        skip_serializing_if = "AutotuningCampaignHistoryStatus::is_no_history"
+    )]
+    pub autotuning_campaign_history_status: AutotuningCampaignHistoryStatus,
+    /// Stage 7E immutable campaign plans. Empty in v1-v7.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub autotuning_campaign_plans: Vec<AutotuningCampaignPlan>,
+    /// Stage 7E restartable or terminal sessions. Empty in v1-v7.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub autotuning_campaign_sessions: Vec<AutotuningCampaignSession>,
+    /// Stage 7E exact campaign checkpoints. Empty in v1-v7.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub autotuning_campaign_checkpoints: Vec<AutotuningCampaignCheckpoint>,
+    /// Stage 7E semantic traces. Empty in v1-v7.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub autotuning_campaign_traces: Vec<AutotuningCampaignTrace>,
+    /// Stage 7E final campaign results. Empty in v1-v7.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub autotuning_campaign_results: Vec<AutotuningCampaignResult>,
+    /// Stage 7E deterministic non-correctness work counters.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub autotuning_campaign_work_counters: Vec<AutotuningCampaignWorkCounters>,
+    /// Exact zero-device replay status by campaign result/session hash.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub autotuning_campaign_replay_statuses: BTreeMap<String, bool>,
     /// Stable serialized contract field.
     pub archive_hash: String,
 }

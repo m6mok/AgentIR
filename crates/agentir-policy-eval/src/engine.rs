@@ -5,6 +5,12 @@ use crate::{
         MeasurementAcquisitionArchiveBundle, measurement_acquisition_checkpoint_hash,
         measurement_acquisition_result_hash, measurement_acquisition_trace_hash,
     },
+    campaign::{
+        AutotuningCampaignArchiveBundle, AutotuningCampaignHistoryStatus, AutotuningCampaignLimits,
+        autotuning_campaign_checkpoint_hash, autotuning_campaign_plan_hash,
+        autotuning_campaign_result_hash, autotuning_campaign_session_hash,
+        autotuning_campaign_trace_hash,
+    },
     corpus::builtin_corpus,
     hashing::{
         aggregate_hash, archive_hash, corpus_hash, episode_hash, evaluation_hash, observation_hash,
@@ -1860,7 +1866,7 @@ impl EvaluationHarness {
         let mut archive = EvaluationArchive {
             manifest: EvaluationManifest {
                 format: "agentir.evaluation.archive".to_owned(),
-                version: 7,
+                version: 8,
                 corpus_version: self.corpus.version.clone(),
                 corpus_hash: self.corpus.corpus_hash.clone(),
                 compiler_build_hash: compiler_build_hash().to_string(),
@@ -1921,6 +1927,14 @@ impl EvaluationHarness {
             measurement_acquisition_recovery_checkpoints: Vec::new(),
             measurement_acquisition_recovery_work_counters: Vec::new(),
             measurement_acquisition_recovery_replay_statuses: BTreeMap::new(),
+            autotuning_campaign_history_status: AutotuningCampaignHistoryStatus::NoCampaignHistory,
+            autotuning_campaign_plans: Vec::new(),
+            autotuning_campaign_sessions: Vec::new(),
+            autotuning_campaign_checkpoints: Vec::new(),
+            autotuning_campaign_traces: Vec::new(),
+            autotuning_campaign_results: Vec::new(),
+            autotuning_campaign_work_counters: Vec::new(),
+            autotuning_campaign_replay_statuses: BTreeMap::new(),
             archive_hash: String::new(),
         };
         archive.archive_hash = archive_hash(&archive)?;
@@ -1980,22 +1994,27 @@ impl EvaluationHarness {
             )
         })?;
         let archive = match archive.manifest.version {
-            1 => migrate_archive_v6_to_v7(&migrate_archive_v5_to_v6(&migrate_archive_v4_to_v5(
-                &migrate_archive_v3_to_v4(&migrate_archive_v2_to_v3(&migrate_archive_v1_to_v2(
+            1 => migrate_archive_v7_to_v8(&migrate_archive_v6_to_v7(&migrate_archive_v5_to_v6(
+                &migrate_archive_v4_to_v5(&migrate_archive_v3_to_v4(&migrate_archive_v2_to_v3(
+                    &migrate_archive_v1_to_v2(&archive)?,
+                )?)?)?,
+            )?)?)?,
+            2 => migrate_archive_v7_to_v8(&migrate_archive_v6_to_v7(&migrate_archive_v5_to_v6(
+                &migrate_archive_v4_to_v5(&migrate_archive_v3_to_v4(&migrate_archive_v2_to_v3(
                     &archive,
                 )?)?)?,
             )?)?)?,
-            2 => migrate_archive_v6_to_v7(&migrate_archive_v5_to_v6(&migrate_archive_v4_to_v5(
-                &migrate_archive_v3_to_v4(&migrate_archive_v2_to_v3(&archive)?)?,
+            3 => migrate_archive_v7_to_v8(&migrate_archive_v6_to_v7(&migrate_archive_v5_to_v6(
+                &migrate_archive_v4_to_v5(&migrate_archive_v3_to_v4(&archive)?)?,
             )?)?)?,
-            3 => migrate_archive_v6_to_v7(&migrate_archive_v5_to_v6(&migrate_archive_v4_to_v5(
-                &migrate_archive_v3_to_v4(&archive)?,
+            4 => migrate_archive_v7_to_v8(&migrate_archive_v6_to_v7(&migrate_archive_v5_to_v6(
+                &migrate_archive_v4_to_v5(&archive)?,
             )?)?)?,
-            4 => migrate_archive_v6_to_v7(&migrate_archive_v5_to_v6(&migrate_archive_v4_to_v5(
+            5 => migrate_archive_v7_to_v8(&migrate_archive_v6_to_v7(&migrate_archive_v5_to_v6(
                 &archive,
             )?)?)?,
-            5 => migrate_archive_v6_to_v7(&migrate_archive_v5_to_v6(&archive)?)?,
-            6 => migrate_archive_v6_to_v7(&archive)?,
+            6 => migrate_archive_v7_to_v8(&migrate_archive_v6_to_v7(&archive)?)?,
+            7 => migrate_archive_v7_to_v8(&archive)?,
             _ => archive,
         };
         verify_archive(&archive)?;
@@ -2314,7 +2333,7 @@ fn percentile(values: &[u64], percentile: usize) -> u64 {
 /// Verifies every independent hash and archive structural invariant.
 pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
     if archive.manifest.format != "agentir.evaluation.archive"
-        || !matches!(archive.manifest.version, 1..=7)
+        || !matches!(archive.manifest.version, 1..=8)
     {
         return Err(EvaluationDiagnostic::new(
             EvaluationErrorCode::EvaluationArchiveInvalid,
@@ -2365,7 +2384,7 @@ pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
                 match (&step.ranking_trace, &step.selection) {
                     (None, None) => {}
                     (Some(trace), Some(selection)) => {
-                        if !matches!(archive.manifest.version, 2..=7)
+                        if !matches!(archive.manifest.version, 2..=8)
                             || trace.ranking_trace_hash
                                 != crate::ranking::ranking_trace_hash(trace)?
                             || selection.selection_hash
@@ -2398,6 +2417,12 @@ pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
         return Err(EvaluationDiagnostic::new(
             EvaluationErrorCode::EvaluationArchiveInvalid,
             "evaluation archives v1-v6 cannot contain Stage 7D recovery fields",
+        ));
+    }
+    if archive.manifest.version <= 7 && has_campaign_fields(archive) {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationArchiveInvalid,
+            "evaluation archives v1-v7 cannot contain Stage 7E campaign fields",
         ));
     }
     if archive.manifest.version == 1 {
@@ -2484,9 +2509,13 @@ pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
                     }
                 } else if archive.manifest.version == 6 {
                     verify_archive_v6_acquisition(archive)?;
+                } else if archive.manifest.version == 7 {
+                    verify_archive_v6_acquisition(archive)?;
+                    verify_archive_v7_recovery(archive)?;
                 } else {
                     verify_archive_v6_acquisition(archive)?;
                     verify_archive_v7_recovery(archive)?;
+                    verify_archive_v8_campaign(archive)?;
                 }
             }
         }
@@ -2690,6 +2719,26 @@ pub fn migrate_archive_v6_to_v7(source: &EvaluationArchive) -> EvaluationResult<
     Ok(migrated)
 }
 
+/// Pure explicit migration from immutable evaluation archive v7 to v8.
+pub fn migrate_archive_v7_to_v8(source: &EvaluationArchive) -> EvaluationResult<EvaluationArchive> {
+    if source.manifest.version != 7 {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationArchiveMigrationInvalid,
+            "evaluation archive migration requires exact source version 7",
+        ));
+    }
+    verify_archive(source)?;
+    let mut migrated = source.clone();
+    migrated.manifest.version = 8;
+    clear_campaign_fields(&mut migrated);
+    migrated.autotuning_campaign_history_status =
+        AutotuningCampaignHistoryStatus::NoCampaignHistory;
+    migrated.archive_hash.clear();
+    migrated.archive_hash = archive_hash(&migrated)?;
+    verify_archive(&migrated)?;
+    Ok(migrated)
+}
+
 fn clear_acquisition_fields(archive: &mut EvaluationArchive) {
     archive.measurement_acquisition_history_status =
         MeasurementAcquisitionHistoryStatus::Unspecified;
@@ -2723,6 +2772,18 @@ fn clear_recovery_fields(archive: &mut EvaluationArchive) {
     archive
         .measurement_acquisition_recovery_replay_statuses
         .clear();
+    clear_campaign_fields(archive);
+}
+
+fn clear_campaign_fields(archive: &mut EvaluationArchive) {
+    archive.autotuning_campaign_history_status = AutotuningCampaignHistoryStatus::NoCampaignHistory;
+    archive.autotuning_campaign_plans.clear();
+    archive.autotuning_campaign_sessions.clear();
+    archive.autotuning_campaign_checkpoints.clear();
+    archive.autotuning_campaign_traces.clear();
+    archive.autotuning_campaign_results.clear();
+    archive.autotuning_campaign_work_counters.clear();
+    archive.autotuning_campaign_replay_statuses.clear();
 }
 
 /// Atomically attaches verified Stage 6C artifacts to evaluation archive v4.
@@ -2730,10 +2791,10 @@ pub fn attach_learning_artifacts(
     source: &EvaluationArchive,
     bundle: LearnedArchiveBundle,
 ) -> EvaluationResult<EvaluationArchive> {
-    if !matches!(source.manifest.version, 4..=7) {
+    if !matches!(source.manifest.version, 4..=8) {
         return Err(EvaluationDiagnostic::new(
             EvaluationErrorCode::EvaluationArchiveInvalid,
-            "learned artifacts require evaluation archive v4, v5, v6, or v7",
+            "learned artifacts require evaluation archive v4, v5, v6, v7, or v8",
         ));
     }
     verify_archive(source)?;
@@ -2793,10 +2854,10 @@ pub fn attach_search_artifacts(
     source: &EvaluationArchive,
     artifacts: &[(SearchSession, SearchCheckpoint)],
 ) -> EvaluationResult<EvaluationArchive> {
-    if !matches!(source.manifest.version, 4..=7) {
+    if !matches!(source.manifest.version, 4..=8) {
         return Err(EvaluationDiagnostic::new(
             EvaluationErrorCode::EvaluationArchiveInvalid,
-            "search artifacts require evaluation archive v4, v5, v6, or v7",
+            "search artifacts require evaluation archive v4, v5, v6, v7, or v8",
         ));
     }
     verify_archive(source)?;
@@ -2912,10 +2973,10 @@ pub fn attach_measured_search_artifacts(
         MeasuredRecommendation,
     )],
 ) -> EvaluationResult<EvaluationArchive> {
-    if !matches!(source.manifest.version, 5..=7) {
+    if !matches!(source.manifest.version, 5..=8) {
         return Err(EvaluationDiagnostic::new(
             EvaluationErrorCode::EvaluationArchiveInvalid,
-            "measured search artifacts require evaluation archive v5, v6, or v7",
+            "measured search artifacts require evaluation archive v5, v6, v7, or v8",
         ));
     }
     verify_archive(source)?;
@@ -3012,10 +3073,10 @@ pub fn attach_measurement_acquisition_artifacts(
     source: &EvaluationArchive,
     bundle: MeasurementAcquisitionArchiveBundle,
 ) -> EvaluationResult<EvaluationArchive> {
-    if !matches!(source.manifest.version, 6 | 7) {
+    if !matches!(source.manifest.version, 6..=8) {
         return Err(EvaluationDiagnostic::new(
             EvaluationErrorCode::EvaluationArchiveInvalid,
-            "measurement acquisition artifacts require evaluation archive v6 or v7",
+            "measurement acquisition artifacts require evaluation archive v6, v7, or v8",
         ));
     }
     verify_archive(source)?;
@@ -3160,15 +3221,15 @@ pub fn attach_measurement_acquisition_artifacts(
     Ok(archive)
 }
 
-/// Atomically attaches verified Stage 7D recovery history to archive v7.
+/// Atomically attaches verified Stage 7D recovery history to archive v7 or v8.
 pub fn attach_measurement_acquisition_recovery_artifacts(
     source: &EvaluationArchive,
     bundle: MeasurementAcquisitionRecoveryArchiveBundle,
 ) -> EvaluationResult<EvaluationArchive> {
-    if source.manifest.version != 7 {
+    if !matches!(source.manifest.version, 7 | 8) {
         return Err(EvaluationDiagnostic::new(
             EvaluationErrorCode::EvaluationArchiveInvalid,
-            "measurement acquisition recovery artifacts require evaluation archive v7",
+            "measurement acquisition recovery artifacts require evaluation archive v7 or v8",
         ));
     }
     verify_archive(source)?;
@@ -3297,6 +3358,144 @@ pub fn attach_measurement_acquisition_recovery_artifacts(
     Ok(archive)
 }
 
+/// Atomically attaches verified Stage 7E integrated campaign history to archive v8.
+pub fn attach_autotuning_campaign_artifacts(
+    source: &EvaluationArchive,
+    bundle: AutotuningCampaignArchiveBundle,
+) -> EvaluationResult<EvaluationArchive> {
+    if source.manifest.version != 8 {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationArchiveInvalid,
+            "autotuning campaign artifacts require evaluation archive v8",
+        ));
+    }
+    verify_archive(source)?;
+    if bundle.sessions.len() != bundle.checkpoints.len() {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationArchiveInvalid,
+            "campaign bundle requires one exact checkpoint per retained session",
+        ));
+    }
+    let limits = AutotuningCampaignLimits::default();
+    let mut archive = source.clone();
+    for (session, checkpoint) in bundle.sessions.iter().zip(&bundle.checkpoints) {
+        session.verify_structure(&limits)?;
+        if checkpoint.autotuning_campaign_checkpoint_hash
+            != autotuning_campaign_checkpoint_hash(checkpoint)?
+            || checkpoint.session.as_ref() != session
+            || checkpoint.autotuning_campaign_plan_hash
+                != session.plan.autotuning_campaign_plan_hash
+            || checkpoint.autotuning_campaign_session_hash
+                != session.autotuning_campaign_session_hash
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationAutotuningCampaignCheckpointCorrupt,
+                "campaign bundle contains a corrupt or stale checkpoint",
+            ));
+        }
+        let replay_key = session
+            .result
+            .as_ref()
+            .map(|result| result.autotuning_campaign_result_hash.as_str())
+            .unwrap_or(session.autotuning_campaign_session_hash.as_str());
+        if !bundle
+            .replay_statuses
+            .get(replay_key)
+            .copied()
+            .unwrap_or(false)
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationAutotuningCampaignReplayMismatch,
+                "campaign bundle lacks an exact zero-device replay status",
+            ));
+        }
+        archive.autotuning_campaign_plans.push(session.plan.clone());
+        archive.autotuning_campaign_sessions.push(session.clone());
+        archive
+            .autotuning_campaign_checkpoints
+            .push(checkpoint.clone());
+        archive
+            .autotuning_campaign_traces
+            .push(session.trace.clone());
+        archive
+            .autotuning_campaign_work_counters
+            .push(session.work.clone());
+    }
+    for result in &bundle.results {
+        if result.autotuning_campaign_result_hash != autotuning_campaign_result_hash(result)?
+            || !bundle
+                .sessions
+                .iter()
+                .any(|session| session.result.as_ref() == Some(result))
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationAutotuningCampaignReplayMismatch,
+                "campaign bundle contains an unanchored or corrupt result",
+            ));
+        }
+    }
+    archive.autotuning_campaign_results.extend(bundle.results);
+    archive
+        .autotuning_campaign_replay_statuses
+        .extend(bundle.replay_statuses);
+    sort_campaign_artifacts(&mut archive);
+    archive.autotuning_campaign_history_status = if archive.autotuning_campaign_sessions.is_empty()
+    {
+        AutotuningCampaignHistoryStatus::NoCampaignHistory
+    } else {
+        AutotuningCampaignHistoryStatus::CampaignHistoryPresent
+    };
+    archive.archive_hash.clear();
+    archive.archive_hash = archive_hash(&archive)?;
+    let encoded_bytes = serde_json::to_vec(&archive)
+        .map_err(|error| {
+            EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationArchiveInvalid,
+                format!("evaluation archive v8 encoding failed: {error}"),
+            )
+        })?
+        .len();
+    limit(
+        u64::try_from(encoded_bytes).unwrap_or(u64::MAX),
+        limits.archive_v8_bytes,
+        "evaluation_archive_v8_bytes",
+    )?;
+    verify_archive(&archive)?;
+    Ok(archive)
+}
+
+fn sort_campaign_artifacts(archive: &mut EvaluationArchive) {
+    archive.autotuning_campaign_plans.sort_by(|left, right| {
+        left.autotuning_campaign_plan_hash
+            .cmp(&right.autotuning_campaign_plan_hash)
+    });
+    archive.autotuning_campaign_plans.dedup_by(|left, right| {
+        left.autotuning_campaign_plan_hash == right.autotuning_campaign_plan_hash
+    });
+    archive
+        .autotuning_campaign_sessions
+        .sort_by(|left, right| left.campaign_id.cmp(&right.campaign_id));
+    archive
+        .autotuning_campaign_checkpoints
+        .sort_by(|left, right| {
+            left.autotuning_campaign_checkpoint_hash
+                .cmp(&right.autotuning_campaign_checkpoint_hash)
+        });
+    archive.autotuning_campaign_traces.sort_by(|left, right| {
+        left.autotuning_campaign_trace_hash
+            .cmp(&right.autotuning_campaign_trace_hash)
+    });
+    archive.autotuning_campaign_results.sort_by(|left, right| {
+        left.autotuning_campaign_result_hash
+            .cmp(&right.autotuning_campaign_result_hash)
+    });
+    archive.autotuning_campaign_work_counters = archive
+        .autotuning_campaign_sessions
+        .iter()
+        .map(|session| session.work.clone())
+        .collect();
+}
+
 fn sort_stage6c_artifacts(archive: &mut EvaluationArchive) {
     archive.ranking_datasets.sort_by(|left, right| {
         left.manifest
@@ -3389,6 +3588,197 @@ fn has_recovery_fields(archive: &EvaluationArchive) -> bool {
         || !archive
             .measurement_acquisition_recovery_replay_statuses
             .is_empty()
+}
+
+fn has_campaign_fields(archive: &EvaluationArchive) -> bool {
+    archive.autotuning_campaign_history_status != AutotuningCampaignHistoryStatus::NoCampaignHistory
+        || !archive.autotuning_campaign_plans.is_empty()
+        || !archive.autotuning_campaign_sessions.is_empty()
+        || !archive.autotuning_campaign_checkpoints.is_empty()
+        || !archive.autotuning_campaign_traces.is_empty()
+        || !archive.autotuning_campaign_results.is_empty()
+        || !archive.autotuning_campaign_work_counters.is_empty()
+        || !archive.autotuning_campaign_replay_statuses.is_empty()
+}
+
+fn verify_archive_v8_campaign(archive: &EvaluationArchive) -> EvaluationResult<()> {
+    match archive.autotuning_campaign_history_status {
+        AutotuningCampaignHistoryStatus::NoCampaignHistory => {
+            if has_campaign_fields(archive) {
+                return Err(EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationArchiveInvalid,
+                    "archive declares no campaign history but retains Stage 7E records",
+                ));
+            }
+            return Ok(());
+        }
+        AutotuningCampaignHistoryStatus::CampaignHistoryPresent => {}
+    }
+    let limits = AutotuningCampaignLimits::default();
+    let sessions = archive
+        .autotuning_campaign_sessions
+        .iter()
+        .map(|session| {
+            session.verify_structure(&limits)?;
+            Ok((session.autotuning_campaign_session_hash.as_str(), session))
+        })
+        .collect::<EvaluationResult<BTreeMap<_, _>>>()?;
+    if sessions.is_empty() || sessions.len() != archive.autotuning_campaign_sessions.len() {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationArchiveInvalid,
+            "archive v8 campaign sessions are empty or duplicated",
+        ));
+    }
+    let plan_hashes = archive
+        .autotuning_campaign_plans
+        .iter()
+        .map(|plan| {
+            if plan.autotuning_campaign_plan_hash != autotuning_campaign_plan_hash(plan)? {
+                return Err(EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationAutotuningCampaignPlanCorrupt,
+                    "archive v8 contains a corrupt campaign plan",
+                ));
+            }
+            Ok(plan.autotuning_campaign_plan_hash.as_str())
+        })
+        .collect::<EvaluationResult<BTreeSet<_>>>()?;
+    if plan_hashes.len() != archive.autotuning_campaign_plans.len()
+        || sessions.values().any(|session| {
+            !plan_hashes.contains(session.plan.autotuning_campaign_plan_hash.as_str())
+        })
+    {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationArchiveInvalid,
+            "archive v8 campaign plan set is duplicated or incomplete",
+        ));
+    }
+    let traces = archive
+        .autotuning_campaign_traces
+        .iter()
+        .map(|trace| {
+            if trace.autotuning_campaign_trace_hash != autotuning_campaign_trace_hash(trace)? {
+                return Err(EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationAutotuningCampaignReplayMismatch,
+                    "archive v8 contains a corrupt campaign trace",
+                ));
+            }
+            Ok((trace.autotuning_campaign_trace_hash.as_str(), trace))
+        })
+        .collect::<EvaluationResult<BTreeMap<_, _>>>()?;
+    if traces.len() != archive.autotuning_campaign_traces.len()
+        || sessions.values().any(|session| {
+            traces
+                .get(session.trace.autotuning_campaign_trace_hash.as_str())
+                .is_none_or(|trace| *trace != &session.trace)
+        })
+    {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationArchiveInvalid,
+            "archive v8 campaign trace set is duplicated or incomplete",
+        ));
+    }
+    let checkpoints = archive
+        .autotuning_campaign_checkpoints
+        .iter()
+        .map(|checkpoint| {
+            if checkpoint.autotuning_campaign_checkpoint_hash
+                != autotuning_campaign_checkpoint_hash(checkpoint)?
+                || checkpoint.autotuning_campaign_session_hash
+                    != checkpoint.session.autotuning_campaign_session_hash
+                || checkpoint.autotuning_campaign_session_hash
+                    != autotuning_campaign_session_hash(&checkpoint.session)?
+            {
+                return Err(EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationAutotuningCampaignCheckpointCorrupt,
+                    "archive v8 contains a corrupt campaign checkpoint",
+                ));
+            }
+            Ok((
+                checkpoint.autotuning_campaign_session_hash.as_str(),
+                checkpoint,
+            ))
+        })
+        .collect::<EvaluationResult<BTreeMap<_, _>>>()?;
+    if checkpoints.len() != sessions.len()
+        || sessions.iter().any(|(hash, session)| {
+            checkpoints
+                .get(hash)
+                .is_none_or(|checkpoint| checkpoint.session.as_ref() != *session)
+        })
+    {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationArchiveInvalid,
+            "archive v8 requires one exact checkpoint per campaign session",
+        ));
+    }
+    let results = archive
+        .autotuning_campaign_results
+        .iter()
+        .map(|result| {
+            if result.autotuning_campaign_result_hash != autotuning_campaign_result_hash(result)? {
+                return Err(EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationAutotuningCampaignReplayMismatch,
+                    "archive v8 contains a corrupt campaign result",
+                ));
+            }
+            Ok((result.autotuning_campaign_result_hash.as_str(), result))
+        })
+        .collect::<EvaluationResult<BTreeMap<_, _>>>()?;
+    let expected_results = sessions
+        .values()
+        .filter_map(|session| session.result.as_ref())
+        .map(|result| (result.autotuning_campaign_result_hash.as_str(), result))
+        .collect::<BTreeMap<_, _>>();
+    if results != expected_results
+        || archive.autotuning_campaign_work_counters
+            != archive
+                .autotuning_campaign_sessions
+                .iter()
+                .map(|session| session.work.clone())
+                .collect::<Vec<_>>()
+    {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationArchiveInvalid,
+            "archive v8 flattened campaign results or work differ from sessions",
+        ));
+    }
+    let expected_replay_keys = sessions
+        .values()
+        .map(|session| {
+            session
+                .result
+                .as_ref()
+                .map(|result| result.autotuning_campaign_result_hash.clone())
+                .unwrap_or_else(|| session.autotuning_campaign_session_hash.clone())
+        })
+        .collect::<BTreeSet<_>>();
+    if archive.autotuning_campaign_replay_statuses.len() != expected_replay_keys.len()
+        || expected_replay_keys.iter().any(|hash| {
+            !archive
+                .autotuning_campaign_replay_statuses
+                .get(hash)
+                .copied()
+                .unwrap_or(false)
+        })
+    {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationAutotuningCampaignReplayMismatch,
+            "archive v8 campaign replay statuses are incomplete or non-exact",
+        ));
+    }
+    let encoded_bytes = serde_json::to_vec(archive)
+        .map_err(|error| {
+            EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationArchiveInvalid,
+                format!("evaluation archive v8 encoding failed: {error}"),
+            )
+        })?
+        .len();
+    limit(
+        u64::try_from(encoded_bytes).unwrap_or(u64::MAX),
+        limits.archive_v8_bytes,
+        "evaluation_archive_v8_bytes",
+    )
 }
 
 fn verified_acquisition_records(

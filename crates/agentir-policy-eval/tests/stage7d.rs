@@ -14,7 +14,8 @@ use agentir_policy_eval::{
     ReconciliationOutcome, RecoveryStatus, SyntheticMeasurementAcquisitionExecutor,
     SyntheticMeasurementAcquisitionStore, attach_measurement_acquisition_recovery_artifacts,
     migrate_archive_v1_to_v2, migrate_archive_v2_to_v3, migrate_archive_v3_to_v4,
-    migrate_archive_v4_to_v5, migrate_archive_v5_to_v6, migrate_archive_v6_to_v7, verify_archive,
+    migrate_archive_v4_to_v5, migrate_archive_v5_to_v6, migrate_archive_v6_to_v7,
+    migrate_archive_v7_to_v8, verify_archive,
 };
 use std::collections::BTreeMap;
 
@@ -520,10 +521,10 @@ fn recovery_limits_are_exact_and_excluded_from_hashes() {
 }
 
 #[test]
-fn v6_to_v7_migration_is_pure_and_v1_chain_reaches_v7() {
+fn v6_to_v7_migration_is_pure_and_v1_chain_reaches_v8() {
     let harness = EvaluationHarness::new().unwrap();
     let current = harness.archive(&[]).unwrap();
-    assert_eq!(current.manifest.version, 7);
+    assert_eq!(current.manifest.version, 8);
     let mut v6 = current.clone();
     v6.manifest.version = 6;
     v6.archive_hash.clear();
@@ -570,7 +571,8 @@ fn v6_to_v7_migration_is_pure_and_v1_chain_reaches_v7() {
     let v5 = migrate_archive_v4_to_v5(&v4).unwrap();
     let v6 = migrate_archive_v5_to_v6(&v5).unwrap();
     let v7 = migrate_archive_v6_to_v7(&v6).unwrap();
-    verify_archive(&v7).unwrap();
+    let v8 = migrate_archive_v7_to_v8(&v7).unwrap();
+    verify_archive(&v8).unwrap();
 }
 
 #[test]
