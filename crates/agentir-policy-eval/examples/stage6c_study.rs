@@ -466,6 +466,9 @@ fn write_analysis(output: &Path, summary: &Value, semantic: &Value) -> Evaluatio
          - evaluation archive bytes: {}\n\
          - archive hash: `{}`\n\n\
          Exact-frame policy comparisons are retained only until choice-set sequence divergence; later frames are incomparable. No overall quality score or 'best policy' claim is made.\n\n\
+         ## Defects found and fixed\n\n\
+         - The first learned text-feature projection could exceed the established Stage 6B fixed-score magnitude. It is now bounded before checked integer accumulation, with overflow and deterministic-training regressions.\n\
+         - The first learned policy descriptor used a new score-representation spelling, so the production ranking dispatcher correctly rejected it. Learned inference now reuses the exact Stage 6B representation identifier, with a regression proving one accepted dispatch and read-only failure.\n\n\
          Mutation cases were bounded and panic-free. Timing samples are machine observations only. No provider, network, model API, GPU, or device call occurred.\n",
         summary["dataset_examples"],
         summary["model_bytes"],
