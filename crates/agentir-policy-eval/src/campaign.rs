@@ -26,7 +26,8 @@ use crate::{
     recovery::{
         MeasurementAcquisitionRecoveryAnchors, MeasurementAcquisitionRecoveryCheckpoint,
         MeasurementAcquisitionRecoveryFaultBoundary, MeasurementAcquisitionRecoveryJournal,
-        MeasurementAcquisitionRecoveryLimits, ReconciliationOutcome, RecoveryStatus,
+        MeasurementAcquisitionRecoveryLimits, MeasurementAcquisitionRecoveryWorkCounters,
+        ReconciliationOutcome, RecoveryStatus,
     },
     search::{
         SearchCheckpoint, SearchLimits, SearchRanker, SearchSession, SearchStatus, replay_search,
@@ -1571,6 +1572,17 @@ pub fn autotuning_campaign_session_hash(
     let mut model = session.clone();
     model.autotuning_campaign_session_hash.clear();
     model.work = AutotuningCampaignWorkCounters::default();
+    model.search.work = crate::search::SearchWorkCounters::default();
+    if let Some(acquisition) = model.acquisition_session.as_mut() {
+        acquisition.work = crate::acquisition::MeasurementAcquisitionWorkCounters::default();
+    }
+    for journal in &mut model.recovery_journals {
+        journal.work = MeasurementAcquisitionRecoveryWorkCounters::default();
+        journal.attempt_device_calls.clear();
+        for reconciliation in &mut journal.reconciliation_results {
+            reconciliation.work = MeasurementAcquisitionRecoveryWorkCounters::default();
+        }
+    }
     domain_hash(AUTOTUNING_CAMPAIGN_SESSION_HASH_DOMAIN, &model)
 }
 

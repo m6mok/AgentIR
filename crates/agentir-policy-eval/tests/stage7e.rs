@@ -193,6 +193,36 @@ fn complete_campaign() -> (
     (campaign, catalog, store, executor)
 }
 
+fn resume_boundary(
+    mut campaign: AutotuningCampaignSession,
+    store: &SyntheticMeasurementAcquisitionStore,
+    catalog: Option<&MeasurementAcquisitionCatalog>,
+) -> AutotuningCampaignSession {
+    let status = campaign.status;
+    let semantic_hash = campaign.autotuning_campaign_session_hash.clone();
+    let base = semantic_hash.clone();
+    let checkpoint = campaign
+        .checkpoint(
+            &base,
+            &SearchLimits::default(),
+            &MeasurementAcquisitionRecoveryLimits::default(),
+            &AutotuningCampaignLimits::default(),
+        )
+        .unwrap();
+    let resumed = AutotuningCampaignSession::resume(
+        &checkpoint,
+        store,
+        catalog,
+        &SearchLimits::default(),
+        &MeasurementAcquisitionRecoveryLimits::default(),
+        &AutotuningCampaignLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(resumed.status, status);
+    assert_eq!(resumed.autotuning_campaign_session_hash, semantic_hash);
+    resumed
+}
+
 #[test]
 fn campaign_hashes_are_stable_and_domain_separated() {
     let campaign = planned_campaign();
@@ -202,7 +232,7 @@ fn campaign_hashes_are_stable_and_domain_separated() {
     );
     assert_eq!(
         campaign.autotuning_campaign_session_hash,
-        "46b0a6933e7673f889cc92b3b39e418b25f41b4287f23e1c559b79b77c398e73"
+        "8e85b1c83c65512576035d9ba05985435fb662c1019c6e7f6fac6d9dbef8ac66"
     );
     assert_eq!(
         campaign.trace.autotuning_campaign_trace_hash,
@@ -321,7 +351,7 @@ fn complete_checkpoint_resume_and_replay_never_reexecute() {
         .unwrap();
     assert_eq!(
         checkpoint.autotuning_campaign_checkpoint_hash,
-        "7f89bc31ece00824dda2910345d08ac7a2e063bef68f12949b89cf984df3c910"
+        "453c2042d7d7a4ea21ca50928558a6814496778f24bf0f80511462fd6ee32019"
     );
     assert_eq!(
         result.autotuning_campaign_result_hash,
@@ -353,6 +383,93 @@ fn complete_checkpoint_resume_and_replay_never_reexecute() {
         replayed.autotuning_campaign_result_hash,
         result.autotuning_campaign_result_hash
     );
+    assert_eq!(executor.invocations, invocations);
+}
+
+#[test]
+fn lifecycle_boundaries_checkpoint_and_resume_without_hardware() {
+    let empty_store = SyntheticMeasurementAcquisitionStore::default();
+    let mut campaign = resume_boundary(planned_campaign(), &empty_store, None);
+    let base = campaign.autotuning_campaign_session_hash.clone();
+    campaign
+        .advance_search(
+            &base,
+            1,
+            &SearchLimits::default(),
+            &AutotuningCampaignLimits::default(),
+        )
+        .unwrap();
+    campaign = resume_boundary(campaign, &empty_store, None);
+    let base = campaign.autotuning_campaign_session_hash.clone();
+    campaign
+        .advance_search(
+            &base,
+            u64::MAX,
+            &SearchLimits::default(),
+            &AutotuningCampaignLimits::default(),
+        )
+        .unwrap();
+    campaign = resume_boundary(campaign, &empty_store, None);
+    let catalog = catalog(&campaign);
+    let base = campaign.autotuning_campaign_session_hash.clone();
+    campaign
+        .prepare_acquisition(
+            &base,
+            &catalog,
+            &agentir_policy_eval::MeasurementAcquisitionLimits::default(),
+            &AutotuningCampaignLimits::default(),
+        )
+        .unwrap();
+    let mut store = SyntheticMeasurementAcquisitionStore::default();
+    campaign = resume_boundary(campaign, &store, Some(&catalog));
+    let mut executor = SyntheticMeasurementAcquisitionExecutor::new();
+    let base = campaign.autotuning_campaign_session_hash.clone();
+    campaign
+        .execute_prepared(
+            &base,
+            &mut store,
+            &catalog,
+            None,
+            &mut executor,
+            Some(MeasurementAcquisitionRecoveryFaultBoundary::AfterPublicationBeforeCheckpoint),
+            &MeasurementAcquisitionRecoveryLimits::default(),
+            &AutotuningCampaignLimits::default(),
+        )
+        .unwrap();
+    campaign = resume_boundary(campaign, &store, Some(&catalog));
+    let invocations = executor.invocations;
+    let base = campaign.autotuning_campaign_session_hash.clone();
+    campaign
+        .reconcile(
+            &base,
+            &store,
+            &catalog,
+            false,
+            &MeasurementAcquisitionRecoveryLimits::default(),
+            &AutotuningCampaignLimits::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        campaign.status,
+        AutotuningCampaignStatus::AcquisitionComplete
+    );
+    campaign = resume_boundary(campaign, &store, Some(&catalog));
+    let base = campaign.autotuning_campaign_session_hash.clone();
+    campaign
+        .create_cohort(&base, &store, &AutotuningCampaignLimits::default())
+        .unwrap();
+    campaign = resume_boundary(campaign, &store, Some(&catalog));
+    let base = campaign.autotuning_campaign_session_hash.clone();
+    campaign
+        .recommend(&base, &AutotuningCampaignLimits::default())
+        .unwrap();
+    campaign = resume_boundary(campaign, &store, Some(&catalog));
+    let base = campaign.autotuning_campaign_session_hash.clone();
+    campaign
+        .finalize(&base, &AutotuningCampaignLimits::default())
+        .unwrap();
+    let resumed = resume_boundary(campaign, &store, Some(&catalog));
+    assert_eq!(resumed.status, AutotuningCampaignStatus::Complete);
     assert_eq!(executor.invocations, invocations);
 }
 
