@@ -658,9 +658,9 @@ fn jsonl_recovery_commands_reject_client_metadata_and_execute_without_prepare() 
 fn jsonl_recovery_lifecycle_restarts_from_archive_and_reconciles_without_device() {
     fn send(
         protocol: &mut agentir_policy_eval::EvaluationProtocol,
-        request: serde_json::Value,
+        request: &serde_json::Value,
     ) -> serde_json::Value {
-        serde_json::from_str(&protocol.process_line(&serde_json::to_string(&request).unwrap()))
+        serde_json::from_str(&protocol.process_line(&serde_json::to_string(request).unwrap()))
             .unwrap()
     }
 
@@ -669,7 +669,7 @@ fn jsonl_recovery_lifecycle_restarts_from_archive_and_reconciles_without_device(
             .unwrap();
     let started = send(
         &mut protocol,
-        serde_json::json!({
+        &serde_json::json!({
             "command":"evaluation.measurement_acquisition.start",
             "request_id":"start",
             "task":"candidate-rewrite-small",
@@ -693,7 +693,7 @@ fn jsonl_recovery_lifecycle_restarts_from_archive_and_reconciles_without_device(
         .unwrap();
     let prepared = send(
         &mut protocol,
-        serde_json::json!({
+        &serde_json::json!({
             "command":"evaluation.measurement_acquisition.recovery.prepare",
             "request_id":"prepare",
             "session":session,
@@ -706,7 +706,7 @@ fn jsonl_recovery_lifecycle_restarts_from_archive_and_reconciles_without_device(
         .unwrap();
     let executed = send(
         &mut protocol,
-        serde_json::json!({
+        &serde_json::json!({
             "command":"evaluation.measurement_acquisition.recovery.execute",
             "request_id":"execute",
             "recovery_journal":journal,
@@ -720,7 +720,7 @@ fn jsonl_recovery_lifecycle_restarts_from_archive_and_reconciles_without_device(
         .unwrap();
     let checkpointed = send(
         &mut protocol,
-        serde_json::json!({
+        &serde_json::json!({
             "command":"evaluation.measurement_acquisition.recovery.checkpoint",
             "request_id":"checkpoint",
             "recovery_journal":journal,
@@ -736,7 +736,7 @@ fn jsonl_recovery_lifecycle_restarts_from_archive_and_reconciles_without_device(
     ));
     let saved = send(
         &mut protocol,
-        serde_json::json!({
+        &serde_json::json!({
             "command":"evaluation.archive.save",
             "request_id":"save",
             "path":archive_path,
@@ -750,7 +750,7 @@ fn jsonl_recovery_lifecycle_restarts_from_archive_and_reconciles_without_device(
             .unwrap();
     let loaded = send(
         &mut restarted,
-        serde_json::json!({
+        &serde_json::json!({
             "command":"evaluation.archive.load",
             "request_id":"load",
             "path":archive_path
@@ -759,7 +759,7 @@ fn jsonl_recovery_lifecycle_restarts_from_archive_and_reconciles_without_device(
     assert_eq!(loaded["result"]["recovery_journals"], 1);
     let reconciled = send(
         &mut restarted,
-        serde_json::json!({
+        &serde_json::json!({
             "command":"evaluation.measurement_acquisition.recovery.reconcile",
             "request_id":"reconcile",
             "recovery_journal":journal,
@@ -776,7 +776,7 @@ fn jsonl_recovery_lifecycle_restarts_from_archive_and_reconciles_without_device(
         .unwrap();
     let replayed = send(
         &mut restarted,
-        serde_json::json!({
+        &serde_json::json!({
             "command":"evaluation.measurement_acquisition.recovery.replay",
             "request_id":"replay",
             "recovery_journal":journal,

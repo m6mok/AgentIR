@@ -465,7 +465,7 @@ pub fn measurement_acquisition_recovery_checkpoint_hash(
         |model| {
             model
                 .measurement_acquisition_recovery_checkpoint_hash
-                .clear()
+                .clear();
         },
     )
 }
@@ -797,6 +797,7 @@ impl MeasurementAcquisitionRecoveryJournal {
     ///
     /// Only this method accepts an executor. The three recovery observation,
     /// status, checkpoint, and replay paths have no executor parameter.
+    #[allow(clippy::too_many_arguments)]
     pub fn execute<S, E>(
         &mut self,
         session: &mut MeasurementAcquisitionSession,
@@ -855,22 +856,19 @@ impl MeasurementAcquisitionRecoveryJournal {
         staged_journal.work.execute_commands = add(staged_journal.work.execute_commands, 1)?;
         staged_journal.work.benchmark_invocations =
             add(staged_journal.work.benchmark_invocations, 1)?;
-        let (record, device_calls) = match benchmark {
-            Ok(value) => value,
-            Err(_) => {
-                staged_journal.status = RecoveryStatus::IndeterminateAfterCrash;
-                staged_journal.work.prevented_automatic_reruns =
-                    add(staged_journal.work.prevented_automatic_reruns, 1)?;
-                staged_journal.push_trace(
-                    "benchmark_returned_without_publication",
-                    Some(prepared.attempt_id),
-                    None,
-                    limits,
-                )?;
-                staged_journal.refresh_hash()?;
-                *self = staged_journal;
-                return Ok(self.status);
-            }
+        let Ok((record, device_calls)) = benchmark else {
+            staged_journal.status = RecoveryStatus::IndeterminateAfterCrash;
+            staged_journal.work.prevented_automatic_reruns =
+                add(staged_journal.work.prevented_automatic_reruns, 1)?;
+            staged_journal.push_trace(
+                "benchmark_returned_without_publication",
+                Some(prepared.attempt_id),
+                None,
+                limits,
+            )?;
+            staged_journal.refresh_hash()?;
+            *self = staged_journal;
+            return Ok(self.status);
         };
         validate_record(&staged_session, &slot, &record)?;
         staged_journal.work.device_calls = add(staged_journal.work.device_calls, device_calls)?;
@@ -1075,7 +1073,7 @@ impl MeasurementAcquisitionRecoveryJournal {
         }
         compatible.sort_by(|left, right| left.0.cmp(&right.0));
 
-        let observed = anchor_outcome.unwrap_or_else(|| {
+        let observed = anchor_outcome.unwrap_or({
             if incompatible {
                 ReconciliationOutcome::IncompatiblePublicationObserved
             } else {
