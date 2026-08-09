@@ -1,0 +1,79 @@
+{
+  "registry_version": 1,
+  "archive_families": [
+    {"name":"workspace","current":9,"legacy":[1,2,3,4,5,6,7,8],"document":"docs/persistence.md"},
+    {"name":"evaluation","current":3,"legacy":[1,2],"document":"docs/evaluation-archive-v3.md"}
+  ],
+  "migration_edges": [
+    "workspace:1->2","workspace:2->3","workspace:3->4","workspace:4->5",
+    "workspace:5->6","workspace:6->7","workspace:7->8","workspace:8->9",
+    "evaluation:1->2","evaluation:2->3"
+  ],
+  "hash_domains": [
+    "agentir.content.exact.v1","agentir.spec.semantic.v1","agentir.impl.semantic.v1",
+    "agentir.proposal.semantic.v1","agentir.candidate.exact.v1","agentir.candidate.exact.v2",
+    "agentir.candidate.exact.v3","agentir.equality.exact.v1","agentir.memory.exact.v1",
+    "agentir.target.manifest.v1","agentir.schedule.exact.v1","agentir.backend.wgsl.exact.v1",
+    "agentir.compiler.build.v1","agentir.artifact.wgsl.package.v1","agentir.device.fingerprint.v1",
+    "agentir.measurement.hardware.v1","agentir.workspace.archive.v1","agentir.workspace.archive.v2",
+    "agentir.workspace.archive.v3","agentir.workspace.archive.v4","agentir.workspace.archive.v5",
+    "agentir.workspace.archive.v6","agentir.workspace.archive.v7","agentir.workspace.archive.v8",
+    "agentir.workspace.archive.v9","agentir.evaluation.corpus.v1","agentir.evaluation.policy.v1",
+    "agentir.evaluation.observation.v1","agentir.evaluation.episode.v1","agentir.evaluation.episode.v2",
+    "agentir.evaluation.aggregate.v1","agentir.evaluation.archive.v1","agentir.evaluation.archive.v2",
+    "agentir.evaluation.archive.v3","agentir.evaluation.choice_id.v1","agentir.evaluation.choice_set.v1",
+    "agentir.evaluation.feature_schema.v1","agentir.evaluation.ranking_policy.v1",
+    "agentir.evaluation.ranking_trace.v1","agentir.evaluation.selection.v1",
+    "agentir.evaluation.continuation.v1","agentir.evaluation.typed_repair.v1",
+    "agentir.evaluation.ranking_dataset.v1","agentir.evaluation.ranking_example.v1",
+    "agentir.evaluation.dataset_group.v1","agentir.evaluation.dataset_split.v1",
+    "agentir.evaluation.training_configuration.v1","agentir.evaluation.training_run.v1",
+    "agentir.evaluation.training_checkpoint.v1","agentir.evaluation.learned_model.v1",
+    "agentir.evaluation.ranking_input.v1","agentir.evaluation.inference.v1"
+  ],
+  "id_prefixes": [
+    "w","r","t","d","p","c","v","o","h","ob","ca","cr","pr","ir","iv",
+    "eq","er","en","ee","mp","mr","mb","mo","sp","sr","sn","tm","tr","bp","br","bk","ar","me","ec","$"
+  ],
+  "continuation_cursor_versions": ["evaluation-ranking-choice:v1"],
+  "feature_codecs": ["ranking-visible-schema:v1","visible_feature_integer_codec_v1"],
+  "model_formats": ["pairwise_integer_linear_v1"],
+  "event_semantics": [
+    "spec:v1","spec:v2","candidate:v1","candidate:v2","candidate:v3","equality:v1",
+    "memory:v1","target:v1","schedule:v1","backend:v1","artifact:v1","measurement:v1"
+  ],
+  "proof_certificate_kinds": [
+    "EquivalentToSpec","KnownRewrite","TranslationValidation","GuardedFallback","EqualityEdge",
+    "MemoryEquivalentToImpl","StaticReuse","GuardedMemoryReuse","ScheduleEquivalentToMemory",
+    "BackendEquivalentToSchedule","ArtifactEquivalentToBackend"
+  ],
+  "diagnostic_codes": [
+    "EvaluationCorpusNotFound","EvaluationTaskNotFound","EvaluationPolicyNotFound",
+    "EvaluationRunNotFound","EvaluationEpisodeNotFound","EvaluationStepNotFound",
+    "EvaluationObservationMismatch","EvaluationPolicyViolation","EvaluationMenuChoiceInvalid",
+    "EvaluationBudgetExceeded","EvaluationAlreadyComplete","EvaluationReplayMismatch",
+    "EvaluationTranscriptInvalid","EvaluationMetricInvalid","EvaluationComparisonInvalid",
+    "EvaluationHashMismatch","EvaluationArchiveInvalid","EvaluationChoiceSetNotFound",
+    "EvaluationChoiceNotFound","EvaluationChoiceSetMismatch","EvaluationFeatureSchemaNotFound",
+    "EvaluationFeatureSchemaMismatch","EvaluationRankingPolicyNotFound","EvaluationRankingPolicyInvalid",
+    "EvaluationRankingTraceInvalid","EvaluationScoreInvalid","EvaluationScoreCountMismatch",
+    "EvaluationTieBreakInvalid","EvaluationSelectionInvalid","EvaluationSelectionNotInChoiceSet",
+    "EvaluationRankingReplayMismatch","EvaluationRankingComparisonInvalid","EvaluationRankingBudgetExceeded",
+    "EvaluationArchiveMigrationInvalid","EvaluationContinuationCorrupt","EvaluationContinuationStale",
+    "EvaluationContinuationLimitExceeded","EvaluationTypedRepairInvalid","EvaluationTypedRepairStale",
+    "EvaluationWorkUnitOverflow","EvaluationWorkUnitLimitExceeded","EvaluationDatasetInvalid",
+    "EvaluationDatasetLeakage","EvaluationTrainingInvalid","EvaluationTrainingOverflow",
+    "EvaluationModelInvalid","EvaluationModelIncompatible","EvaluationInferenceInvalid",
+    "EvaluationEventOrderInvalid","TokenAccountingUnavailable"
+  ],
+  "resource_limit_families": [
+    "core","candidate","equality","memory","schedule","backend","artifact","device",
+    "evaluation","ranking","continuation","dataset","training","model","inference","archive-replay"
+  ],
+  "public_contract_documents": [
+    "docs/architecture.md","docs/resource-budgets.md","docs/continuation-cursors.md",
+    "docs/typed-repairs.md","docs/ranking-features.md","docs/learned-ranking-dataset.md",
+    "docs/learned-ranking-model.md","docs/learned-ranking-training.md",
+    "docs/learned-ranking-inference.md","docs/evaluation-archive-v3.md"
+  ]
+}
