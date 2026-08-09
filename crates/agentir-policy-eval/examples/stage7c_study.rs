@@ -508,6 +508,22 @@ fn main() -> Result<(), String> {
         "device_unavailable": unavailable.code,
         "numeric_failure_sentinel_used": false,
     });
+    let mut synthetic_timing_observations = single_store
+        .records
+        .values()
+        .map(|record| record.median_ns)
+        .collect::<Vec<_>>();
+    synthetic_timing_observations.sort_unstable();
+    let synthetic_percentile = |percent: usize| {
+        let index = synthetic_timing_observations
+            .len()
+            .saturating_mul(percent)
+            .saturating_add(99)
+            / 100;
+        synthetic_timing_observations[index
+            .saturating_sub(1)
+            .min(synthetic_timing_observations.len() - 1)]
+    };
     let metrics = json!({
         "schema_version":"agentir.stage7c.study.v1",
         "tasks":1,
@@ -541,7 +557,12 @@ fn main() -> Result<(), String> {
         "stage7b_no_recommendation":u64::from(recommendation.artifact_hash.is_none()),
         "resource_budget_rejections":0,
         "archive_bytes":serde_json::to_vec(&archive).map_err(|error| error.to_string())?.len(),
-        "timing_median_p95_p99":"synthetic observations only; no performance evidence",
+        "timing_median_p95_p99":{
+            "median_ns":synthetic_percentile(50),
+            "p95_ns":synthetic_percentile(95),
+            "p99_ns":synthetic_percentile(99),
+            "classification":"synthetic observations only; no performance evidence",
+        },
         "compiler_proof_status":"retained proved artifact provenance",
         "artifact_structural_validation":"offline_validated fixture contract",
         "device_acquisition_observations":"synthetic_test_data_not_performance_evidence",
