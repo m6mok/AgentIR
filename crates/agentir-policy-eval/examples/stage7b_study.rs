@@ -71,14 +71,14 @@ fn study_corpus() -> agentir_policy_eval::EvaluationCorpus {
         .find(|task| task.id.0 == "ranked-backend-large")
         .expect("backend task");
     task.initial_state.production_requests = requests;
-    task.objective.summary =
-        "Stage 7B study: rank proved serial/vector/remainder artifacts".to_owned();
+    "Stage 7B study: rank proved serial/vector/remainder artifacts"
+        .clone_into(&mut task.objective.summary);
     task.metadata.insert(
         "stage7b_study_surface".to_owned(),
         "verified_backend_serial_fixture_family".to_owned(),
     );
-    corpus.name = "stage7b-measured-search-study".to_owned();
-    corpus.version = "stage7b-study-v1".to_owned();
+    "stage7b-measured-search-study".clone_into(&mut corpus.name);
+    "stage7b-study-v1".clone_into(&mut corpus.version);
     corpus.corpus_hash.clear();
     corpus.corpus_hash = agentir_policy_eval::hashing::domain_hash(
         agentir_policy_eval::hashing::CORPUS_HASH_DOMAIN,

@@ -4,8 +4,8 @@ use crate::{
     engine::{EvaluationHarness, RankingSubmission, external_policy, scripted_policy},
     measured::{
         MeasuredMetric, MeasuredObjectiveDescriptor, MeasurementAggregationMethod,
-        MeasurementCohort, MeasurementReference, MeasurementValidationPolicy,
-        measured_recommendation, measurement_cohort_from_workspace,
+        MeasurementCohort, MeasurementCohortRequest, MeasurementReference,
+        MeasurementValidationPolicy, measured_recommendation, measurement_cohort_from_workspace,
     },
     model::{EvaluationDiagnostic, EvaluationTaskId, PolicyDecision, PolicyKind, TokenUsage},
     ranking::{RankingDecision, aggregate_ranking_metrics, feature_schema_v1, scripted_ranker},
@@ -412,13 +412,15 @@ impl EvaluationProtocol {
                 self.harness.task(&task)?;
                 let cohort = measurement_cohort_from_workspace(
                     workspace,
-                    self.harness.corpus().corpus_hash.clone(),
-                    task,
-                    initial_anchor_hash,
                     &measurements,
-                    validation_policy,
-                    records_per_artifact,
-                    aggregation_method,
+                    MeasurementCohortRequest {
+                        corpus_hash: self.harness.corpus().corpus_hash.clone(),
+                        task_id: task,
+                        initial_anchor_hash,
+                        validation_policy,
+                        records_per_artifact,
+                        aggregation_method,
+                    },
                 )?;
                 let hash = cohort.measurement_cohort_hash.clone();
                 self.measurement_cohorts.insert(hash.clone(), cohort);

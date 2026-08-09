@@ -116,17 +116,37 @@ pub struct MeasurementCohort {
     pub measurement_cohort_hash: String,
 }
 
+/// Exact server-owned request for freezing one measurement cohort.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MeasurementCohortRequest {
+    /// Exact evaluation corpus anchor.
+    pub corpus_hash: String,
+    /// Exact task anchor.
+    pub task_id: EvaluationTaskId,
+    /// Exact Stage 7A root anchor.
+    pub initial_anchor_hash: String,
+    /// Validation policy applied to resolved production records.
+    pub validation_policy: MeasurementValidationPolicy,
+    /// Exact record count required for every artifact.
+    pub records_per_artifact: u64,
+    /// Cross-record aggregation contract.
+    pub aggregation_method: MeasurementAggregationMethod,
+}
+
 /// Resolves references only against one production workspace and freezes a cohort.
 pub fn measurement_cohort_from_workspace(
     workspace: &Workspace,
-    corpus_hash: String,
-    task_id: EvaluationTaskId,
-    initial_anchor_hash: String,
     references: &[MeasurementReference],
-    validation_policy: MeasurementValidationPolicy,
-    records_per_artifact: u64,
-    aggregation_method: MeasurementAggregationMethod,
+    request: MeasurementCohortRequest,
 ) -> EvaluationResult<MeasurementCohort> {
+    let MeasurementCohortRequest {
+        corpus_hash,
+        task_id,
+        initial_anchor_hash,
+        validation_policy,
+        records_per_artifact,
+        aggregation_method,
+    } = request;
     if references.is_empty() || records_per_artifact == 0 {
         return Err(measured_error(
             EvaluationErrorCode::EvaluationMeasurementMissing,

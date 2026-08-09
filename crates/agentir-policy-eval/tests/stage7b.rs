@@ -3,10 +3,11 @@ use agentir_policy_eval::ranking::{feature_schema_v1, scripted_ranker};
 use agentir_policy_eval::{
     EvaluationHarness, EvaluationTaskId, MeasuredMetric, MeasuredObjectiveDescriptor,
     MeasuredRecommendationStatus, MeasuredSearchHistoryStatus, MeasurementAggregationMethod,
-    MeasurementReference, MeasurementValidationPolicy, ObjectiveDirection, SearchLimits,
-    SearchObjectiveComponent, SearchObjectiveComponentKind, SearchObjectiveDescriptor, SearchPlan,
-    SearchRanker, SearchSession, attach_measured_search_artifacts, attach_search_artifacts,
-    builtin_corpus, measurement_cohort_from_workspace, migrate_archive_v4_to_v5, verify_archive,
+    MeasurementCohortRequest, MeasurementReference, MeasurementValidationPolicy,
+    ObjectiveDirection, SearchLimits, SearchObjectiveComponent, SearchObjectiveComponentKind,
+    SearchObjectiveDescriptor, SearchPlan, SearchRanker, SearchSession,
+    attach_measured_search_artifacts, attach_search_artifacts, builtin_corpus,
+    measurement_cohort_from_workspace, migrate_archive_v4_to_v5, verify_archive,
 };
 use std::path::Path;
 
@@ -79,30 +80,34 @@ fn cohort_order_is_canonical_and_mixed_device_rejects() {
     let second_id = workspace.measurement_publish(second_record).unwrap();
     let cohort_left = measurement_cohort_from_workspace(
         &workspace,
-        "corpus".to_owned(),
-        EvaluationTaskId("task".to_owned()),
-        "root".to_owned(),
         &[
             MeasurementReference::Id(first_id.clone()),
             MeasurementReference::Id(second_id.clone()),
         ],
-        MeasurementValidationPolicy::SyntheticFixtureV1,
-        2,
-        MeasurementAggregationMethod::MedianOfRecordSummariesV1,
+        MeasurementCohortRequest {
+            corpus_hash: "corpus".to_owned(),
+            task_id: EvaluationTaskId("task".to_owned()),
+            initial_anchor_hash: "root".to_owned(),
+            validation_policy: MeasurementValidationPolicy::SyntheticFixtureV1,
+            records_per_artifact: 2,
+            aggregation_method: MeasurementAggregationMethod::MedianOfRecordSummariesV1,
+        },
     )
     .unwrap();
     let cohort_right = measurement_cohort_from_workspace(
         &workspace,
-        "corpus".to_owned(),
-        EvaluationTaskId("task".to_owned()),
-        "root".to_owned(),
         &[
             MeasurementReference::Id(second_id),
             MeasurementReference::Id(first_id),
         ],
-        MeasurementValidationPolicy::SyntheticFixtureV1,
-        2,
-        MeasurementAggregationMethod::MedianOfRecordSummariesV1,
+        MeasurementCohortRequest {
+            corpus_hash: "corpus".to_owned(),
+            task_id: EvaluationTaskId("task".to_owned()),
+            initial_anchor_hash: "root".to_owned(),
+            validation_policy: MeasurementValidationPolicy::SyntheticFixtureV1,
+            records_per_artifact: 2,
+            aggregation_method: MeasurementAggregationMethod::MedianOfRecordSummariesV1,
+        },
     )
     .unwrap();
     assert_eq!(cohort_left, cohort_right);
@@ -115,16 +120,18 @@ fn cohort_order_is_canonical_and_mixed_device_rejects() {
     let mixed_id = workspace.measurement_publish(mixed).unwrap();
     let error = measurement_cohort_from_workspace(
         &workspace,
-        "corpus".to_owned(),
-        EvaluationTaskId("task".to_owned()),
-        "root".to_owned(),
         &[
             MeasurementReference::Hash(cohort_left.measurement_hashes[0].clone()),
             MeasurementReference::Id(mixed_id),
         ],
-        MeasurementValidationPolicy::SyntheticFixtureV1,
-        1,
-        MeasurementAggregationMethod::SingleRecordSummaryV1,
+        MeasurementCohortRequest {
+            corpus_hash: "corpus".to_owned(),
+            task_id: EvaluationTaskId("task".to_owned()),
+            initial_anchor_hash: "root".to_owned(),
+            validation_policy: MeasurementValidationPolicy::SyntheticFixtureV1,
+            records_per_artifact: 1,
+            aggregation_method: MeasurementAggregationMethod::SingleRecordSummaryV1,
+        },
     )
     .unwrap_err();
     assert_eq!(
@@ -146,13 +153,15 @@ fn unmeasured_terminal_is_typed_and_archive_v5_replays_without_hardware() {
         .clone();
     let cohort = measurement_cohort_from_workspace(
         &workspace,
-        session.objective.corpus_hash.clone(),
-        session.task_id.clone(),
-        session.objective.initial_anchor_hash.clone(),
         &[MeasurementReference::Id(measurement)],
-        MeasurementValidationPolicy::SyntheticFixtureV1,
-        1,
-        MeasurementAggregationMethod::SingleRecordSummaryV1,
+        MeasurementCohortRequest {
+            corpus_hash: session.objective.corpus_hash.clone(),
+            task_id: session.task_id.clone(),
+            initial_anchor_hash: session.objective.initial_anchor_hash.clone(),
+            validation_policy: MeasurementValidationPolicy::SyntheticFixtureV1,
+            records_per_artifact: 1,
+            aggregation_method: MeasurementAggregationMethod::SingleRecordSummaryV1,
+        },
     )
     .unwrap();
     let objective = MeasuredObjectiveDescriptor::new(
