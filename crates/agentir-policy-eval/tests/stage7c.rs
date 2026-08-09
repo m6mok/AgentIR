@@ -4,10 +4,11 @@ use agentir_core::{
 };
 use agentir_policy_eval::{
     EvaluationErrorCode, EvaluationHarness, EvaluationTaskId, MeasurementAcquisitionArchiveBundle,
-    MeasurementAcquisitionArtifact, MeasurementAcquisitionCatalog,
-    MeasurementAcquisitionFailurePolicy, MeasurementAcquisitionOrderingPolicy,
-    MeasurementAcquisitionPlan, MeasurementAcquisitionPlanRequest, MeasurementAcquisitionSession,
-    MeasurementAcquisitionStatus, MeasurementValidationPolicy,
+    MeasurementAcquisitionArtifact, MeasurementAcquisitionCatalog, MeasurementAcquisitionExecutor,
+    MeasurementAcquisitionFailurePolicy, MeasurementAcquisitionLimits,
+    MeasurementAcquisitionOrderingPolicy, MeasurementAcquisitionPlan,
+    MeasurementAcquisitionPlanRequest, MeasurementAcquisitionPreflight,
+    MeasurementAcquisitionSession, MeasurementAcquisitionStatus, MeasurementValidationPolicy,
     SyntheticMeasurementAcquisitionExecutor, SyntheticMeasurementAcquisitionStore,
     attach_measurement_acquisition_artifacts, migrate_archive_v5_to_v6, verify_archive,
 };
@@ -98,6 +99,28 @@ fn plan_boundaries_and_mixed_anchors_reject() {
             .code,
         EvaluationErrorCode::EvaluationAcquisitionMixedSpec
     );
+    let mut mixed_target = catalog.clone();
+    mixed_target.artifacts.get_mut("b").unwrap().target_hash = "target-2".to_owned();
+    assert_eq!(
+        MeasurementAcquisitionPlan::new(&mixed_target, request(&["a", "b"], 1))
+            .unwrap_err()
+            .code,
+        EvaluationErrorCode::EvaluationAcquisitionMixedTarget
+    );
+    let mut invalid = catalog.clone();
+    invalid.artifacts.get_mut("a").unwrap().offline_valid = false;
+    assert_eq!(
+        MeasurementAcquisitionPlan::new(&invalid, request(&["a"], 1))
+            .unwrap_err()
+            .code,
+        EvaluationErrorCode::EvaluationAcquisitionArtifactInvalid
+    );
+    assert_eq!(
+        MeasurementAcquisitionPlan::new(&catalog, request(&["missing"], 1))
+            .unwrap_err()
+            .code,
+        EvaluationErrorCode::EvaluationAcquisitionArtifactSetInvalid
+    );
     let mut hardware = request(&["a"], 1);
     hardware.validation_policy = MeasurementValidationPolicy::HardwareExecutedV1;
     assert_eq!(
@@ -106,6 +129,44 @@ fn plan_boundaries_and_mixed_anchors_reject() {
             .code,
         EvaluationErrorCode::EvaluationAcquisitionUnsupportedMode
     );
+}
+
+#[test]
+fn plan_operational_limits_are_exact_and_hash_independent() {
+    let catalog = catalog();
+    let exact = MeasurementAcquisitionLimits {
+        artifact_references: 3,
+        records_per_artifact: 2,
+        total_slots: 6,
+        checkpoint_bytes: u64::MAX,
+    };
+    let wider = MeasurementAcquisitionLimits {
+        artifact_references: 4,
+        records_per_artifact: 3,
+        total_slots: 12,
+        checkpoint_bytes: u64::MAX,
+    };
+    let plan =
+        MeasurementAcquisitionPlan::new_with_limits(&catalog, request(&["a", "b", "c"], 2), &exact)
+            .unwrap();
+    let same =
+        MeasurementAcquisitionPlan::new_with_limits(&catalog, request(&["a", "b", "c"], 2), &wider)
+            .unwrap();
+    assert_eq!(plan, same);
+    assert_eq!(plan.total_slots().unwrap(), 6);
+    assert_eq!(
+        MeasurementAcquisitionPlan::new_with_limits(
+            &catalog,
+            request(&["a", "b", "c"], 3),
+            &exact,
+        )
+        .unwrap_err()
+        .code,
+        EvaluationErrorCode::EvaluationAcquisitionLimitExceeded
+    );
+    for hashes in [&["a"][..], &["a", "b"][..], &["a", "b", "c"][..]] {
+        MeasurementAcquisitionPlan::new(&catalog, request(hashes, 2)).unwrap();
+    }
 }
 
 #[test]
@@ -182,6 +243,185 @@ fn checkpoint_resume_skips_completed_slots_and_replay_calls_no_executor() {
     assert_eq!(executor.invocations, before_replay);
     assert_eq!(result, replayed);
     assert_eq!(resumed.work.prevented_reruns, 4);
+}
+
+#[test]
+fn resume_rejects_corrupt_missing_duplicate_and_changed_anchors_before_hardware() {
+    let catalog = catalog();
+    let plan = MeasurementAcquisitionPlan::new(&catalog, request(&["a", "b"], 1)).unwrap();
+    let mut executor = SyntheticMeasurementAcquisitionExecutor::new();
+    let mut session =
+        MeasurementAcquisitionSession::start(plan, &catalog, None, &mut executor).unwrap();
+    let preflight = session.preflight.clone();
+    let mut store = SyntheticMeasurementAcquisitionStore::default();
+    session
+        .advance(&mut store, &catalog, None, &mut executor, 1)
+        .unwrap();
+    let checkpoint = session.checkpoint().unwrap();
+
+    let mut corrupt = checkpoint.clone();
+    corrupt.completed_slot_indices.clear();
+    corrupt.measurement_acquisition_checkpoint_hash =
+        agentir_policy_eval::measurement_acquisition_checkpoint_hash(&corrupt).unwrap();
+    assert_eq!(
+        MeasurementAcquisitionSession::resume(&corrupt, &store, &catalog, &preflight)
+            .unwrap_err()
+            .code,
+        EvaluationErrorCode::EvaluationAcquisitionCheckpointCorrupt
+    );
+
+    let empty_store = SyntheticMeasurementAcquisitionStore::default();
+    assert_eq!(
+        MeasurementAcquisitionSession::resume(&checkpoint, &empty_store, &catalog, &preflight)
+            .unwrap_err()
+            .code,
+        EvaluationErrorCode::EvaluationAcquisitionMeasurementMissing
+    );
+
+    let duplicate_plan =
+        MeasurementAcquisitionPlan::new(&catalog, request(&["a", "b"], 1)).unwrap();
+    let mut duplicate_session =
+        MeasurementAcquisitionSession::start(duplicate_plan, &catalog, None, &mut executor)
+            .unwrap();
+    let duplicate_preflight = duplicate_session.preflight.clone();
+    let mut duplicate_store = SyntheticMeasurementAcquisitionStore::default();
+    duplicate_session
+        .advance(
+            &mut duplicate_store,
+            &catalog,
+            None,
+            &mut executor,
+            u64::MAX,
+        )
+        .unwrap();
+    duplicate_session.slots[1].measurement_id = duplicate_session.slots[0].measurement_id.clone();
+    duplicate_session.slots[1].measurement_hash =
+        duplicate_session.slots[0].measurement_hash.clone();
+    let duplicate_checkpoint = duplicate_session.checkpoint().unwrap();
+    assert_eq!(
+        MeasurementAcquisitionSession::resume(
+            &duplicate_checkpoint,
+            &duplicate_store,
+            &catalog,
+            &duplicate_preflight,
+        )
+        .unwrap_err()
+        .code,
+        EvaluationErrorCode::EvaluationAcquisitionMeasurementDuplicate
+    );
+
+    let invocations = executor.invocations;
+    for (field, expected) in [
+        (
+            "device",
+            EvaluationErrorCode::EvaluationAcquisitionDeviceChanged,
+        ),
+        (
+            "build",
+            EvaluationErrorCode::EvaluationAcquisitionCompilerBuildChanged,
+        ),
+        (
+            "runtime",
+            EvaluationErrorCode::EvaluationAcquisitionRuntimeChanged,
+        ),
+    ] {
+        let mut changed = preflight.clone();
+        match field {
+            "device" => changed.device_fingerprint_hash = "changed".to_owned(),
+            "build" => changed.compiler_build_hash = "changed".to_owned(),
+            "runtime" => changed.runtime_version = "changed".to_owned(),
+            _ => unreachable!(),
+        }
+        assert_eq!(
+            MeasurementAcquisitionSession::resume(&checkpoint, &store, &catalog, &changed)
+                .unwrap_err()
+                .code,
+            expected
+        );
+    }
+    assert_eq!(executor.invocations, invocations);
+}
+
+#[test]
+fn crash_ambiguity_is_typed_and_checkpoint_bytes_are_bounded() {
+    let catalog = catalog();
+    let plan = MeasurementAcquisitionPlan::new(&catalog, request(&["a"], 1)).unwrap();
+    let mut executor = SyntheticMeasurementAcquisitionExecutor::new();
+    let mut session =
+        MeasurementAcquisitionSession::start(plan, &catalog, None, &mut executor).unwrap();
+    session.mark_indeterminate_after_crash().unwrap();
+    assert_eq!(session.status, MeasurementAcquisitionStatus::Failed);
+    assert_eq!(session.work.slots_indeterminate, 1);
+    assert_eq!(
+        session.slots[0].failure_code,
+        Some(EvaluationErrorCode::EvaluationAcquisitionIndeterminateAfterCrash)
+    );
+    let result = session.result().unwrap();
+    assert_eq!(
+        result.stopping_reason,
+        agentir_policy_eval::MeasurementAcquisitionStoppingReason::IndeterminateAfterCrash
+    );
+    let limits = MeasurementAcquisitionLimits {
+        checkpoint_bytes: 1,
+        ..MeasurementAcquisitionLimits::default()
+    };
+    assert_eq!(
+        session.checkpoint_with_limits(&limits).unwrap_err().code,
+        EvaluationErrorCode::EvaluationAcquisitionLimitExceeded
+    );
+}
+
+#[derive(Clone)]
+struct InvalidRecordExecutor(SyntheticMeasurementAcquisitionExecutor);
+
+impl MeasurementAcquisitionExecutor for InvalidRecordExecutor {
+    fn preflight(
+        &mut self,
+        workspace: Option<&agentir_core::Workspace>,
+        catalog: &MeasurementAcquisitionCatalog,
+        plan: &MeasurementAcquisitionPlan,
+    ) -> agentir_policy_eval::EvaluationResult<MeasurementAcquisitionPreflight> {
+        self.0.preflight(workspace, catalog, plan)
+    }
+
+    fn benchmark(
+        &mut self,
+        workspace: Option<&agentir_core::Workspace>,
+        catalog: &MeasurementAcquisitionCatalog,
+        plan: &MeasurementAcquisitionPlan,
+        preflight: &MeasurementAcquisitionPreflight,
+        slot: &agentir_policy_eval::MeasurementAcquisitionSlot,
+    ) -> agentir_policy_eval::EvaluationResult<(
+        agentir_core::backend_ir::HardwareMeasurementRecord,
+        u64,
+    )> {
+        let (mut record, calls) = self
+            .0
+            .benchmark(workspace, catalog, plan, preflight, slot)?;
+        "client-shaped-invalid-runtime".clone_into(&mut record.runtime_version);
+        Ok((record, calls))
+    }
+}
+
+#[test]
+fn rejected_advance_is_atomic_for_session_and_store() {
+    let catalog = catalog();
+    let plan = MeasurementAcquisitionPlan::new(&catalog, request(&["a"], 1)).unwrap();
+    let mut executor = InvalidRecordExecutor(SyntheticMeasurementAcquisitionExecutor::new());
+    let mut session =
+        MeasurementAcquisitionSession::start(plan, &catalog, None, &mut executor).unwrap();
+    let mut store = SyntheticMeasurementAcquisitionStore::default();
+    let before_session = session.clone();
+    let before_store = store.clone();
+    assert_eq!(
+        session
+            .advance(&mut store, &catalog, None, &mut executor, 1)
+            .unwrap_err()
+            .code,
+        EvaluationErrorCode::EvaluationAcquisitionBenchmarkFailed
+    );
+    assert_eq!(session, before_session);
+    assert_eq!(store, before_store);
 }
 
 #[test]

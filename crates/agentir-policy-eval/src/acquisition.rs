@@ -40,6 +40,30 @@ pub const MEASUREMENT_ACQUISITION_TRACE_HASH_DOMAIN: &[u8] =
 pub const MEASUREMENT_ACQUISITION_RESULT_HASH_DOMAIN: &[u8] =
     b"agentir.evaluation.measurement_acquisition_result.v1\0";
 
+/// Operational Stage 7C safety limits, excluded from every acquisition hash.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MeasurementAcquisitionLimits {
+    /// Maximum distinct artifacts in one plan.
+    pub artifact_references: u64,
+    /// Maximum requested records per artifact.
+    pub records_per_artifact: u64,
+    /// Maximum canonical slots in one plan.
+    pub total_slots: u64,
+    /// Maximum encoded checkpoint bytes.
+    pub checkpoint_bytes: u64,
+}
+
+impl Default for MeasurementAcquisitionLimits {
+    fn default() -> Self {
+        Self {
+            artifact_references: 1_024,
+            records_per_artifact: 10_000,
+            total_slots: 1_000_000,
+            checkpoint_bytes: 256 * 1024 * 1024,
+        }
+    }
+}
+
 /// V1 deterministic acquisition ordering policy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -226,6 +250,15 @@ impl MeasurementAcquisitionPlan {
         catalog: &MeasurementAcquisitionCatalog,
         request: MeasurementAcquisitionPlanRequest,
     ) -> EvaluationResult<Self> {
+        Self::new_with_limits(catalog, request, &MeasurementAcquisitionLimits::default())
+    }
+
+    /// Resolves one plan under explicit operational limits excluded from its identity.
+    pub fn new_with_limits(
+        catalog: &MeasurementAcquisitionCatalog,
+        request: MeasurementAcquisitionPlanRequest,
+        limits: &MeasurementAcquisitionLimits,
+    ) -> EvaluationResult<Self> {
         if request.root_anchor_hash != catalog.root_anchor_hash {
             return Err(acquisition_error(
                 EvaluationErrorCode::EvaluationAcquisitionArtifactSetInvalid,
@@ -239,6 +272,32 @@ impl MeasurementAcquisitionPlan {
             return Err(acquisition_error(
                 EvaluationErrorCode::EvaluationAcquisitionPlanInvalid,
                 "acquisition requires artifacts and positive record/checkpoint counts",
+            ));
+        }
+        let artifact_count =
+            u64::try_from(request.artifact_hashes.len()).map_err(|_| acquisition_overflow())?;
+        let total_slots = artifact_count
+            .checked_mul(request.records_per_artifact)
+            .ok_or_else(acquisition_overflow)?;
+        if artifact_count > limits.artifact_references
+            || request.records_per_artifact > limits.records_per_artifact
+            || total_slots > limits.total_slots
+        {
+            return Err(acquisition_error(
+                EvaluationErrorCode::EvaluationAcquisitionLimitExceeded,
+                "measurement acquisition plan exceeds operational safety limits",
+            )
+            .expected_actual(
+                json!({
+                    "artifact_references": limits.artifact_references,
+                    "records_per_artifact": limits.records_per_artifact,
+                    "total_slots": limits.total_slots,
+                }),
+                json!({
+                    "artifact_references": artifact_count,
+                    "records_per_artifact": request.records_per_artifact,
+                    "total_slots": total_slots,
+                }),
             ));
         }
         validate_benchmark_config(&request.benchmark_config)?;
@@ -1342,6 +1401,14 @@ impl MeasurementAcquisitionSession {
 
     /// Creates an independently hashed checkpoint between completed slots.
     pub fn checkpoint(&self) -> EvaluationResult<MeasurementAcquisitionCheckpoint> {
+        self.checkpoint_with_limits(&MeasurementAcquisitionLimits::default())
+    }
+
+    /// Creates a checkpoint under an operational encoded-byte limit.
+    pub fn checkpoint_with_limits(
+        &self,
+        limits: &MeasurementAcquisitionLimits,
+    ) -> EvaluationResult<MeasurementAcquisitionCheckpoint> {
         let completed = self.completed_slots();
         let mut checkpoint = MeasurementAcquisitionCheckpoint {
             version: 1,
@@ -1367,6 +1434,24 @@ impl MeasurementAcquisitionSession {
         };
         checkpoint.measurement_acquisition_checkpoint_hash =
             measurement_acquisition_checkpoint_hash(&checkpoint)?;
+        let encoded_bytes = u64::try_from(
+            serde_json::to_vec(&checkpoint)
+                .map_err(|error| {
+                    acquisition_error(
+                        EvaluationErrorCode::EvaluationAcquisitionCheckpointCorrupt,
+                        error.to_string(),
+                    )
+                })?
+                .len(),
+        )
+        .map_err(|_| acquisition_overflow())?;
+        if encoded_bytes > limits.checkpoint_bytes {
+            return Err(acquisition_error(
+                EvaluationErrorCode::EvaluationAcquisitionLimitExceeded,
+                "measurement acquisition checkpoint exceeds its byte limit",
+            )
+            .expected_actual(json!(limits.checkpoint_bytes), json!(encoded_bytes)));
+        }
         Ok(checkpoint)
     }
 
@@ -1387,17 +1472,56 @@ impl MeasurementAcquisitionSession {
         }
         let mut session = (*checkpoint.session).clone();
         session.verify(store, catalog)?;
+        let completed = session.completed_slots();
+        let completed_slot_indices = completed
+            .iter()
+            .map(|slot| slot.slot_index)
+            .collect::<Vec<_>>();
+        let measurement_ids = completed
+            .iter()
+            .filter_map(|slot| slot.measurement_id.clone())
+            .collect::<Vec<_>>();
+        let measurement_hashes = completed
+            .iter()
+            .filter_map(|slot| slot.measurement_hash.clone())
+            .collect::<Vec<_>>();
+        if checkpoint.next_slot != session.next_slot
+            || checkpoint.status != session.status
+            || checkpoint.completed_slot_indices != completed_slot_indices
+            || checkpoint.measurement_ids != measurement_ids
+            || checkpoint.measurement_hashes != measurement_hashes
+        {
+            return Err(acquisition_error(
+                EvaluationErrorCode::EvaluationAcquisitionCheckpointCorrupt,
+                "acquisition checkpoint summary differs from its session snapshot",
+            ));
+        }
         if checkpoint.measurement_acquisition_plan_hash
             != session.plan.measurement_acquisition_plan_hash
             || checkpoint.workspace_id != catalog.workspace_id
             || checkpoint.root_anchor_hash != catalog.root_anchor_hash
-            || checkpoint.device_fingerprint_hash != current_preflight.device_fingerprint_hash
-            || checkpoint.compiler_build_hash != current_preflight.compiler_build_hash
-            || checkpoint.runtime_version != current_preflight.runtime_version
         {
             return Err(acquisition_error(
                 EvaluationErrorCode::EvaluationAcquisitionCheckpointStale,
                 "acquisition checkpoint device/build/runtime/workspace anchors are stale",
+            ));
+        }
+        if checkpoint.device_fingerprint_hash != current_preflight.device_fingerprint_hash {
+            return Err(acquisition_error(
+                EvaluationErrorCode::EvaluationAcquisitionDeviceChanged,
+                "device fingerprint changed after the acquisition checkpoint",
+            ));
+        }
+        if checkpoint.compiler_build_hash != current_preflight.compiler_build_hash {
+            return Err(acquisition_error(
+                EvaluationErrorCode::EvaluationAcquisitionCompilerBuildChanged,
+                "compiler build changed after the acquisition checkpoint",
+            ));
+        }
+        if checkpoint.runtime_version != current_preflight.runtime_version {
+            return Err(acquisition_error(
+                EvaluationErrorCode::EvaluationAcquisitionRuntimeChanged,
+                "runtime changed after the acquisition checkpoint",
             ));
         }
         session.status = MeasurementAcquisitionStatus::Running;
@@ -1409,6 +1533,36 @@ impl MeasurementAcquisitionSession {
             u64::try_from(checkpoint.completed_slot_indices.len()).unwrap_or(u64::MAX),
         )?;
         Ok(session)
+    }
+
+    /// Records server-observed crash ambiguity without rerunning the current slot.
+    pub fn mark_indeterminate_after_crash(&mut self) -> EvaluationResult<()> {
+        if self.status != MeasurementAcquisitionStatus::Running {
+            return Err(acquisition_error(
+                EvaluationErrorCode::EvaluationAcquisitionIndeterminateAfterCrash,
+                "only a running acquisition can mark its current slot indeterminate",
+            ));
+        }
+        let index = usize::try_from(self.next_slot).map_err(|_| acquisition_overflow())?;
+        let slot = self.slots.get_mut(index).ok_or_else(|| {
+            acquisition_error(
+                EvaluationErrorCode::EvaluationAcquisitionIndeterminateAfterCrash,
+                "no current acquisition slot exists for crash reconciliation",
+            )
+        })?;
+        slot.status = MeasurementAcquisitionSlotStatus::IndeterminateAfterCrash;
+        slot.failure_code = Some(EvaluationErrorCode::EvaluationAcquisitionIndeterminateAfterCrash);
+        let slot_index = slot.slot_index;
+        let artifact_hash = slot.artifact_hash.clone();
+        self.status = MeasurementAcquisitionStatus::Failed;
+        self.stopping_reason = Some(MeasurementAcquisitionStoppingReason::IndeterminateAfterCrash);
+        self.work.slots_indeterminate = checked_add(self.work.slots_indeterminate, 1)?;
+        self.push_trace(
+            "slot_indeterminate_after_crash",
+            Some(slot_index),
+            Some(artifact_hash),
+            None,
+        )
     }
 
     /// Produces an immutable terminal result; running sessions are rejected.
