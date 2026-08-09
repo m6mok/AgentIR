@@ -1,4 +1,4 @@
-//! Reproducible Stage 6A–7C policy evaluation, ranking, search, and acquisition.
+//! Reproducible Stage 6A–7D policy evaluation, search, acquisition, and recovery.
 //!
 //! Evaluation records are a separate non-correctness layer. Every submitted
 //! action is executed by the production JSON protocol engine, while success,
@@ -20,6 +20,7 @@ pub mod measured;
 pub mod model;
 pub mod protocol;
 pub mod ranking;
+pub mod recovery;
 pub mod repairs;
 pub mod search;
 pub mod work;
@@ -40,6 +41,7 @@ pub use measured::*;
 pub use model::*;
 pub use protocol::EvaluationProtocol;
 pub use ranking::*;
+pub use recovery::*;
 pub use repairs::*;
 pub use search::*;
 pub use work::*;

@@ -1124,6 +1124,12 @@ pub trait MeasurementAcquisitionStore: Clone {
     ) -> EvaluationResult<(MeasurementId, String)>;
     /// Resolves one exact completed record without hardware work.
     fn get(&self, id: &MeasurementId) -> Option<&HardwareMeasurementRecord>;
+
+    /// Returns every retained production measurement in deterministic ID order.
+    ///
+    /// This is the server-owned, zero-device observation boundary used by
+    /// Stage 7D publication snapshots and reconciliation.
+    fn records(&self) -> Vec<(MeasurementId, HardwareMeasurementRecord)>;
 }
 
 impl MeasurementAcquisitionStore for Workspace {
@@ -1144,6 +1150,14 @@ impl MeasurementAcquisitionStore for Workspace {
 
     fn get(&self, id: &MeasurementId) -> Option<&HardwareMeasurementRecord> {
         self.measurement_store().records.get(id)
+    }
+
+    fn records(&self) -> Vec<(MeasurementId, HardwareMeasurementRecord)> {
+        self.measurement_store()
+            .records
+            .iter()
+            .map(|(id, record)| (id.clone(), record.clone()))
+            .collect()
     }
 }
 
@@ -1180,6 +1194,13 @@ impl MeasurementAcquisitionStore for SyntheticMeasurementAcquisitionStore {
 
     fn get(&self, id: &MeasurementId) -> Option<&HardwareMeasurementRecord> {
         self.records.get(id)
+    }
+
+    fn records(&self) -> Vec<(MeasurementId, HardwareMeasurementRecord)> {
+        self.records
+            .iter()
+            .map(|(id, record)| (id.clone(), record.clone()))
+            .collect()
     }
 }
 
@@ -1617,7 +1638,7 @@ impl MeasurementAcquisitionSession {
         self.result()
     }
 
-    fn verify<S: MeasurementAcquisitionStore>(
+    pub(crate) fn verify<S: MeasurementAcquisitionStore>(
         &self,
         store: &S,
         catalog: &MeasurementAcquisitionCatalog,
@@ -1688,6 +1709,73 @@ impl MeasurementAcquisitionSession {
                 EvaluationErrorCode::EvaluationAcquisitionSlotOrderMismatch,
                 "next slot differs from the completed canonical prefix",
             ));
+        }
+        Ok(())
+    }
+
+    /// Returns the exact current pending slot for Stage 7D preparation.
+    pub(crate) fn recovery_pending_slot(&self) -> EvaluationResult<&MeasurementAcquisitionSlot> {
+        if self.status != MeasurementAcquisitionStatus::Running {
+            return Err(acquisition_error(
+                EvaluationErrorCode::EvaluationAcquisitionIndeterminateAfterCrash,
+                "measurement acquisition session is not running",
+            ));
+        }
+        let index = usize::try_from(self.next_slot).map_err(|_| acquisition_overflow())?;
+        let slot = self.slots.get(index).ok_or_else(|| {
+            acquisition_error(
+                EvaluationErrorCode::EvaluationAcquisitionSlotOrderMismatch,
+                "measurement acquisition has no current pending slot",
+            )
+        })?;
+        if slot.status != MeasurementAcquisitionSlotStatus::Pending
+            || slot.measurement_id.is_some()
+            || slot.measurement_hash.is_some()
+        {
+            return Err(acquisition_error(
+                EvaluationErrorCode::EvaluationAcquisitionSlotOrderMismatch,
+                "current measurement acquisition slot is not pristine and pending",
+            ));
+        }
+        Ok(slot)
+    }
+
+    /// Attaches one server-verified publication to the current Stage 7C slot.
+    ///
+    /// The resulting Stage 7C trace/result bytes are identical to an ordinary
+    /// successful `advance` for the same record. Recovery-specific provenance
+    /// remains in the separate Stage 7D journal.
+    pub(crate) fn attach_recovered_measurement(
+        &mut self,
+        measurement_id: MeasurementId,
+        measurement_hash: String,
+        device_calls: u64,
+    ) -> EvaluationResult<()> {
+        let index = usize::try_from(self.next_slot).map_err(|_| acquisition_overflow())?;
+        let slot = self.recovery_pending_slot()?.clone();
+        self.work.slots_attempted = checked_add(self.work.slots_attempted, 1)?;
+        self.work.benchmark_invocations = checked_add(self.work.benchmark_invocations, 1)?;
+        if self.preflight.synthetic_test_data_not_performance_evidence {
+            self.work.synthetic_fixture_invocations =
+                checked_add(self.work.synthetic_fixture_invocations, 1)?;
+        }
+        let target = &mut self.slots[index];
+        target.status = MeasurementAcquisitionSlotStatus::Complete;
+        target.measurement_id = Some(measurement_id);
+        target.measurement_hash = Some(measurement_hash.clone());
+        self.next_slot = checked_add(self.next_slot, 1)?;
+        self.work.slots_completed = checked_add(self.work.slots_completed, 1)?;
+        self.work.published_measurement_records =
+            checked_add(self.work.published_measurement_records, 1)?;
+        self.work.device_calls = checked_add(self.work.device_calls, device_calls)?;
+        self.push_trace(
+            "slot_completed_and_published",
+            Some(slot.slot_index),
+            Some(slot.artifact_hash),
+            Some(measurement_hash),
+        )?;
+        if usize::try_from(self.next_slot).unwrap_or(usize::MAX) == self.slots.len() {
+            self.finish_complete()?;
         }
         Ok(())
     }
@@ -1770,7 +1858,7 @@ fn validate_catalog_against_plan(
     Ok(())
 }
 
-fn validate_record(
+pub(crate) fn validate_record(
     session: &MeasurementAcquisitionSession,
     slot: &MeasurementAcquisitionSlot,
     record: &HardwareMeasurementRecord,
