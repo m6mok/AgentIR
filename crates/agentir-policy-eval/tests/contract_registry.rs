@@ -39,7 +39,7 @@ fn registry_documents_current_archives_and_every_migration_edge() {
     assert!(
         families
             .iter()
-            .any(|family| family["name"] == "evaluation" && family["current"] == 5)
+            .any(|family| family["name"] == "evaluation" && family["current"] == 6)
     );
     let edges = registry["migration_edges"]
         .as_array()
@@ -54,6 +54,7 @@ fn registry_documents_current_archives_and_every_migration_edge() {
     assert!(edges.contains("evaluation:2->3"));
     assert!(edges.contains("evaluation:3->4"));
     assert!(edges.contains("evaluation:4->5"));
+    assert!(edges.contains("evaluation:5->6"));
 }
 
 #[test]

@@ -663,3 +663,43 @@ Potential persistent references inside generic semantic attributes are rejected 
 ## ADR-150: Stage 7C remains separately versioned
 
 **Decision.** Continuation-native snapshots, concurrent/new search algorithms, broader surfaces, live acquisition orchestration, energy objectives, prediction/interpolation, training during search and global optimization remain deferred to a separately frozen Stage 7C or later contract.
+
+## ADR-151: Stage 7C acquisition is evaluation-only
+
+**Decision.** Plans, sessions, slots, checkpoints, traces, results and archive-v6 records live only in `agentir-policy-eval`; core/store/compiler semantics and workspace v9 remain unchanged.
+
+## ADR-152: Hardware work is explicit and server owned
+
+**Decision.** Only acquisition start preflight and advance may access WebGPU. Device/build/runtime/validation/timing/measurement metadata, package bytes, ABI and success remain server owned.
+
+## ADR-153: Acquisition order is canonical round robin
+
+**Decision.** V1 sorts exact artifact hashes and visits each once per round. Request order, wall time, paths, limits and progress cannot change plan identity.
+
+## ADR-154: Slots are the checkpoint and cancellation boundary
+
+**Decision.** A slot either atomically publishes one complete production record with session progress or retains a typed failure without a record/sentinel. Cancellation never interrupts a benchmark transaction.
+
+## ADR-155: Recovery claims match the storage boundary
+
+**Decision.** The in-memory staged wrapper atomically assigns measurement store and session progress. Independent filesystem exactly-once recovery is not claimed; unresolved external publication ambiguity is `IndeterminateAfterCrash` and cannot silently rerun.
+
+## ADR-156: Replay performs zero hardware work
+
+**Decision.** Replay has no executor, verifies frozen observations and hashes, and rejects missing/corrupt/duplicate/stale records before publication.
+
+## ADR-157: Stage 7B handoff is separate
+
+**Decision.** Only a complete acquisition result can explicitly invoke the existing cohort eligibility/canonicalization path. Acquisition never starts search or chooses/publishes an artifact.
+
+## ADR-158: Evaluation archive v6 retains acquisition provenance
+
+**Decision.** V5→v6 verifies v5 and adds `NoAcquisitionHistory` without synthetic data. V1–v5 remain immutable inputs; workspace v9 and measurement-record v1 are unchanged.
+
+## ADR-159: Acquisition makes no authority claim
+
+**Decision.** Results are observations, never correctness evidence, proven-fastest/statistical-significance/portability/global-optimality claims or full Stage 7 completion.
+
+## ADR-160: Broader acquisition remains deferred
+
+**Decision.** Concurrency, remote workers, multi-device pooling, prediction/interpolation, energy objectives, raw-sample inference and training during acquisition require later contracts.

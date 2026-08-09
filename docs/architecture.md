@@ -41,7 +41,7 @@ immutable corpus + policy descriptor
   ↓ exact observation / bounded decision
 agentir-policy-eval ─ production outcome → ranking/learning → isolated bounded search
   ↓ separate format
-evaluation archive v5 (v1→v2→v3→v4→v5 migration; never workspace archive v9)
+evaluation archive v6 (v1→v2→v3→v4→v5→v6 migration; never workspace archive v9)
 ```
 
 The dependency direction is one-way: `core` knows nothing about JSONL sessions, policy evaluation, learned models, search plans/frontiers, transcripts or filesystems; the reference evaluator and store depend on `core`; `protocol` composes production components; `agentir-policy-eval` invokes that production surface and owns offline ranking, learning and bounded search; both CLIs only stream lines.
@@ -53,6 +53,10 @@ Stage 7A reconstructs each explored trajectory in a fresh `EvaluationHarness`, r
 ## Stage 7B measured-search boundary
 
 Stage 7B leaves Stage 7A byte contracts unchanged and post-processes only terminal artifacts using frozen, production-hash-verified measurement cohorts. Cohort/objective/recommendation/archive-v5 types remain in `agentir-policy-eval`; core retains the unchanged measurement-record v1 and workspace archive v9. Search and replay never acquire hardware measurements.
+
+## Stage 7C acquisition boundary
+
+Stage 7C adds only evaluation-owned orchestration above retained Stage 5 artifacts and measurements. Explicit start performs server-owned preflight; explicit advance executes complete round-robin slots and atomically publishes a production record with session progress. Checkpoint/resume/cancel occur between slots. Replay/archive load have no executor and zero device calls. Stage 7A/7B hashes, core, store, workspace v9 and measurement-record v1 are unchanged.
 
 ## Candidate boundary
 

@@ -83,6 +83,10 @@
 - **Inference record** — exact input/model/policy/choice-set anchors and one fixed-point score per visible choice; work counters are observational.
 - **Continuation cursor** — opaque versioned compiler-owned token for resuming an exact bounded enumeration at unchanged anchors.
 - **Typed repair** — bounded compiler-owned descriptor anchored to an exact diagnostic/base; it still traverses the production verifier and does not promise acceptance.
+- **Measurement acquisition plan** — immutable Stage 7C workspace/artifact/config contract with canonical artifact-hash round-robin order.
+- **Acquisition slot** — one complete benchmark/publication unit; checkpoint and cancellation occur only between slots.
+- **Acquisition checkpoint** — independently hashed completed-prefix snapshot whose device/build/runtime/record anchors are revalidated before resume.
+- **Acquisition result** — non-correctness terminal orchestration record; it is not a cohort, recommendation or performance proof.
 # Stage 4 terms
 
 - **TargetManifest** — immutable compiler-owned capability contract identified by `target_hash`.

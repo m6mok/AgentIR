@@ -50,6 +50,11 @@ AgentIR is an agent-native compiler prototype. Preserve these invariants in ever
 44. Measured search uses only verified compiler-published records, applies hardware metrics only to terminal artifacts, and performs no hardware work during search or replay.
 45. Evaluation archive v1/v2/v3/v4 are immutable legacy inputs; new evaluation saves use v5 and migrate only v1→v2→v3→v4→v5 without invented measured history.
 46. Measurement indifference means equivalent under one descriptor/cohort, not proven faster, statistically significant, portable, globally optimal, or correctness evidence.
+47. Stage 7C acquisition lives only in `agentir-policy-eval` and performs hardware work only after an explicit acquisition start/advance command.
+48. Acquisition plans use canonical artifact-hash round robin; device, timing, validation, build, measurement and trace data remain server owned.
+49. Acquisition checkpoints stop only between complete slots; no partial or sentinel measurement may be published, and uncertain external crash recovery is never silently retried.
+50. Acquisition replay and evaluation archive verification perform zero hardware calls; complete results become Stage 7B cohorts only through a separate explicit handoff.
+51. Evaluation archive v1–v5 are immutable legacy inputs; new evaluation saves use v6 and migrate only v1→v2→v3→v4→v5→v6 without invented acquisition history.
 
 ## Where to look before changing code
 
@@ -141,12 +146,16 @@ cargo test -p agentir-policy-eval --test stage6c
 cargo test -p agentir-policy-eval --test contract_registry
 cargo test -p agentir-policy-eval --test stage7a
 cargo test -p agentir-policy-eval --test stage7b
+cargo test -p agentir-policy-eval --test stage7c
 cargo run --release -p agentir-policy-eval --example stage6c_study -- --output target/stage6c-study/run-1
 cargo run --release -p agentir-policy-eval --example stage6c_study -- --output target/stage6c-study/run-2
 cargo run --release -p agentir-policy-eval --example stage6c_compare -- target/stage6c-study/run-1 target/stage6c-study/run-2
 cargo run --release -p agentir-policy-eval --example stage7a_study -- --output target/stage7a-study/run-1
 cargo run --release -p agentir-policy-eval --example stage7a_study -- --output target/stage7a-study/run-2
 cargo run --release -p agentir-policy-eval --example stage7a_compare -- target/stage7a-study/run-1 target/stage7a-study/run-2
+cargo run --release -p agentir-policy-eval --example stage7c_study -- --output target/stage7c-study/run-1
+cargo run --release -p agentir-policy-eval --example stage7c_study -- --output target/stage7c-study/run-2
+cargo run --release -p agentir-policy-eval --example stage7c_compare -- target/stage7c-study/run-1 target/stage7c-study/run-2
 ```
 
 The final SAXPY response must contain `[12.0,24.0,36.0,48.0]`.

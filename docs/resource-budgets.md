@@ -10,6 +10,8 @@ Stage 7A separates algorithmic envelope from operational safety. Beam width, sem
 
 Stage 7B additionally bounds measurement references/cohorts/records/artifacts, measured objectives, aggregations, indifference comparisons, recommendations, eligibility records, measured replays, and archive-v5 bytes. Limits and work counters enter no cohort, objective, recommendation, Stage 7A, compiler, or measurement identity. Checked overflow rejects before recommendation publication; hardware calls during search/replay remain zero.
 
+Stage 7C bounds artifact references, records per artifact, total slots, slots per advance, checkpoints, sessions, trace/result bytes, benchmark invocations, device calls, completed records and archive-v6 bytes. Checked overflow and exact-limit/limit-plus-one policy reject before publication. Limits, progress and work counters enter no plan identity; replay hardware calls must remain zero.
+
 Memory budgets cover plans/revisions/events, buffers/operations/accesses, alias facts/domains, lifetime uses, obligations, reuse attempts, guard dependencies and fallback depth, layout entries, per-buffer/total abstract bytes, canonical/archive bytes, evaluation elements, trace events/bytes, and generated cases. Projected hard-limit failures happen against a staged store before publication; resource policy never enters `memory_hash`.
 
 `ResourceLimits`, `ResourceKind`, `ResourceUsage` and `BudgetCheck` provide one structured policy across core, evaluator, store, protocol and CLI. Limits are excluded from `Program`, snapshots and every hash identity.

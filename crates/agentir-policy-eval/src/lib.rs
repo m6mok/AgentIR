@@ -1,4 +1,4 @@
-//! Reproducible Stage 6A–7B policy evaluation, ranking, learning, and search.
+//! Reproducible Stage 6A–7C policy evaluation, ranking, search, and acquisition.
 //!
 //! Evaluation records are a separate non-correctness layer. Every submitted
 //! action is executed by the production JSON protocol engine, while success,

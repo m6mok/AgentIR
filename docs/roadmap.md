@@ -132,6 +132,12 @@ Stage 7A is not full autotuning and makes no globally optimal, hardware-performa
 
 Stage 7B is offline selection, not live autotuning, performance proof, global optimization, or correctness evidence.
 
-## Stage 7C and later
+## Completed Stage 7C: reproducible resumable measurement acquisition
 
-Continuation-native snapshots, concurrent search, new algorithms/surfaces, live acquisition orchestration, cost/latency prediction, energy records, and broader tuning require separately versioned contracts.
+- explicit server-owned preflight and bounded sequential acquisition;
+- canonical artifact-hash round robin with fixed records per artifact;
+- atomic complete-slot publication, checkpoint/resume/cancel and typed failures;
+- separate Stage 7B cohort handoff, zero-device replay and evaluation archive v6;
+- byte-identical synthetic orchestration study without performance claims.
+
+Concurrent/remote acquisition, multi-device pooling, new search algorithms, prediction, raw-sample significance, energy records, training during acquisition and live publication remain later work.

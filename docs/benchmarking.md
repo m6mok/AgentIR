@@ -69,3 +69,7 @@ Schema v2 remains unchanged. `stage6c_study` measures dataset extraction/leakage
 # Stage 7B workloads
 
 `stage7b_study` uses explicitly synthetic, production-format-verified fixture records to exercise three proved/offline-valid artifacts of one `spec_hash`, scripted/learned rankers, beam widths 1/2/4, median/p95 objectives, normal/indifference cohorts, structured rejection, replay, and archive v5. `stage7b_compare` requires byte-identical semantic/recommendation/checkpoint/mutation/archive files and excludes timing observations. Synthetic values are contract fixtures, never hardware-performance evidence. Optional real-device acquisition remains a separate `benchmark.start` operation and writes only under `target/stage7b-study/device/`.
+
+# Stage 7C workloads
+
+`stage7c_study` runs one task, three proved/offline-valid fixture artifacts, three records each, canonical round robin, single/split/unit-resume/cancel-resume variants, typed unavailable/failure cases, zero-device replay, Stage 7B cohort/recommendation handoff and archive v6. `stage7c_compare` requires 14 semantic files to be byte-identical and excludes wall-clock observations. Synthetic timings are never performance evidence.
