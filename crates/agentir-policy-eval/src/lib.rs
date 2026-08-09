@@ -10,18 +10,27 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod continuation;
 pub mod corpus;
 pub mod engine;
 pub mod hashing;
+pub mod learned;
 pub mod model;
 pub mod protocol;
 pub mod ranking;
+pub mod repairs;
+pub mod work;
 
+pub use continuation::*;
 pub use corpus::{builtin_corpus, builtin_ranked_corpus};
 pub use engine::{
-    EvaluationHarness, EvaluationLimits, RankingSubmission, external_policy,
-    migrate_archive_v1_to_v2, ranked_policy, scripted_policy, verify_archive,
+    EvaluationHarness, EvaluationLimits, LearnedArchiveBundle, RankingSubmission,
+    attach_learning_artifacts, external_policy, migrate_archive_v1_to_v2, migrate_archive_v2_to_v3,
+    ranked_policy, scripted_policy, verify_archive,
 };
+pub use learned::*;
 pub use model::*;
 pub use protocol::EvaluationProtocol;
 pub use ranking::*;
+pub use repairs::*;
+pub use work::*;

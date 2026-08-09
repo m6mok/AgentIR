@@ -24,6 +24,8 @@ pub const AGGREGATE_HASH_DOMAIN: &[u8] = b"agentir.evaluation.aggregate.v1\0";
 pub const ARCHIVE_HASH_DOMAIN: &[u8] = b"agentir.evaluation.archive.v1\0";
 /// Evaluation archive v2 hash domain.
 pub const ARCHIVE_HASH_V2_DOMAIN: &[u8] = b"agentir.evaluation.archive.v2\0";
+/// Evaluation archive v3 hash domain.
+pub const ARCHIVE_HASH_V3_DOMAIN: &[u8] = b"agentir.evaluation.archive.v3\0";
 
 fn canonical<T: Serialize>(value: &T) -> EvaluationResult<Vec<u8>> {
     serde_json::to_vec(value).map_err(|error| {
@@ -104,10 +106,10 @@ pub(crate) fn archive_hash(archive: &EvaluationArchive) -> EvaluationResult<Stri
     let mut model = archive.clone();
     model.archive_hash.clear();
     domain_hash(
-        if model.manifest.version == 2 {
-            ARCHIVE_HASH_V2_DOMAIN
-        } else {
-            ARCHIVE_HASH_DOMAIN
+        match model.manifest.version {
+            2 => ARCHIVE_HASH_V2_DOMAIN,
+            3 => ARCHIVE_HASH_V3_DOMAIN,
+            _ => ARCHIVE_HASH_DOMAIN,
         },
         &model,
     )

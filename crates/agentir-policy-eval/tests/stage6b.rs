@@ -358,6 +358,14 @@ fn archive_v1_migration_is_explicitly_unranked() {
     legacy.ranking_policies.clear();
     legacy.choice_sets.clear();
     legacy.ranking_statuses.clear();
+    legacy.ranking_datasets.clear();
+    legacy.dataset_splits.clear();
+    legacy.training_configurations.clear();
+    legacy.training_runs.clear();
+    legacy.learned_models.clear();
+    legacy.ranking_inputs.clear();
+    legacy.inference_records.clear();
+    legacy.learning_statuses.clear();
     legacy.archive_hash.clear();
     legacy.archive_hash =
         domain_hash(agentir_policy_eval::hashing::ARCHIVE_HASH_DOMAIN, &legacy).unwrap();

@@ -6,14 +6,21 @@ use crate::{
         aggregate_hash, archive_hash, corpus_hash, episode_hash, evaluation_hash, observation_hash,
         policy_hash,
     },
+    learned::{
+        DatasetSplit, InferenceRecord, LearnedModelArtifact, LearnedRankingLimits, RankingDataset,
+        RankingInput, TrainingConfiguration, TrainingRun, dataset_split_hash, inference_hash,
+        learned_model_hash, ranking_dataset_hash, ranking_input_hash, training_configuration_hash,
+        training_run_hash, validate_dataset, validate_model_artifact, validate_split,
+        validate_training_configuration_contract, validate_training_run, verify_inference,
+    },
     model::{
         CompilerOutcome, ContextMeasurement, EpisodeResult, EpisodeStatus, EpisodeStep,
         EvaluationAggregate, EvaluationArchive, EvaluationComparison, EvaluationContinuation,
         EvaluationCorpus, EvaluationDiagnostic, EvaluationEpisode, EvaluationErrorCode,
         EvaluationManifest, EvaluationObservation, EvaluationResult, EvaluationRun, EvaluationTask,
-        EvaluationTaskId, PolicyCapabilities, PolicyDecision, PolicyDescriptor, PolicyKind,
-        PolicyOrigin, PolicyVersion, RejectionClassification, RepairCycle, SemanticResult,
-        TaskBudget, TaskSuccessCriterion, TokenUsage, UsageTrust,
+        EvaluationTaskId, LearningEpisodeStatus, PolicyCapabilities, PolicyDecision,
+        PolicyDescriptor, PolicyKind, PolicyOrigin, PolicyVersion, RejectionClassification,
+        RepairCycle, SemanticResult, TaskBudget, TaskSuccessCriterion, TokenUsage, UsageTrust,
     },
     ranking::{
         ChoiceCategory, ChoiceOrigin, ChoicePreconditions, EvaluationChoiceSet, FeatureSchema,
@@ -355,6 +362,27 @@ pub struct RankingSubmission {
     pub usage: Option<TokenUsage>,
     /// Optional opaque external correlation identity.
     pub correlation_id: Option<String>,
+}
+
+/// Stage 6C artifacts attached atomically to an evaluation archive v3.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LearnedArchiveBundle {
+    /// Immutable datasets.
+    pub datasets: Vec<RankingDataset>,
+    /// Stable group splits.
+    pub splits: Vec<DatasetSplit>,
+    /// Deterministic training configurations.
+    pub configurations: Vec<TrainingConfiguration>,
+    /// Deterministic training runs.
+    pub training_runs: Vec<TrainingRun>,
+    /// Fixed-point learned model artifacts.
+    pub models: Vec<LearnedModelArtifact>,
+    /// Exact policy-visible inference inputs.
+    pub inputs: Vec<RankingInput>,
+    /// Exact fixed-point inference records.
+    pub inferences: Vec<InferenceRecord>,
+    /// Learned policies referenced by inference records.
+    pub policies: Vec<RankingPolicyDescriptor>,
 }
 
 fn ranked_policy_hash(policy: &PolicyDescriptor) -> Option<&str> {
@@ -717,6 +745,7 @@ pub struct EvaluationHarness {
     corpus: EvaluationCorpus,
     runs: BTreeMap<String, EvaluationRun>,
     sessions: BTreeMap<String, CompilerEngine>,
+    ranking_policy_registry: BTreeMap<String, RankingPolicyDescriptor>,
     limits: EvaluationLimits,
     next_run: u64,
     comparison_count: u64,
@@ -769,6 +798,7 @@ impl EvaluationHarness {
             corpus,
             runs: BTreeMap::new(),
             sessions: BTreeMap::new(),
+            ranking_policy_registry: BTreeMap::new(),
             limits,
             next_run: 0,
             comparison_count: 0,
@@ -831,6 +861,32 @@ impl EvaluationHarness {
         .collect()
     }
 
+    /// Registers one exact non-scripted ranking descriptor for later dispatch/archive replay.
+    pub fn register_ranking_policy(
+        &mut self,
+        policy: RankingPolicyDescriptor,
+    ) -> EvaluationResult<()> {
+        if policy.ranking_policy_hash != crate::ranking::ranking_policy_hash(&policy)? {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationRankingPolicyInvalid,
+                "ranking policy registry rejected an invalid descriptor hash",
+            ));
+        }
+        if let Some(retained) = self
+            .ranking_policy_registry
+            .get(&policy.ranking_policy_hash)
+            && retained != &policy
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationRankingPolicyInvalid,
+                "ranking policy hash is already registered with different content",
+            ));
+        }
+        self.ranking_policy_registry
+            .insert(policy.ranking_policy_hash.clone(), policy);
+        Ok(())
+    }
+
     /// Rebuilds the exact current compiler-generated choice set for an episode.
     pub fn ranked_choice_set(&self, episode_id: &str) -> EvaluationResult<EvaluationChoiceSet> {
         let observation = self.next_observation(episode_id)?;
@@ -855,19 +911,6 @@ impl EvaluationHarness {
         &mut self,
         submission: RankingSubmission,
     ) -> EvaluationResult<(RankingTrace, SelectionOutcome)> {
-        let observation = self.next_observation(&submission.episode_id)?;
-        if observation.step_id != submission.step_id
-            || observation.observation_hash != submission.observation_hash
-            || observation.choice_set_hash.as_deref() != Some(&submission.choice_set_hash)
-            || observation.feature_schema_hash.as_deref() != Some(&submission.feature_schema_hash)
-        {
-            return Err(EvaluationDiagnostic::new(
-                EvaluationErrorCode::EvaluationChoiceSetMismatch,
-                "rank request is stale or mismatched with the exact observation frame",
-            )
-            .repair("request evaluation.episode.next and rank its exact returned frame"));
-        }
-        let choice_set = self.ranked_choice_set(&submission.episode_id)?;
         let (run, index) = self.locate_episode(&submission.episode_id)?;
         let seed = run
             .policy
@@ -885,6 +928,31 @@ impl EvaluationHarness {
                     "ranking policy hash is not registered for this deterministic seed",
                 )
             })?;
+        self.rank_episode_with_descriptor(submission, &policy)
+    }
+
+    /// Applies an exact learned or external descriptor and dispatches once only after validation.
+    pub fn rank_episode_with_descriptor(
+        &mut self,
+        submission: RankingSubmission,
+        policy: &RankingPolicyDescriptor,
+    ) -> EvaluationResult<(RankingTrace, SelectionOutcome)> {
+        let observation = self.next_observation(&submission.episode_id)?;
+        if observation.step_id != submission.step_id
+            || observation.observation_hash != submission.observation_hash
+            || observation.choice_set_hash.as_deref() != Some(&submission.choice_set_hash)
+            || observation.feature_schema_hash.as_deref() != Some(&submission.feature_schema_hash)
+            || policy.ranking_policy_hash != submission.ranking_policy_hash
+            || policy.ranking_policy_hash != crate::ranking::ranking_policy_hash(policy)?
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationChoiceSetMismatch,
+                "rank request is stale or mismatched with the exact observation frame",
+            )
+            .repair("request evaluation.episode.next and rank its exact returned frame"));
+        }
+        let choice_set = self.ranked_choice_set(&submission.episode_id)?;
+        let (run, _) = self.locate_episode(&submission.episode_id)?;
         if ranked_policy_hash(&run.policy) != Some(&submission.ranking_policy_hash) {
             return Err(EvaluationDiagnostic::new(
                 EvaluationErrorCode::EvaluationRankingPolicyInvalid,
@@ -893,7 +961,7 @@ impl EvaluationHarness {
         }
         let trace = rank_choices(
             &choice_set,
-            &policy,
+            policy,
             submission.decision,
             &RankingLimits::default(),
         )?;
@@ -1499,7 +1567,7 @@ impl EvaluationHarness {
             total.saturating_add(u64::try_from(episode.steps.len()).unwrap_or(u64::MAX))
         });
         limit(work, self.limits.replay_work_units, "replay_work_units")?;
-        replay_recorded_run(run)
+        replay_recorded_run(run, &[])
     }
 
     /// Recomputes raw statistical metrics from completed episodes.
@@ -1725,6 +1793,7 @@ impl EvaluationHarness {
             Vec::new()
         };
         let mut policy_by_hash = BTreeMap::new();
+        policy_by_hash.extend(self.ranking_policy_registry.clone());
         let mut choice_set_by_hash = BTreeMap::new();
         for run in &runs {
             let seed = run
@@ -1761,10 +1830,15 @@ impl EvaluationHarness {
                     })
             })
         });
+        let learning_statuses = runs
+            .iter()
+            .flat_map(|run| run.episodes.iter())
+            .map(|episode| (episode.id.clone(), LearningEpisodeStatus::Unlearned))
+            .collect();
         let mut archive = EvaluationArchive {
             manifest: EvaluationManifest {
                 format: "agentir.evaluation.archive".to_owned(),
-                version: 2,
+                version: 3,
                 corpus_version: self.corpus.version.clone(),
                 corpus_hash: self.corpus.corpus_hash.clone(),
                 compiler_build_hash: compiler_build_hash().to_string(),
@@ -1781,6 +1855,14 @@ impl EvaluationHarness {
             ranking_policies: policy_by_hash.into_values().collect(),
             choice_sets: choice_set_by_hash.into_values().collect(),
             ranking_statuses,
+            ranking_datasets: Vec::new(),
+            dataset_splits: Vec::new(),
+            training_configurations: Vec::new(),
+            training_runs: Vec::new(),
+            learned_models: Vec::new(),
+            ranking_inputs: Vec::new(),
+            inference_records: Vec::new(),
+            learning_statuses,
             archive_hash: String::new(),
         };
         archive.archive_hash = archive_hash(&archive)?;
@@ -1839,14 +1921,14 @@ impl EvaluationHarness {
                 format!("evaluation archive decode failed: {error}"),
             )
         })?;
-        let archive = if archive.manifest.version == 1 {
-            migrate_archive_v1_to_v2(&archive)?
-        } else {
-            archive
+        let archive = match archive.manifest.version {
+            1 => migrate_archive_v2_to_v3(&migrate_archive_v1_to_v2(&archive)?)?,
+            2 => migrate_archive_v2_to_v3(&archive)?,
+            _ => archive,
         };
         verify_archive(&archive)?;
         for run in &archive.runs {
-            replay_recorded_run(run)?;
+            replay_recorded_run(run, &archive.ranking_policies)?;
         }
         Ok(archive)
     }
@@ -1978,7 +2060,10 @@ fn finalize_episode(
     Ok(())
 }
 
-fn replay_recorded_run(run: &EvaluationRun) -> EvaluationResult<()> {
+fn replay_recorded_run(
+    run: &EvaluationRun,
+    retained_policies: &[RankingPolicyDescriptor],
+) -> EvaluationResult<()> {
     let schema = feature_schema_v1()?;
     let ranking_seed = run
         .policy
@@ -1986,7 +2071,8 @@ fn replay_recorded_run(run: &EvaluationRun) -> EvaluationResult<()> {
         .get("ranking_seed")
         .and_then(Value::as_u64)
         .unwrap_or(0);
-    let ranking_policies = [
+    let mut ranking_policies = retained_policies.to_vec();
+    let scripted = [
         "lexicographic_choice_v1",
         "first_progress_choice_v1",
         "goal_directed_rule_v1",
@@ -1998,6 +2084,14 @@ fn replay_recorded_run(run: &EvaluationRun) -> EvaluationResult<()> {
     .into_iter()
     .map(|name| scripted_ranker(name, &schema, ranking_seed))
     .collect::<EvaluationResult<Vec<_>>>()?;
+    for policy in scripted {
+        if !ranking_policies
+            .iter()
+            .any(|retained| retained.ranking_policy_hash == policy.ranking_policy_hash)
+        {
+            ranking_policies.push(policy);
+        }
+    }
     for episode in &run.episodes {
         let mut compiler = CompilerEngine::new();
         for (index, recorded) in episode.steps.iter().enumerate() {
@@ -2148,7 +2242,7 @@ fn percentile(values: &[u64], percentile: usize) -> u64 {
 /// Verifies every independent hash and archive structural invariant.
 pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
     if archive.manifest.format != "agentir.evaluation.archive"
-        || !matches!(archive.manifest.version, 1 | 2)
+        || !matches!(archive.manifest.version, 1..=3)
     {
         return Err(EvaluationDiagnostic::new(
             EvaluationErrorCode::EvaluationArchiveInvalid,
@@ -2199,7 +2293,7 @@ pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
                 match (&step.ranking_trace, &step.selection) {
                     (None, None) => {}
                     (Some(trace), Some(selection)) => {
-                        if archive.manifest.version != 2
+                        if !matches!(archive.manifest.version, 2 | 3)
                             || trace.ranking_trace_hash
                                 != crate::ranking::ranking_trace_hash(trace)?
                             || selection.selection_hash
@@ -2233,6 +2327,7 @@ pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
             || !archive.ranking_policies.is_empty()
             || !archive.choice_sets.is_empty()
             || !archive.ranking_statuses.is_empty()
+            || has_learned_fields(archive)
         {
             return Err(EvaluationDiagnostic::new(
                 EvaluationErrorCode::EvaluationArchiveInvalid,
@@ -2241,6 +2336,16 @@ pub fn verify_archive(archive: &EvaluationArchive) -> EvaluationResult<()> {
         }
     } else {
         verify_archive_v2_ranking(archive, &episode_ids)?;
+        if archive.manifest.version == 2 {
+            if has_learned_fields(archive) || !archive.learning_statuses.is_empty() {
+                return Err(EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationArchiveInvalid,
+                    "evaluation archive v2 cannot contain Stage 6C fields",
+                ));
+            }
+        } else {
+            verify_archive_v3_learning(archive, &episode_ids)?;
+        }
     }
     for aggregate in &archive.aggregates {
         if aggregate.aggregate_hash != aggregate_hash(aggregate)? {
@@ -2297,6 +2402,387 @@ pub fn migrate_archive_v1_to_v2(source: &EvaluationArchive) -> EvaluationResult<
     migrated.archive_hash = archive_hash(&migrated)?;
     verify_archive(&migrated)?;
     Ok(migrated)
+}
+
+/// Pure explicit migration from immutable evaluation archive v2 to v3.
+pub fn migrate_archive_v2_to_v3(source: &EvaluationArchive) -> EvaluationResult<EvaluationArchive> {
+    if source.manifest.version != 2 {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationArchiveMigrationInvalid,
+            "evaluation archive migration requires exact source version 2",
+        ));
+    }
+    verify_archive(source)?;
+    let mut migrated = source.clone();
+    migrated.manifest.version = 3;
+    migrated.ranking_datasets.clear();
+    migrated.dataset_splits.clear();
+    migrated.training_configurations.clear();
+    migrated.training_runs.clear();
+    migrated.learned_models.clear();
+    migrated.ranking_inputs.clear();
+    migrated.inference_records.clear();
+    migrated.learning_statuses = migrated
+        .runs
+        .iter()
+        .flat_map(|run| run.episodes.iter())
+        .map(|episode| (episode.id.clone(), LearningEpisodeStatus::Unlearned))
+        .collect();
+    migrated.archive_hash.clear();
+    migrated.archive_hash = archive_hash(&migrated)?;
+    verify_archive(&migrated)?;
+    Ok(migrated)
+}
+
+/// Atomically attaches verified Stage 6C artifacts to an evaluation archive v3.
+pub fn attach_learning_artifacts(
+    source: &EvaluationArchive,
+    bundle: LearnedArchiveBundle,
+) -> EvaluationResult<EvaluationArchive> {
+    if source.manifest.version != 3 {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationArchiveInvalid,
+            "learned artifacts require evaluation archive v3",
+        ));
+    }
+    verify_archive(source)?;
+    let mut archive = source.clone();
+    archive.ranking_datasets.extend(bundle.datasets);
+    archive.dataset_splits.extend(bundle.splits);
+    archive
+        .training_configurations
+        .extend(bundle.configurations);
+    archive.training_runs.extend(bundle.training_runs);
+    archive.learned_models.extend(bundle.models);
+    archive.ranking_inputs.extend(bundle.inputs);
+    archive.inference_records.extend(bundle.inferences);
+    archive.ranking_policies.extend(bundle.policies);
+    sort_stage6c_artifacts(&mut archive);
+    let learned_frames = archive
+        .inference_records
+        .iter()
+        .map(|record| {
+            (
+                record.choice_set_hash.as_str(),
+                record.ranking_policy_hash.as_str(),
+            )
+        })
+        .collect::<BTreeSet<_>>();
+    archive.learning_statuses = archive
+        .runs
+        .iter()
+        .flat_map(|run| run.episodes.iter())
+        .map(|episode| {
+            let learned = episode.steps.iter().any(|step| {
+                step.ranking_trace.as_ref().is_some_and(|trace| {
+                    learned_frames.contains(&(
+                        trace.choice_set_hash.as_str(),
+                        trace.ranking_policy_hash.as_str(),
+                    ))
+                })
+            });
+            (
+                episode.id.clone(),
+                if learned {
+                    LearningEpisodeStatus::Learned
+                } else {
+                    LearningEpisodeStatus::Unlearned
+                },
+            )
+        })
+        .collect();
+    archive.archive_hash.clear();
+    archive.archive_hash = archive_hash(&archive)?;
+    verify_archive(&archive)?;
+    Ok(archive)
+}
+
+fn sort_stage6c_artifacts(archive: &mut EvaluationArchive) {
+    archive.ranking_datasets.sort_by(|left, right| {
+        left.manifest
+            .ranking_dataset_hash
+            .cmp(&right.manifest.ranking_dataset_hash)
+    });
+    archive
+        .dataset_splits
+        .sort_by(|left, right| left.dataset_split_hash.cmp(&right.dataset_split_hash));
+    archive.training_configurations.sort_by(|left, right| {
+        left.training_configuration_hash
+            .cmp(&right.training_configuration_hash)
+    });
+    archive
+        .training_runs
+        .sort_by(|left, right| left.training_run_hash.cmp(&right.training_run_hash));
+    archive
+        .learned_models
+        .sort_by(|left, right| left.learned_model_hash.cmp(&right.learned_model_hash));
+    archive
+        .ranking_inputs
+        .sort_by(|left, right| left.ranking_input_hash.cmp(&right.ranking_input_hash));
+    archive
+        .inference_records
+        .sort_by(|left, right| left.inference_hash.cmp(&right.inference_hash));
+    archive
+        .ranking_policies
+        .sort_by(|left, right| left.ranking_policy_hash.cmp(&right.ranking_policy_hash));
+}
+
+fn has_learned_fields(archive: &EvaluationArchive) -> bool {
+    !archive.ranking_datasets.is_empty()
+        || !archive.dataset_splits.is_empty()
+        || !archive.training_configurations.is_empty()
+        || !archive.training_runs.is_empty()
+        || !archive.learned_models.is_empty()
+        || !archive.ranking_inputs.is_empty()
+        || !archive.inference_records.is_empty()
+}
+
+fn verify_archive_v3_learning(
+    archive: &EvaluationArchive,
+    episode_ids: &BTreeSet<String>,
+) -> EvaluationResult<()> {
+    if archive.learning_statuses.len() != episode_ids.len()
+        || archive
+            .learning_statuses
+            .keys()
+            .any(|episode| !episode_ids.contains(episode))
+    {
+        return Err(EvaluationDiagnostic::new(
+            EvaluationErrorCode::EvaluationArchiveMigrationInvalid,
+            "archive v3 must explicitly classify every episode as learned or unlearned",
+        ));
+    }
+    let limits = LearnedRankingLimits::default();
+    let schemas = archive
+        .feature_schemas
+        .iter()
+        .map(|schema| (schema.feature_schema_hash.as_str(), schema))
+        .collect::<BTreeMap<_, _>>();
+    let policies = archive
+        .ranking_policies
+        .iter()
+        .map(|policy| (policy.ranking_policy_hash.as_str(), policy))
+        .collect::<BTreeMap<_, _>>();
+    let source_episode_hashes = archive
+        .runs
+        .iter()
+        .flat_map(|run| &run.episodes)
+        .filter_map(|episode| episode.episode_hash.as_deref())
+        .collect::<BTreeSet<_>>();
+    let source_choice_set_hashes = archive
+        .choice_sets
+        .iter()
+        .map(|choice_set| choice_set.choice_set_hash.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut datasets = BTreeMap::new();
+    for dataset in &archive.ranking_datasets {
+        validate_dataset(dataset, &limits, true)?;
+        if dataset.manifest.ranking_dataset_hash != ranking_dataset_hash(dataset)?
+            || dataset.examples.iter().any(|example| {
+                !source_episode_hashes.contains(example.source_episode_hash.as_str())
+                    || !source_choice_set_hashes.contains(example.source_choice_set_hash.as_str())
+            })
+            || datasets
+                .insert(dataset.manifest.ranking_dataset_hash.as_str(), dataset)
+                .is_some()
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationDatasetInvalid,
+                "archive v3 dataset is corrupt or duplicated",
+            ));
+        }
+    }
+    let mut splits = BTreeMap::new();
+    for split in &archive.dataset_splits {
+        let dataset = datasets
+            .get(split.ranking_dataset_hash.as_str())
+            .ok_or_else(|| {
+                EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationDatasetInvalid,
+                    "archive v3 split references a missing dataset",
+                )
+            })?;
+        validate_split(dataset, split)?;
+        if split.dataset_split_hash != dataset_split_hash(split)?
+            || splits
+                .insert(split.dataset_split_hash.as_str(), split)
+                .is_some()
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationDatasetInvalid,
+                "archive v3 split is corrupt or duplicated",
+            ));
+        }
+    }
+    let mut configurations = BTreeMap::new();
+    for configuration in &archive.training_configurations {
+        validate_training_configuration_contract(configuration, &limits)?;
+        if configuration.training_configuration_hash != training_configuration_hash(configuration)?
+            || configurations
+                .insert(
+                    configuration.training_configuration_hash.as_str(),
+                    configuration,
+                )
+                .is_some()
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationTrainingInvalid,
+                "archive v3 training configuration is corrupt or duplicated",
+            ));
+        }
+    }
+    let mut models = BTreeMap::new();
+    for model in &archive.learned_models {
+        let schema = schemas
+            .get(model.feature_schema_hash.as_str())
+            .ok_or_else(|| {
+                EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationModelIncompatible,
+                    "archive v3 model references a missing schema",
+                )
+            })?;
+        validate_model_artifact(model, schema, &limits)?;
+        if model.learned_model_hash != learned_model_hash(model)?
+            || models
+                .insert(model.learned_model_hash.as_str(), model)
+                .is_some()
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationModelInvalid,
+                "archive v3 learned model is corrupt or duplicated",
+            ));
+        }
+    }
+    let mut inputs = BTreeMap::new();
+    for input in &archive.ranking_inputs {
+        if input.ranking_input_hash != ranking_input_hash(input)?
+            || !schemas.contains_key(input.feature_schema_hash.as_str())
+            || !archive
+                .choice_sets
+                .iter()
+                .any(|set| set.choice_set_hash == input.choice_set_hash)
+            || inputs
+                .insert(input.ranking_input_hash.as_str(), input)
+                .is_some()
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationInferenceInvalid,
+                "archive v3 inference input is corrupt, duplicated, or unanchored",
+            ));
+        }
+    }
+    let mut inference_hashes = BTreeSet::new();
+    for inference in &archive.inference_records {
+        let input = inputs
+            .get(inference.ranking_input_hash.as_str())
+            .ok_or_else(|| {
+                EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationInferenceInvalid,
+                    "archive v3 inference references a missing input",
+                )
+            })?;
+        let model = models
+            .get(inference.learned_model_hash.as_str())
+            .ok_or_else(|| {
+                EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationInferenceInvalid,
+                    "archive v3 inference references a missing model",
+                )
+            })?;
+        let policy = policies
+            .get(inference.ranking_policy_hash.as_str())
+            .ok_or_else(|| {
+                EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationInferenceInvalid,
+                    "archive v3 inference references a missing policy",
+                )
+            })?;
+        let schema = schemas
+            .get(input.feature_schema_hash.as_str())
+            .expect("validated inference input schema remains present");
+        verify_inference(input, schema, model, policy, inference, &limits)?;
+        if inference.inference_hash != inference_hash(inference)?
+            || !inference_hashes.insert(inference.inference_hash.as_str())
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationInferenceInvalid,
+                "archive v3 inference is corrupt or duplicated",
+            ));
+        }
+    }
+    let mut training_hashes = BTreeSet::new();
+    for run in &archive.training_runs {
+        let dataset = datasets
+            .get(run.ranking_dataset_hash.as_str())
+            .ok_or_else(|| {
+                EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationTrainingInvalid,
+                    "archive v3 training run references a missing dataset",
+                )
+            })?;
+        let split = splits.get(run.dataset_split_hash.as_str()).ok_or_else(|| {
+            EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationTrainingInvalid,
+                "archive v3 training run references a missing split",
+            )
+        })?;
+        let configuration = configurations
+            .get(run.training_configuration_hash.as_str())
+            .ok_or_else(|| {
+                EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationTrainingInvalid,
+                    "archive v3 training run references a missing configuration",
+                )
+            })?;
+        let model = models.get(run.learned_model_hash.as_str()).ok_or_else(|| {
+            EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationTrainingInvalid,
+                "archive v3 training run references a missing model",
+            )
+        })?;
+        validate_training_run(run, dataset, split, configuration, model)?;
+        if run.training_run_hash != training_run_hash(run)?
+            || !training_hashes.insert(run.training_run_hash.as_str())
+        {
+            return Err(EvaluationDiagnostic::new(
+                EvaluationErrorCode::EvaluationTrainingInvalid,
+                "archive v3 training run is corrupt or duplicated",
+            ));
+        }
+    }
+    let learned_frames = archive
+        .inference_records
+        .iter()
+        .map(|record| {
+            (
+                record.choice_set_hash.as_str(),
+                record.ranking_policy_hash.as_str(),
+            )
+        })
+        .collect::<BTreeSet<_>>();
+    for run in &archive.runs {
+        for episode in &run.episodes {
+            let expected = if episode.steps.iter().any(|step| {
+                step.ranking_trace.as_ref().is_some_and(|trace| {
+                    learned_frames.contains(&(
+                        trace.choice_set_hash.as_str(),
+                        trace.ranking_policy_hash.as_str(),
+                    ))
+                })
+            }) {
+                LearningEpisodeStatus::Learned
+            } else {
+                LearningEpisodeStatus::Unlearned
+            };
+            if archive.learning_statuses.get(&episode.id) != Some(&expected) {
+                return Err(EvaluationDiagnostic::new(
+                    EvaluationErrorCode::EvaluationArchiveMigrationInvalid,
+                    "archive v3 learned status does not match retained inference records",
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn verify_archive_v2_ranking(

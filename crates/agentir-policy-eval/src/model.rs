@@ -4,9 +4,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+use crate::learned::{
+    DatasetSplit, InferenceRecord, LearnedModelArtifact, RankingDataset, RankingInput,
+    TrainingConfiguration, TrainingRun,
+};
 use crate::ranking::{
     EvaluationChoiceSet, FeatureSchema, RankingPolicyDescriptor, RankingTrace, SelectionOutcome,
 };
+use crate::repairs::RepairDescriptor;
 
 /// Stable task identity assigned by the harness.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -195,6 +200,8 @@ pub struct PolicyCapabilities {
 pub enum PolicyOrigin {
     /// Stable wire variant.
     Scripted,
+    /// Offline deterministic learned policy.
+    Learned,
     /// Stable wire variant.
     External,
 }
@@ -644,6 +651,30 @@ pub struct EvaluationArchive {
     /// Explicit v1-migration status for every episode in archive v2.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub ranking_statuses: BTreeMap<String, RankingEpisodeStatus>,
+    /// Stage 6C immutable learned-ranking datasets. Empty in v1/v2.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ranking_datasets: Vec<RankingDataset>,
+    /// Stage 6C stable group splits. Empty in v1/v2.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dataset_splits: Vec<DatasetSplit>,
+    /// Stage 6C deterministic training configurations. Empty in v1/v2.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub training_configurations: Vec<TrainingConfiguration>,
+    /// Stage 6C deterministic training provenance. Empty in v1/v2.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub training_runs: Vec<TrainingRun>,
+    /// Stage 6C fixed-point model artifacts. Empty in v1/v2.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub learned_models: Vec<LearnedModelArtifact>,
+    /// Stage 6C exact policy-visible inputs needed for inference replay.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ranking_inputs: Vec<RankingInput>,
+    /// Stage 6C exact retained inference records. Empty in v1/v2.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inference_records: Vec<InferenceRecord>,
+    /// Explicit learned/unlearned classification for every v3 episode.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub learning_statuses: BTreeMap<String, LearningEpisodeStatus>,
     /// Stable serialized contract field.
     pub archive_hash: String,
 }
@@ -656,6 +687,16 @@ pub enum RankingEpisodeStatus {
     Unranked,
     /// Episode containing validated ranking and selection records.
     Ranked,
+}
+
+/// Learned-ranking presence recorded explicitly by evaluation archive v3.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LearningEpisodeStatus {
+    /// Legacy, scripted, external, or otherwise unlearned episode.
+    Unlearned,
+    /// Episode with an exact retained learned inference record.
+    Learned,
 }
 
 /// Stable evaluation-layer diagnostics.
@@ -731,6 +772,34 @@ pub enum EvaluationErrorCode {
     /// Stable wire variant.
     EvaluationArchiveMigrationInvalid,
     /// Stable wire variant.
+    EvaluationContinuationCorrupt,
+    /// Stable wire variant.
+    EvaluationContinuationStale,
+    /// Stable wire variant.
+    EvaluationContinuationLimitExceeded,
+    /// Stable wire variant.
+    EvaluationTypedRepairInvalid,
+    /// Stable wire variant.
+    EvaluationTypedRepairStale,
+    /// Stable wire variant.
+    EvaluationWorkUnitOverflow,
+    /// Stable wire variant.
+    EvaluationWorkUnitLimitExceeded,
+    /// Stable wire variant.
+    EvaluationDatasetInvalid,
+    /// Stable wire variant.
+    EvaluationDatasetLeakage,
+    /// Stable wire variant.
+    EvaluationTrainingInvalid,
+    /// Stable wire variant.
+    EvaluationTrainingOverflow,
+    /// Stable wire variant.
+    EvaluationModelInvalid,
+    /// Stable wire variant.
+    EvaluationModelIncompatible,
+    /// Stable wire variant.
+    EvaluationInferenceInvalid,
+    /// Stable wire variant.
     EvaluationEventOrderInvalid,
     /// Stable wire variant.
     TokenAccountingUnavailable,
@@ -751,6 +820,9 @@ pub struct EvaluationDiagnostic {
     pub details: BTreeMap<String, Value>,
     /// Stable serialized contract field.
     pub repairs: Vec<String>,
+    /// Bounded compiler-owned typed repair descriptors.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub typed_repairs: Vec<RepairDescriptor>,
 }
 
 impl EvaluationDiagnostic {
@@ -762,6 +834,7 @@ impl EvaluationDiagnostic {
             actual: None,
             details: BTreeMap::new(),
             repairs: Vec::new(),
+            typed_repairs: Vec::new(),
         }
     }
 
@@ -773,6 +846,13 @@ impl EvaluationDiagnostic {
 
     pub(crate) fn repair(mut self, repair: impl Into<String>) -> Self {
         self.repairs.push(repair.into());
+        self
+    }
+
+    /// Attaches a compiler-owned typed repair descriptor.
+    #[must_use]
+    pub fn typed_repair(mut self, repair: RepairDescriptor) -> Self {
+        self.typed_repairs.push(repair);
         self
     }
 }

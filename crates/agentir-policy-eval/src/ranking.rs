@@ -287,6 +287,8 @@ pub enum RankingPolicyKind {
     SeededUniformChoice,
     /// Ranked menu with bounded hybrid escape.
     HybridRankedEscape,
+    /// Deterministic offline fixed-point linear model.
+    LearnedLinear,
     /// External policy-owned ranking.
     External,
 }
@@ -912,10 +914,10 @@ pub fn scripted_ranking_decision(
             RankingPolicyKind::SeededUniformChoice | RankingPolicyKind::HybridRankedEscape => {
                 seeded_score(seed, &choice.id.0)
             }
-            RankingPolicyKind::External => {
+            RankingPolicyKind::LearnedLinear | RankingPolicyKind::External => {
                 return Err(diagnostic(
                     EvaluationErrorCode::EvaluationRankingPolicyInvalid,
-                    "external rankers must submit their own preferences",
+                    "learned and external rankers must submit their own preferences",
                 ));
             }
         };
