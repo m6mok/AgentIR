@@ -6,12 +6,13 @@ use agentir_core::{
     backend_ir::HardwareBenchmarkConfig,
     candidate::{CandidateAction, ProposedImplFragment, RelationKind},
     continuation::InteractionMode,
+    cpu::CpuArtifactHash,
     equality::EqualityHash,
     ids::{
         ArtifactId, BackendPlanId, BackendRevisionId, BufferId, CandidateId, CandidateRevisionId,
-        EqualityNodeId, EqualityRevisionId, EqualitySpaceId, HoleId, ImplOperationId,
-        MeasurementId, MemoryGuardId, MemoryPlanId, MemoryRevisionId, ProposalId, RevisionId,
-        ScheduleAxisId, SchedulePlanId, ScheduleRevisionId, TargetManifestId,
+        CpuArtifactId, EqualityNodeId, EqualityRevisionId, EqualitySpaceId, HoleId,
+        ImplOperationId, MeasurementId, MemoryGuardId, MemoryPlanId, MemoryRevisionId, ProposalId,
+        RevisionId, ScheduleAxisId, SchedulePlanId, ScheduleRevisionId, TargetManifestId,
         TargetManifestRevisionId, WorkspaceId,
     },
     impl_ir::ImplHash,
@@ -1015,6 +1016,64 @@ pub enum Request {
         /// Runtime scalar/tensor values.
         inputs: BTreeMap<String, Value>,
     },
+    /// Emits compiler-owned portable scalar CPU bytecode from one proved schedule.
+    #[serde(rename = "cpu_artifact.emit")]
+    CpuArtifactEmit {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Source schedule plan.
+        schedule_plan: SchedulePlanId,
+        /// Exact immutable source schedule revision.
+        schedule_revision: ScheduleRevisionId,
+        /// Required exact schedule hash.
+        expected_schedule_hash: ScheduleHash,
+    },
+    /// Lists retained portable CPU packages.
+    #[serde(rename = "cpu_artifact.list")]
+    CpuArtifactList {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+    },
+    /// Reads one portable CPU artifact summary.
+    #[serde(rename = "cpu_artifact.query")]
+    CpuArtifactQuery {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Compiler-owned portable CPU artifact.
+        cpu_artifact: CpuArtifactId,
+    },
+    /// Verifies one CPU artifact hash, anchors, bytecode, and certificate offline.
+    #[serde(rename = "cpu_artifact.check")]
+    CpuArtifactCheck {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Compiler-owned portable CPU artifact.
+        cpu_artifact: CpuArtifactId,
+        /// Required exact portable package hash.
+        expected_cpu_artifact_hash: CpuArtifactHash,
+    },
+    /// Executes one retained, verified CPU artifact without GPU/device access.
+    #[serde(rename = "cpu_artifact.execute")]
+    CpuArtifactExecute {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Compiler-owned portable CPU artifact.
+        cpu_artifact: CpuArtifactId,
+        /// Required exact portable package hash.
+        expected_cpu_artifact_hash: CpuArtifactHash,
+        /// Exact runtime scalar/tensor values by compiler-owned binding name.
+        inputs: BTreeMap<String, Value>,
+    },
     /// Lists WebGPU adapters against one immutable target contract.
     #[serde(rename = "device.list")]
     DeviceList {
@@ -1168,6 +1227,11 @@ impl Request {
             | Self::ArtifactCheck { request_id, .. }
             | Self::ArtifactReferenceEvaluate { request_id, .. }
             | Self::ArtifactExecute { request_id, .. }
+            | Self::CpuArtifactEmit { request_id, .. }
+            | Self::CpuArtifactList { request_id, .. }
+            | Self::CpuArtifactQuery { request_id, .. }
+            | Self::CpuArtifactCheck { request_id, .. }
+            | Self::CpuArtifactExecute { request_id, .. }
             | Self::DeviceList { request_id, .. }
             | Self::DeviceQuery { request_id, .. }
             | Self::BenchmarkStart { request_id, .. }

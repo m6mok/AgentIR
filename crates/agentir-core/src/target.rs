@@ -20,10 +20,14 @@ pub const TARGET_VALIDATOR_VERSION: u32 = 1;
 pub const TARGET_EVENT_SEMANTICS_VERSION: u32 = 1;
 /// Domain separator for target capability identities.
 pub const TARGET_HASH_DOMAIN: &[u8] = b"agentir.target.manifest.v1\0";
+/// Separate domain separator for the Stage 8A scalar CPU capability contract.
+pub const CPU_SCALAR_TARGET_HASH_DOMAIN: &[u8] = b"agentir.target.cpu.scalar.v1\0";
 /// Stable name of the deterministic abstract GPU profile.
 pub const GENERIC_GPU_V1: &str = "generic_gpu_v1";
 /// Stable name of the executable WebGPU/WGSL v1 profile.
 pub const WEBGPU_WGSL_V1: &str = "webgpu_wgsl_v1";
+/// Stable name of the deterministic scalar CPU execution profile.
+pub const CPU_SCALAR_V1: &str = "cpu_scalar_v1";
 
 /// SHA-256 identity of one immutable target-manifest revision.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -59,6 +63,8 @@ pub enum TargetProfile {
     /// Deterministic minimum WebGPU compute contract for WGSL v1 artifacts.
     #[serde(rename = "webgpu_wgsl_v1")]
     WebGpuWgslV1,
+    /// Deterministic scalar CPU execution contract.
+    CpuScalarV1,
 }
 
 /// Broad execution-target category.
@@ -69,6 +75,8 @@ pub enum TargetKind {
     GenericGpu,
     /// Portable WebGPU compute target emitting WGSL source.
     WebGpu,
+    /// Portable deterministic scalar CPU bytecode target.
+    CpuScalar,
 }
 
 /// Work-distribution hierarchy exposed by a manifest.
@@ -354,8 +362,13 @@ pub fn canonical_target_bytes(manifest: &TargetManifest) -> AgentResult<Vec<u8>>
 /// Recomputes the exact target hash.
 pub fn target_hash(manifest: &TargetManifest) -> AgentResult<TargetHash> {
     let bytes = canonical_target_bytes(manifest)?;
-    let mut input = Vec::with_capacity(TARGET_HASH_DOMAIN.len().saturating_add(bytes.len()));
-    input.extend_from_slice(TARGET_HASH_DOMAIN);
+    let domain = if manifest.profile == CPU_SCALAR_V1 {
+        CPU_SCALAR_TARGET_HASH_DOMAIN
+    } else {
+        TARGET_HASH_DOMAIN
+    };
+    let mut input = Vec::with_capacity(domain.len().saturating_add(bytes.len()));
+    input.extend_from_slice(domain);
     input.extend_from_slice(&bytes);
     Ok(hash_bytes(&input))
 }
@@ -519,6 +532,80 @@ fn build_webgpu_wgsl_v1(
     Ok(manifest)
 }
 
+fn build_cpu_scalar_v1(
+    id: TargetManifestId,
+    revision: TargetManifestRevisionId,
+    allocator: &mut TargetAllocator,
+) -> AgentResult<TargetManifest> {
+    let capability_names = [
+        "deterministic_serial_execution",
+        "portable_scalar_bytecode_v1",
+        "scalar_f32",
+        "one_dimensional_f32_tensors",
+        "compiler_bounds_validation",
+        "checked_size_and_index_arithmetic",
+    ];
+    let capabilities = capability_names
+        .into_iter()
+        .map(|name| TargetCapability {
+            id: allocator.capability(),
+            name: name.to_owned(),
+            parameters: BTreeMap::new(),
+        })
+        .collect();
+    let mut manifest = TargetManifest {
+        id,
+        revision,
+        profile: CPU_SCALAR_V1.to_owned(),
+        kind: TargetKind::CpuScalar,
+        hierarchy: ExecutionHierarchy {
+            max_grid_dimensions: [1, 1, 1],
+            max_workgroup_dimensions: [1, 1, 1],
+            max_threads_per_workgroup: 1,
+            supports_grid_block: false,
+            supports_workgroup: false,
+        },
+        subgroup: SubgroupModel {
+            width: 1,
+            lane_binding: false,
+        },
+        vector: VectorCapability {
+            widths: vec![1],
+            element_types: vec![ScalarType::F32],
+        },
+        memory_spaces: vec![
+            MemorySpaceCapability {
+                address_space: AddressSpace::Global,
+                minimum_alignment: 4,
+            },
+            MemorySpaceCapability {
+                address_space: AddressSpace::Constant,
+                minimum_alignment: 4,
+            },
+        ],
+        resources: ResourceCapacity {
+            max_shared_bytes_per_workgroup: 0,
+            max_private_bytes_per_thread: 4_096,
+            maximum_rank: 1,
+        },
+        capabilities,
+        status: TargetStatus::Sealed,
+        certificate: TargetCertificate {
+            method: "compiler_owned_cpu_scalar_v1".to_owned(),
+            semantics_version: TARGET_SEMANTICS_VERSION,
+            validator_version: TARGET_VALIDATOR_VERSION,
+            conditions: vec![
+                "portable scalar CPU contract; no machine capability discovery".to_owned(),
+                "serial iteration and bounds validation are compiler owned".to_owned(),
+                "threads, SIMD, JIT, native ABI, and external processes are absent".to_owned(),
+            ],
+        },
+        target_hash: TargetHash::new("pending"),
+    };
+    manifest.target_hash = target_hash(&manifest)?;
+    Ok(manifest)
+}
+
 fn verify_manifest(manifest: &TargetManifest) -> AgentResult<()> {
     let profile_valid = match manifest.profile.as_str() {
         GENERIC_GPU_V1 => manifest.kind == TargetKind::GenericGpu,
@@ -528,6 +615,16 @@ fn verify_manifest(manifest: &TargetManifest) -> AgentResult<()> {
                 && !manifest.subgroup.lane_binding
                 && !manifest.hierarchy.supports_grid_block
                 && manifest.hierarchy.supports_workgroup
+                && manifest.resources.maximum_rank == 1
+        }
+        CPU_SCALAR_V1 => {
+            manifest.kind == TargetKind::CpuScalar
+                && manifest.vector.widths == [1]
+                && manifest.vector.element_types == [ScalarType::F32]
+                && !manifest.subgroup.lane_binding
+                && !manifest.hierarchy.supports_grid_block
+                && !manifest.hierarchy.supports_workgroup
+                && manifest.hierarchy.max_threads_per_workgroup == 1
                 && manifest.resources.maximum_rank == 1
         }
         _ => false,
@@ -579,6 +676,9 @@ impl TargetManifestStore {
             }
             TargetProfile::WebGpuWgslV1 => {
                 build_webgpu_wgsl_v1(id.clone(), revision.clone(), &mut staged.allocator)?
+            }
+            TargetProfile::CpuScalarV1 => {
+                build_cpu_scalar_v1(id.clone(), revision.clone(), &mut staged.allocator)?
             }
         };
         verify_manifest(&manifest)?;

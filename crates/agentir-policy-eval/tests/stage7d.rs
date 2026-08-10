@@ -833,10 +833,16 @@ fn abandon_is_explicit_and_completed_slots_cannot_reconcile_twice() {
 }
 
 #[test]
-fn workspace_archive_and_measurement_record_contracts_remain_unchanged() {
+fn workspace_archive_advances_separately_while_measurement_contracts_remain_unchanged() {
     let registry: serde_json::Value =
         serde_json::from_str(include_str!("../../../docs/contract-registry.json")).unwrap();
-    assert_eq!(registry["archive_families"][0]["current"], 9);
+    assert_eq!(registry["archive_families"][0]["current"], 10);
+    assert!(
+        registry["archive_families"][0]["legacy"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!(9))
+    );
     assert_eq!(agentir_core::backend_ir::MEASUREMENT_FORMAT_VERSION, 1);
     let (_, session, _, _) = fixture(&["a"], 1);
     assert_eq!(session.plan.version, 1);

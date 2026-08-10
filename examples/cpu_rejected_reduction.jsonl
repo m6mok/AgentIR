@@ -1,0 +1,8 @@
+{"command":"workspace.open","request_id":"open","workspace":"w1"}
+{"command":"spec.apply","request_id":"build","workspace":"w1","base_revision":"r0","actions":[{"kind":"define_dimension","bind":"$N","name":"N","constraints":["N >= 0"]},{"kind":"create_parameter","bind":"$x","name":"x","type":"tensor<f32,[$N]>"},{"kind":"create_constant","bind":"$zero","type":"f32","value":0.0},{"kind":"create_op","bind":"$out","opcode":"reduce","operands":["$x","$zero"],"region":{"arguments":[{"name":"acc","type":"f32"},{"name":"element","type":"f32"}],"captures":[],"operations":[{"bind":"$sum","opcode":"add","operands":["acc","element"]}],"yield_value":"$sum"}},{"kind":"set_output","name":"out","value":"$out"}]}
+{"command":"spec.freeze","request_id":"freeze","workspace":"w1","base_revision":"r1"}
+{"command":"candidate.create","request_id":"candidate","workspace":"w1","spec_revision":"r2"}
+{"command":"memory.create","request_id":"memory","workspace":"w1","candidate":"c1","candidate_revision":"cr1"}
+{"command":"target.create","request_id":"target","workspace":"w1","profile":"cpu_scalar_v1"}
+{"command":"schedule.create","request_id":"schedule","workspace":"w1","memory_plan":"mp1","memory_revision":"mr1","target_manifest":"tm1","target_revision":"tmr1"}
+{"command":"cpu_artifact.emit","request_id":"rejected-reduction","workspace":"w1","schedule_plan":"sp1","schedule_revision":"sr1","expected_schedule_hash":"396670d4af664d484356017703d1f26ef2aa7310c3311b5538d84a3d5fe3b022"}

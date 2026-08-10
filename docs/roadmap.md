@@ -153,6 +153,18 @@ objectives, statistical inference, and new search/ranking algorithms.
 
 ## Completed Stage 7
 
-Stage 7E integrates existing Stage 7A–7D records into a checkpointable campaign with one dormant optional hardware boundary, zero-device replay, and evaluation archive v8. The deterministic offline study materializes four distinct production-replayed terminal artifacts before labelled synthetic acquisition. ADR-180 makes this complete offline gate authoritative for project readiness, so Stage 7 is closed without requiring a physical GPU. Its acceptance evidence includes a byte-identical synthetic orchestration study without performance claims. Stage 8 may now be scoped separately but is not started here.
+Stage 7E integrates existing Stage 7A–7D records into a checkpointable campaign with one dormant optional hardware boundary, zero-device replay, and evaluation archive v8. The deterministic offline study materializes four distinct production-replayed terminal artifacts before labelled synthetic acquisition. ADR-180 makes this complete offline gate authoritative for project readiness, so Stage 7 is closed without requiring a physical GPU. Its acceptance evidence includes a byte-identical synthetic orchestration study without performance claims.
+
+## Completed Stage 8A: deterministic CPU execution
+
+- separate immutable `cpu_scalar_v1` target profile without GPU capabilities;
+- compiler-owned lowering from proved serial ScheduleIR to portable scalar f32 bytecode;
+- content-addressed `cpu_artifact_hash` and CPU compiler-build hash contracts independent from WGSL artifacts;
+- safe bounded interpreter with exact input/shape checking and deterministic work counters;
+- CPU artifact protocol publication/query/check/execute commands with no client-supplied bytecode or certificates;
+- workspace archive/snapshot v10 with pure v9→v10 empty-store migration and replay verification without execution;
+- byte-identical two-run Stage 8A study matching the reference evaluator.
+
+Stage 8B timing, native code generation, SIMD/threading, reductions, broader dtype/rank support, host ABI embedding and CPU performance ranking remain future work.
 
 Physical GPU qualification, concurrent/remote acquisition, multi-device pooling, new search algorithms, prediction, raw-sample significance, energy records, training during acquisition and live publication are outside the active strategy. Reintroducing a mandatory hardware gate requires a new ADR.

@@ -651,7 +651,7 @@ pub struct EvaluationManifest {
     pub aggregation_configuration: BTreeMap<String, Value>,
 }
 
-/// Separate current evaluation archive v8; never embedded in workspace archive v9.
+/// Separate current evaluation archive v8; never embedded in workspace archive v10.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EvaluationArchive {
     /// Stable serialized contract field.

@@ -1,6 +1,6 @@
 # JSONL protocol
 
-Stage 6A policy evaluation uses a separate bounded JSONL frontend documented in [external-agent-protocol.md](external-agent-protocol.md). Its `evaluation.*` commands orchestrate immutable tasks and recorded production requests; they do not change this compiler command enum or archive v9 semantics. One physical input line still yields exactly one structured response.
+Stage 6A policy evaluation uses a separate bounded JSONL frontend documented in [external-agent-protocol.md](external-agent-protocol.md). Its `evaluation.*` commands orchestrate immutable tasks and recorded production requests; they do not change this compiler command enum or workspace archive semantics. One physical input line still yields exactly one structured response.
 
 Stage 6B adds ranking policy list/query, exact choice-set query, `evaluation.episode.rank`, trace query, ranking aggregate and ranking comparison commands. Scores are checked fixed-point integers; clients cannot supply choice IDs, legality, outcomes, proof, success, or ranking hashes. See [external-ranker-protocol.md](external-ranker-protocol.md).
 
@@ -190,5 +190,7 @@ Resource limits are policy, not SpecIR. Archive replay uses hard safety caps; no
 # Stage 5 commands
 
 `backend.lower`, `backend.query`, `backend.check`, `backend.continuation`, `backend.fork` and `backend.seal` operate on immutable BackendIR plans. `artifact.emit`, `artifact.list`, `artifact.query`, `artifact.check` and `artifact.reference_evaluate` are GPU-independent. `artifact.execute`, `device.list`, `device.query`, and the `benchmark.start/status/cancel/query` family are optional device paths.
+
+`cpu_artifact.emit` accepts only a workspace, schedule plan/revision, and exact expected `schedule_hash`; lowering, bytecode, ABI, bounds checks, IDs, hashes, and certificates remain compiler-owned. `cpu_artifact.list`, `cpu_artifact.query`, and `cpu_artifact.check` are zero-execution structural operations. `cpu_artifact.execute` requires the exact expected `cpu_artifact_hash` plus named JSON inputs and returns named outputs with deterministic work counters. It performs no GPU discovery, timing, benchmarking, proof advancement, or workspace mutation. Unknown client fields such as bytecode, bindings, guards, or certificates are rejected.
 
 Mutations require explicit source revisions and expected schedule/backend/artifact hashes. Requests accept only IDs, stable enums, runtime inputs and bounded benchmark configuration. Unknown WGSL, BackendIR nodes, bindings, dispatch expressions, guards, target capabilities, certificates, fingerprints or measurement results are rejected by `deny_unknown_fields`.

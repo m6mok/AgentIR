@@ -6,6 +6,7 @@ members = [
     "crates/agentir-protocol",
     "crates/agentir-cli",
     "crates/agentir-backend-wgsl",
+    "crates/agentir-backend-cpu",
     "crates/agentir-runtime-wgpu",
     "crates/agentir-policy-eval",
     "crates/agentir-eval-cli",

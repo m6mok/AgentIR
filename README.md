@@ -18,7 +18,7 @@ AgentIR — экспериментальная агентно-нативная �
 - CPU reference interpreter;
 - компактный deterministic `ConstraintFacts`, который доказывает symbol/static equality и закрывает `ShapeCompatible` obligations;
 - event-level compiler semantics v1/v2 для точного replay исторических транзакций;
-- workspace archive v9, явная migration v1 → v2 → v3 → v4 → v5 → v6 → v7 → v8 → v9, mixed candidate/equality/memory/target/schedule/backend/artifact replay;
+- workspace archive v10, явная migration v1 → v2 → v3 → v4 → v5 → v6 → v7 → v8 → v9 → v10, mixed candidate/equality/memory/target/schedule/backend/WGSL/CPU-artifact replay;
 - централизованные resource budgets для core, evaluator, store, protocol и CLI;
 - fixed-seed soundness/mutation corpora и statistical benchmark schema v2;
 - stateful JSONL CLI с одним ответом на каждый запрос;

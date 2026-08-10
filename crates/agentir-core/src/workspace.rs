@@ -18,6 +18,10 @@ use crate::{
     canonical::{content_hash, content_hash_with_limit},
     constraints::{ConstraintFacts, ConstraintQueryResult},
     continuation::{ContinuationFrame, InteractionMode, build_frame},
+    cpu::{
+        CpuArtifactCheckReport, CpuArtifactDraft, CpuArtifactPackage, CpuArtifactQuery,
+        CpuArtifactStore, verify_cpu_artifact,
+    },
     diagnostics::{AgentError, AgentResult, ErrorCode},
     equality::{
         EQUALITY_SEMANTICS_VERSION, EqualityContinuation, EqualityDischargeResult, EqualityEvent,
@@ -27,8 +31,8 @@ use crate::{
     holes::{ExpectedEffects, Hole, HoleStatus},
     ids::{
         ActionId, ArtifactId, BackendPlanId, BackendRevisionId, BufferId, CandidateId,
-        CandidateRevisionId, EqualityNodeId, EqualityRevisionId, EqualitySpaceId, HoleId,
-        IdAllocator, MemoryPlanId, MemoryRevisionId, ObligationId, ProposalId, RevisionId,
+        CandidateRevisionId, CpuArtifactId, EqualityNodeId, EqualityRevisionId, EqualitySpaceId,
+        HoleId, IdAllocator, MemoryPlanId, MemoryRevisionId, ObligationId, ProposalId, RevisionId,
         ScheduleAxisId, SchedulePlanId, ScheduleRevisionId, TargetManifestId,
         TargetManifestRevisionId, ValueId, WorkspaceId,
     },
@@ -801,6 +805,7 @@ pub struct Workspace {
     backends: BackendStore,
     artifacts: ArtifactStore,
     measurements: MeasurementStore,
+    cpu_artifacts: CpuArtifactStore,
     limits: ResourceLimits,
 }
 
@@ -840,6 +845,7 @@ impl Workspace {
             backends: BackendStore::default(),
             artifacts: ArtifactStore::default(),
             measurements: MeasurementStore::default(),
+            cpu_artifacts: CpuArtifactStore::default(),
             limits,
         })
     }
@@ -907,6 +913,12 @@ impl Workspace {
     #[must_use]
     pub const fn measurement_store(&self) -> &MeasurementStore {
         &self.measurements
+    }
+
+    /// Returns deterministic portable scalar CPU artifact packages.
+    #[must_use]
+    pub const fn cpu_artifact_store(&self) -> &CpuArtifactStore {
+        &self.cpu_artifacts
     }
 
     /// Returns the current head revision ID.
@@ -2675,6 +2687,36 @@ impl Workspace {
         Ok(())
     }
 
+    fn validate_cpu_artifact_budgets(&self, store: &CpuArtifactStore) -> AgentResult<()> {
+        BudgetCheck::against(
+            &self.limits,
+            ResourceKind::ArtifactPackages,
+            as_u64(store.packages.len()),
+            "CpuArtifactStore",
+        )?;
+        BudgetCheck::against(
+            &self.limits,
+            ResourceKind::ArtifactEvents,
+            as_u64(store.events.len()),
+            "CpuArtifactStore",
+        )?;
+        for package in store.packages.values() {
+            BudgetCheck::against(
+                &self.limits,
+                ResourceKind::ArtifactTotalBytes,
+                as_u64(
+                    serde_json::to_vec(package)
+                        .map_err(|error| {
+                            AgentError::new(ErrorCode::CanonicalizationFailed, error.to_string())
+                        })?
+                        .len(),
+                ),
+                "CPU artifact package",
+            )?;
+        }
+        Ok(())
+    }
+
     /// Atomically lowers one explicit immutable schedule through a trusted backend component.
     pub fn backend_lower_with<F>(
         &mut self,
@@ -2975,6 +3017,122 @@ impl Workspace {
         revision: &TargetManifestRevisionId,
     ) -> AgentResult<&crate::target::TargetManifest> {
         self.targets.manifest(manifest, revision)
+    }
+
+    /// Atomically emits one portable scalar CPU artifact from a proved schedule.
+    pub fn cpu_artifact_emit_with<F>(
+        &mut self,
+        schedule_plan: &SchedulePlanId,
+        schedule_revision: &ScheduleRevisionId,
+        expected_schedule_hash: &ScheduleHash,
+        lower: F,
+    ) -> AgentResult<CpuArtifactCheckReport>
+    where
+        F: FnOnce(
+            &crate::schedule::SchedulePlan,
+            &crate::schedule::ScheduleRevision,
+            &crate::impl_ir::ImplProgram,
+            &crate::target::TargetManifest,
+        ) -> AgentResult<CpuArtifactDraft>,
+    {
+        self.schedule_check(schedule_plan, schedule_revision)?;
+        let plan = self.schedules.plan(schedule_plan)?.clone();
+        let revision = self
+            .schedules
+            .revision(schedule_plan, schedule_revision)?
+            .clone();
+        if &revision.schedule_hash != expected_schedule_hash {
+            return Err(AgentError::new(
+                ErrorCode::ScheduleHashMismatch,
+                "cpu_artifact.emit expected schedule_hash differs from the selected revision",
+            )
+            .with_types(
+                expected_schedule_hash.to_string(),
+                revision.schedule_hash.to_string(),
+            ));
+        }
+        let (_, _, implementation, target) = self.schedule_inputs(schedule_plan)?;
+        let draft = lower(&plan, &revision, &implementation, &target)?;
+        if draft.anchor.schedule_plan != *schedule_plan
+            || draft.anchor.schedule_revision != *schedule_revision
+            || draft.anchor.schedule_hash != revision.schedule_hash
+            || draft.anchor.spec_hash != plan.anchor.spec_hash
+            || draft.anchor.impl_hash != plan.anchor.impl_hash
+            || draft.anchor.memory_hash != plan.anchor.memory_hash
+            || draft.anchor.target_hash != plan.anchor.target_hash
+        {
+            return Err(AgentError::new(
+                ErrorCode::CpuArtifactInvalid,
+                "trusted CPU lowering returned an inconsistent immutable anchor chain",
+            ));
+        }
+        let mut staged = self.cpu_artifacts.clone();
+        let report = staged.emit(
+            schedule_plan.clone(),
+            schedule_revision.clone(),
+            as_u64(self.schedules.events.len()),
+            draft,
+        )?;
+        self.validate_cpu_artifact_budgets(&staged)?;
+        self.cpu_artifacts = staged;
+        Ok(report)
+    }
+
+    /// Lists deterministic portable CPU artifact summaries.
+    pub fn cpu_artifact_list(&self) -> AgentResult<Vec<CpuArtifactQuery>> {
+        self.cpu_artifacts.list()
+    }
+
+    /// Reads one portable CPU artifact summary.
+    pub fn cpu_artifact_query(&self, artifact: &CpuArtifactId) -> AgentResult<CpuArtifactQuery> {
+        self.cpu_artifacts.query(artifact)
+    }
+
+    /// Returns one immutable compiler-published CPU package for execution.
+    pub fn cpu_artifact_package(
+        &self,
+        artifact: &CpuArtifactId,
+    ) -> AgentResult<&CpuArtifactPackage> {
+        self.cpu_artifacts.package(artifact)
+    }
+
+    /// Fully checks one CPU package and its live immutable anchor chain without execution.
+    pub fn cpu_artifact_check(
+        &self,
+        artifact: &CpuArtifactId,
+    ) -> AgentResult<CpuArtifactCheckReport> {
+        let package = self.cpu_artifacts.package(artifact)?;
+        let schedule_plan = self.schedules.plan(&package.anchor.schedule_plan)?;
+        let schedule = self.schedules.revision(
+            &package.anchor.schedule_plan,
+            &package.anchor.schedule_revision,
+        )?;
+        let target = self.targets.manifest(
+            &package.anchor.target_manifest,
+            &package.anchor.target_revision,
+        )?;
+        let memory = self
+            .memory
+            .revision(&package.anchor.memory_plan, &package.anchor.memory_revision)?;
+        if schedule.schedule_hash != package.anchor.schedule_hash
+            || target.target_hash != package.anchor.target_hash
+            || memory.memory_hash != package.anchor.memory_hash
+            || schedule_plan.anchor.spec_revision != package.anchor.spec_revision
+            || schedule_plan.anchor.spec_hash != package.anchor.spec_hash
+            || schedule_plan.anchor.impl_hash != package.anchor.impl_hash
+            || schedule_plan.anchor.memory_plan != package.anchor.memory_plan
+            || schedule_plan.anchor.memory_revision != package.anchor.memory_revision
+            || schedule_plan.anchor.memory_hash != package.anchor.memory_hash
+            || schedule_plan.anchor.target_manifest != package.anchor.target_manifest
+            || schedule_plan.anchor.target_revision != package.anchor.target_revision
+            || schedule_plan.anchor.target_hash != package.anchor.target_hash
+        {
+            return Err(AgentError::new(
+                ErrorCode::CpuArtifactInvalid,
+                "CPU artifact immutable compiler anchor chain no longer matches",
+            ));
+        }
+        self.cpu_artifacts.check(artifact)
     }
 
     /// Reads one completed confidence-only hardware measurement.
@@ -3562,6 +3720,7 @@ impl Workspace {
         expected_backends: &BackendStore,
         expected_artifacts: &ArtifactStore,
         expected_measurements: &MeasurementStore,
+        expected_cpu_artifacts: &CpuArtifactStore,
     ) -> AgentResult<()> {
         let mut candidate_cursor = 0_usize;
         for equality_event in &expected_equality.events {
@@ -3995,9 +4154,88 @@ impl Workspace {
             artifact_cursor = event.event.artifact_event_cursor;
         }
         expected_backends.verify_allocator_state(expected_artifacts, expected_measurements)?;
+        let mut schedule_cursor = 0_u64;
+        let mut cpu_package_ids = BTreeSet::new();
+        for event in &expected_cpu_artifacts.events {
+            let package = &event.event.package;
+            let schedule_plan = expected_schedules.plan(&event.event.schedule_plan)?;
+            let schedule = expected_schedules
+                .revision(&event.event.schedule_plan, &event.event.schedule_revision)?;
+            let required_schedule_cursor = usize::try_from(event.event.schedule_event_cursor)
+                .map_err(|_| {
+                    AgentError::new(
+                        ErrorCode::CpuArtifactEventOrderInvalid,
+                        "CPU artifact schedule dependency cursor does not fit this platform",
+                    )
+                })?;
+            let schedule_available = required_schedule_cursor <= expected_schedules.events.len()
+                && expected_schedules.events[..required_schedule_cursor]
+                    .iter()
+                    .any(|versioned| match &versioned.event {
+                        ScheduleEvent::Created {
+                            schedule_plan,
+                            schedule_revision,
+                            ..
+                        }
+                        | ScheduleEvent::Forked {
+                            schedule_plan,
+                            schedule_revision,
+                            ..
+                        }
+                        | ScheduleEvent::Sealed {
+                            schedule_plan,
+                            schedule_revision,
+                            ..
+                        } => {
+                            schedule_plan == &event.event.schedule_plan
+                                && schedule_revision == &event.event.schedule_revision
+                        }
+                        ScheduleEvent::Applied {
+                            transaction,
+                            schedule_revision,
+                            ..
+                        } => {
+                            transaction.schedule_plan == event.event.schedule_plan
+                                && schedule_revision == &event.event.schedule_revision
+                        }
+                    });
+            if event.semantics_version != crate::cpu::CPU_ARTIFACT_EVENT_SEMANTICS_VERSION
+                || event.event.schedule_event_cursor < schedule_cursor
+                || event.event.schedule_event_cursor > expected_schedules.events.len() as u64
+                || !schedule_available
+                || package.anchor.schedule_plan != event.event.schedule_plan
+                || package.anchor.schedule_revision != event.event.schedule_revision
+                || package.anchor.schedule_hash != schedule.schedule_hash
+                || package.anchor.spec_revision != schedule_plan.anchor.spec_revision
+                || package.anchor.spec_hash != schedule_plan.anchor.spec_hash
+                || package.anchor.impl_hash != schedule_plan.anchor.impl_hash
+                || package.anchor.memory_plan != schedule_plan.anchor.memory_plan
+                || package.anchor.memory_revision != schedule_plan.anchor.memory_revision
+                || package.anchor.memory_hash != schedule_plan.anchor.memory_hash
+                || package.anchor.target_manifest != schedule_plan.anchor.target_manifest
+                || package.anchor.target_revision != schedule_plan.anchor.target_revision
+                || package.anchor.target_hash != schedule_plan.anchor.target_hash
+                || !cpu_package_ids.insert(package.id.clone())
+                || expected_cpu_artifacts.packages.get(&package.id) != Some(package)
+            {
+                return Err(AgentError::new(
+                    ErrorCode::CpuArtifactEventOrderInvalid,
+                    "CPU artifact event anchor or schedule dependency cursor is invalid",
+                ));
+            }
+            verify_cpu_artifact(package)?;
+            schedule_cursor = event.event.schedule_event_cursor;
+        }
+        if cpu_package_ids != expected_cpu_artifacts.packages.keys().cloned().collect() {
+            return Err(AgentError::new(
+                ErrorCode::CpuArtifactEventOrderInvalid,
+                "CPU artifact event log does not reproduce CpuArtifactStore",
+            ));
+        }
         self.backends = expected_backends.clone();
         self.artifacts = expected_artifacts.clone();
         self.measurements = expected_measurements.clone();
+        self.cpu_artifacts = expected_cpu_artifacts.clone();
         Ok(())
     }
 
@@ -4019,6 +4257,7 @@ impl Workspace {
             backend_store: self.backends.clone(),
             artifact_store: self.artifacts.clone(),
             measurement_store: self.measurements.clone(),
+            cpu_artifact_store: self.cpu_artifacts.clone(),
         }
     }
 
@@ -4100,6 +4339,18 @@ impl Workspace {
             ResourceKind::SchedulePlansPerWorkspace,
             as_u64(snapshot.schedule_store.plans.len()),
             "schedule snapshot replay preflight",
+        )?;
+        BudgetCheck::against(
+            &ResourceLimits::hard_safety_caps(),
+            ResourceKind::ArtifactEvents,
+            as_u64(snapshot.cpu_artifact_store.events.len()),
+            "CPU artifact snapshot replay preflight",
+        )?;
+        BudgetCheck::against(
+            &ResourceLimits::hard_safety_caps(),
+            ResourceKind::ArtifactPackages,
+            as_u64(snapshot.cpu_artifact_store.packages.len()),
+            "CPU artifact snapshot replay preflight",
         )?;
         let replay_actions = snapshot.events.iter().fold(0_u64, |total, versioned| {
             total.saturating_add(match &versioned.event {
@@ -4319,9 +4570,11 @@ impl Workspace {
             &snapshot.backend_store,
             &snapshot.artifact_store,
             &snapshot.measurement_store,
+            &snapshot.cpu_artifact_store,
         )?;
         replayed.validate_target_budgets(&snapshot.target_store)?;
         replayed.validate_schedule_budgets(&snapshot.schedule_store)?;
+        replayed.validate_cpu_artifact_budgets(&snapshot.cpu_artifact_store)?;
 
         let report = ReplayReport {
             workspace: snapshot.workspace.clone(),
@@ -4347,6 +4600,8 @@ impl Workspace {
             artifact_events_replayed: snapshot.artifact_store.events.len(),
             measurements_verified: snapshot.measurement_store.records.len(),
             measurement_events_replayed: snapshot.measurement_store.events.len(),
+            cpu_artifacts_verified: snapshot.cpu_artifact_store.packages.len(),
+            cpu_artifact_events_replayed: snapshot.cpu_artifact_store.events.len(),
         };
         replayed.revisions = snapshot.revisions;
         replayed.head = snapshot.head;
@@ -4360,6 +4615,7 @@ impl Workspace {
         replayed.backends = snapshot.backend_store;
         replayed.artifacts = snapshot.artifact_store;
         replayed.measurements = snapshot.measurement_store;
+        replayed.cpu_artifacts = snapshot.cpu_artifact_store;
         replayed.limits = ResourceLimits::default();
         Ok((replayed, report))
     }

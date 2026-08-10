@@ -138,7 +138,7 @@ fn migrate_archive_command_is_atomic_and_reports_versions() {
     let parsed: Value = serde_json::from_str(&response).expect("migration response");
     assert_eq!(parsed["ok"], true, "{response}");
     assert_eq!(parsed["result"]["source_archive_version"], 1);
-    assert_eq!(parsed["result"]["target_archive_version"], 9);
+    assert_eq!(parsed["result"]["target_archive_version"], 10);
     assert!(parsed["result"]["new_archive_hash"].as_str().is_some());
 
     let existing = engine.process_line(

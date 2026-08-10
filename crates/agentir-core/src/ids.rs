@@ -80,6 +80,7 @@ identifier!(BackendEvidenceId);
 identifier!(ArtifactId);
 identifier!(ArtifactModuleId);
 identifier!(MeasurementId);
+identifier!(CpuArtifactId);
 
 /// Monotonic identifier allocator owned by one workspace.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

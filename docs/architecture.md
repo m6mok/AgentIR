@@ -1,6 +1,6 @@
 # Architecture
 
-AgentIR has five explicit immutable compiler graph layers: SpecIR states semantics, ImplIR states an exact implementation, MemoryIR states typed physical storage, ScheduleIR states target-checked execution order, and BackendIR states executable typed kernels for one schedule. Artifact WGSL remains derived output, never canonical input. Stage 6A/6B is a separate non-correctness evaluation and ranking layer above the production protocol. Core snapshot/replay remains I/O-free; only `agentir-store` reads or writes workspace archive v9.
+AgentIR has five explicit immutable compiler graph layers: SpecIR states semantics, ImplIR states an exact implementation, MemoryIR states typed physical storage, ScheduleIR states target-checked execution order, and BackendIR states executable typed GPU kernels for one schedule. WGSL and portable CPU bytecode remain derived artifacts, never canonical program input. Stage 6A/6B is a separate non-correctness evaluation and ranking layer above the production protocol. Core snapshot/replay remains I/O-free; only `agentir-store` reads or writes workspace archive v10.
 
 ## Data flow
 
@@ -35,13 +35,13 @@ agentir-core snapshot/all graph, artifact and measurement event logs
   ↓
 agentir-store ───── version sniff → source checksum → migrate → replay
   ↓ save/migrate
-archive v9 ─────── checksum → temp write + sync → atomic rename
+archive v10 ────── checksum → temp write + sync → atomic rename
 
 immutable corpus + policy descriptor
   ↓ exact observation / bounded decision
 agentir-policy-eval ─ production outcome → ranking/learning → isolated bounded search
   ↓ separate format
-evaluation archive v8 (v1→v2→v3→v4→v5→v6→v7→v8 migration; never workspace archive v9)
+evaluation archive v8 (v1→v2→v3→v4→v5→v6→v7→v8 migration; never workspace archive v10)
 ```
 
 The dependency direction is one-way: `core` knows nothing about JSONL sessions, policy evaluation, learned models, search plans/frontiers, transcripts or filesystems; the reference evaluator and store depend on `core`; `protocol` composes production components; `agentir-policy-eval` invokes that production surface and owns offline ranking, learning and bounded search; both CLIs only stream lines.
@@ -52,7 +52,7 @@ Stage 7A reconstructs each explored trajectory in a fresh `EvaluationHarness`, r
 
 ## Stage 7B measured-search boundary
 
-Stage 7B leaves Stage 7A byte contracts unchanged and post-processes only terminal artifacts using frozen, production-hash-verified measurement cohorts. Cohort/objective/recommendation/archive-v5 types remain in `agentir-policy-eval`; core retains the unchanged measurement-record v1 and workspace archive v9. Search and replay never acquire hardware measurements.
+Stage 7B leaves Stage 7A byte contracts unchanged and post-processes only terminal artifacts using frozen, production-hash-verified measurement cohorts. Cohort/objective/recommendation/archive-v5 types remain in `agentir-policy-eval`; core retains the unchanged measurement-record v1. Search and replay never acquire hardware measurements.
 
 ## Stage 7C acquisition boundary
 
@@ -124,4 +124,6 @@ One proved MemoryIR revision plus one immutable TargetManifest anchors an indepe
 
 # Stage 7E integrated evaluation campaign
 
-`agentir-policy-eval` alone owns the Stage 7E campaign graph. It retains exact Stage 7A search, Stage 7C acquisition, Stage 7D recovery, and Stage 7B cohort/recommendation records without copying their semantics. The executor is available only to explicit prepared-slot execution. Evaluation archive v8 persists campaign history separately from workspace archive v9.
+`agentir-policy-eval` alone owns the Stage 7E campaign graph. It retains exact Stage 7A search, Stage 7C acquisition, Stage 7D recovery, and Stage 7B cohort/recommendation records without copying their semantics. The executor is available only to explicit prepared-slot execution. Evaluation archive v8 persists campaign history separately from workspace archive v10.
+
+Stage 8A adds no sixth canonical graph. `cpu_scalar_v1` selects a compiler-owned serial target contract; trusted lowering publishes a content-addressed portable scalar package directly from one proved ScheduleIR revision. `agentir-backend-cpu` owns lowering and the safe interpreter, while core owns package identity, certificates, persistence, replay, and atomic publication. Execution validates inputs and package structure before interpretation, returns deterministic work counters, performs no device discovery, and never mutates correctness state.

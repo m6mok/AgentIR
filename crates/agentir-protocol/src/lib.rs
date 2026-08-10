@@ -1271,6 +1271,84 @@ impl Engine {
                 serde_json::to_value(record)
                     .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
             }
+            Request::CpuArtifactEmit {
+                workspace,
+                schedule_plan,
+                schedule_revision,
+                expected_schedule_hash,
+                ..
+            } => serde_json::to_value(self.workspace_mut(&workspace)?.cpu_artifact_emit_with(
+                &schedule_plan,
+                &schedule_revision,
+                &expected_schedule_hash,
+                agentir_backend_cpu::lower_schedule,
+            )?)
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::CpuArtifactList { workspace, .. } => {
+                serde_json::to_value(self.workspace(&workspace)?.cpu_artifact_list()?)
+                    .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
+            }
+            Request::CpuArtifactQuery {
+                workspace,
+                cpu_artifact,
+                ..
+            } => serde_json::to_value(
+                self.workspace(&workspace)?
+                    .cpu_artifact_query(&cpu_artifact)?,
+            )
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::CpuArtifactCheck {
+                workspace,
+                cpu_artifact,
+                expected_cpu_artifact_hash,
+                ..
+            } => {
+                let package = self
+                    .workspace(&workspace)?
+                    .cpu_artifact_package(&cpu_artifact)?;
+                if package.cpu_artifact_hash != expected_cpu_artifact_hash {
+                    return Err(AgentError::new(
+                        ErrorCode::CpuArtifactHashMismatch,
+                        "cpu_artifact.check expected hash differs from the retained package",
+                    )
+                    .with_types(
+                        expected_cpu_artifact_hash.to_string(),
+                        package.cpu_artifact_hash.to_string(),
+                    ));
+                }
+                serde_json::to_value(
+                    self.workspace(&workspace)?
+                        .cpu_artifact_check(&cpu_artifact)?,
+                )
+                .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
+            }
+            Request::CpuArtifactExecute {
+                workspace,
+                cpu_artifact,
+                expected_cpu_artifact_hash,
+                inputs,
+                ..
+            } => {
+                let workspace = self.workspace(&workspace)?;
+                workspace.cpu_artifact_check(&cpu_artifact)?;
+                let package = workspace.cpu_artifact_package(&cpu_artifact)?;
+                if package.cpu_artifact_hash != expected_cpu_artifact_hash {
+                    return Err(AgentError::new(
+                        ErrorCode::CpuArtifactHashMismatch,
+                        "cpu_artifact.execute expected hash differs from the retained package",
+                    )
+                    .with_types(
+                        expected_cpu_artifact_hash.to_string(),
+                        package.cpu_artifact_hash.to_string(),
+                    ));
+                }
+                serde_json::to_value(agentir_backend_cpu::execute(
+                    package,
+                    &inputs,
+                    &self.limits,
+                )?)
+                .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
+            }
             Request::DeviceList {
                 workspace,
                 target_manifest,

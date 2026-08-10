@@ -1,6 +1,6 @@
 # Persistence, semantics versions, migration and replay
 
-The current writer emits archive/snapshot v9. V1–v8 remain immutable legacy inputs and cross explicit migration edges. The v8→v9 edge adds empty BackendStore, ArtifactStore and MeasurementStore without recalculating any legacy ID, event or hash.
+The current writer emits archive/snapshot v10. V1–v9 remain immutable legacy inputs and cross explicit migration edges. The v8→v9 edge adds empty BackendStore, ArtifactStore and MeasurementStore; v9→v10 adds an empty CpuArtifactStore. Neither recalculates legacy IDs, events, or semantic hashes.
 
 V7 snapshots persist memory plans, memory-local allocator/evidence, and semantics-v1 events with candidate/equality dependency cursors. Publication occurs only after legacy replay, MemoryIR event replay, anchor revalidation, structural verification, exact `memory_hash` recomputation, and allocator/head/store equality. New saves never write v6.
 
@@ -53,7 +53,9 @@ Unknown archive, snapshot or event-semantics versions are rejected. Serde defaul
 
 ## Save and migrate guarantees
 
-`workspace.save` builds archive v9 in memory, checks its encoded size, writes a unique same-directory temporary file, flushes and `sync_all`s it, then atomically renames it. A failed write removes the temporary file and leaves the prior destination untouched where same-directory rename is atomic.
+`workspace.save` builds archive v10 in memory, checks its encoded size, writes a unique same-directory temporary file, flushes and `sync_all`s it, then atomically renames it. A failed write removes the temporary file and leaves the prior destination untouched where same-directory rename is atomic.
+
+Archive v10 adds the deterministic CPU artifact store and event history. Archives v1–v9 remain immutable legacy inputs; the only new migration edge is pure v9→v10, which adds an empty CPU store and invents no package, execution, timing, or proof history. Replay verifies CPU package hashes, certificates, anchors and event order without executing bytecode.
 
 `workspace.migrate_archive` fully verifies and replays the source before checking/writing the destination. The source is never edited. Existing or identical destinations require `overwrite: true`; a failure creates no partial destination. `MigrationReport` records the verified source version/hash, target v9, every migration step and the new hash when written.
 

@@ -12,7 +12,7 @@ AgentIR is an agent-native compiler prototype. Preserve these invariants in ever
 6. Serialization and traversal order must remain deterministic.
 7. Stage 1 stays transport-independent and contains no GPU/LLVM/MLIR integration.
 8. `content_hash`, `spec_hash`, `impl_hash`, `proposal_hash`, `candidate_hash`, `equality_hash`, `memory_hash`, and `archive_hash` are distinct contracts and must never be substituted.
-9. Archive v1/v2/v3/v4/v5/v6/v7/v8 are immutable legacy inputs; new saves use v9 and old archives cross explicit migration steps.
+9. Archive v1/v2/v3/v4/v5/v6/v7/v8/v9 are immutable legacy inputs; new saves use v10 and old archives cross explicit migration steps.
 10. Event compiler semantics and archive format versions are independent compatibility contracts.
 11. Resource limits never participate in any semantic, candidate, equality, memory, or archive hash contract.
 12. ImplIR is a separate typed graph anchored to one frozen `spec_hash`.
@@ -69,6 +69,10 @@ AgentIR is an agent-native compiler prototype. Preserve these invariants in ever
 63. Campaign recommendations never publish a live artifact and do not prove speed, portability, significance, correctness, or global optimality.
 64. Evaluation archive v1–v7 are immutable legacy inputs; new evaluation saves use v8 and migrate only v1→v2→v3→v4→v5→v6→v7→v8 without invented campaign history.
 65. Stage 7 closure is an offline contract gate: the deterministic multi-artifact campaign, recovery, replay, archive and full workspace checks must pass without device calls. Physical GPU execution is optional compatibility evidence, never a Stage 8 prerequisite or a substitute for the offline gate.
+66. Stage 8A CPU execution uses a separate immutable `cpu_scalar_v1` target and compiler-owned portable scalar package anchored to one proved ScheduleIR revision; CPU source, bytecode, bindings, guards and certificates are never client supplied.
+67. `cpu_artifact_hash` and the CPU compiler-build hash are distinct from `backend_hash`, WGSL `artifact_hash`, device, measurement, evaluation and archive hashes; execution inputs, resource policy, counters and timing never enter CPU artifact identity.
+68. CPU execution is safe, bounded and deterministic but never proof evidence, benchmarking, performance ranking or Stage 8B timing.
+69. Workspace archive v1/v2/v3/v4/v5/v6/v7/v8/v9 are immutable legacy inputs; new saves use v10 and migrate only through explicit v9→v10 without invented CPU package or execution history.
 
 ## Where to look before changing code
 
@@ -152,6 +156,14 @@ cargo run -p agentir-cli --bin agentir < examples/backend_reuse.jsonl
 cargo run -p agentir-cli --bin agentir < examples/backend_guarded_memory.jsonl
 cargo run -p agentir-cli --bin agentir < examples/equality_to_artifact.jsonl
 cargo run -p agentir-cli --bin agentir < examples/backend_rejected_reduce.jsonl
+cargo run -p agentir-cli --bin agentir < examples/cpu_saxpy.jsonl
+cargo run -p agentir-cli --bin agentir < examples/cpu_scalar_elementwise.jsonl
+cargo run -p agentir-cli --bin agentir < examples/cpu_rejected_reduction.jsonl
+cargo run -p agentir-cli --bin agentir < examples/cpu_malformed_input.jsonl
+cargo run -p agentir-cli --bin agentir < examples/cpu_archive_roundtrip.jsonl
+cargo run -p agentir-protocol --example stage8a_study -- --output target/stage8a-study/run-1
+cargo run -p agentir-protocol --example stage8a_study -- --output target/stage8a-study/run-2
+cargo run -p agentir-protocol --example stage8a_compare -- target/stage8a-study/run-1 target/stage8a-study/run-2
 cargo run --release -p agentir-protocol --example baseline
 cargo run -p agentir-eval -- < examples/eval_free_saxpy.jsonl
 cargo run -p agentir-eval -- < examples/eval_search_start.jsonl

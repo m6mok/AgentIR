@@ -282,6 +282,24 @@ pub enum ErrorCode {
     ArtifactEventOrderInvalid,
     /// Measurement events violate artifact/device provenance order.
     MeasurementEventOrderInvalid,
+    /// The selected proved schedule is outside the scalar CPU lowering subset.
+    UnsupportedCpuLowering,
+    /// Requested portable CPU artifact does not exist.
+    CpuArtifactNotFound,
+    /// Portable CPU artifact hash differs from its exact package.
+    CpuArtifactHashMismatch,
+    /// Portable CPU package structure, order, anchors, or types are invalid.
+    CpuArtifactInvalid,
+    /// Portable CPU bytecode version or instruction is unsupported.
+    CpuBytecodeUnsupported,
+    /// Compiler-owned proof does not bind a CPU artifact to its schedule.
+    CpuArtifactEquivalenceUnproved,
+    /// CPU execution input names, types, dimensions, or shapes are incompatible.
+    CpuExecutionInputMismatch,
+    /// Checked CPU execution size or index arithmetic overflowed.
+    CpuExecutionOverflow,
+    /// CPU artifact events violate schedule dependency order.
+    CpuArtifactEventOrderInvalid,
 }
 
 /// Structured compiler error suitable for agent repair loops.

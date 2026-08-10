@@ -18,6 +18,8 @@ Stage 7D offline readiness uses `cargo test -p agentir-policy-eval --test stage7
 
 Stage 7E offline readiness uses `cargo test -p agentir-policy-eval --test stage7e`, two `stage7e_study --output target/stage7e-study/run-{1,2}` runs, and `stage7e_compare`. The study requires at least two distinct production-replayed terminal artifacts before its labelled synthetic acquisition, retains explicit terminal/artifact/slot/recovery/replay/archive metrics, and compares nine semantic files byte-for-byte. Together with the full workspace gate, this closes Stage 7 under ADR-180. Device output is optional compatibility evidence and cannot be inferred from synthetic results.
 
+Stage 8A is offline and CPU-only. Run the `cpu_*.jsonl` examples, `cargo test -p agentir-protocol --test cpu`, and two `stage8a_study` runs followed by `stage8a_compare`. The comparator requires four semantic files to be byte-identical. The study records exact outputs and deterministic work counters, never wall-clock timing, and performs zero GPU/device calls.
+
 Before/after audits built from different checkouts must use separate `CARGO_TARGET_DIR` values. Sharing one release directory between identical package names and versions can reuse the wrong checkout's example binary and invalidate the comparison.
 
 The expanded local Stage 6B.1 study is generated with `cargo run --release -p agentir-policy-eval --example stage6b_study -- --output target/stage6b-study/run-1`. Repeat with a second directory, then run `cargo run --release -p agentir-policy-eval --example stage6b_compare -- target/stage6b-study/run-1 target/stage6b-study/run-2`. The comparator requires byte-identical `semantic.json`; timing samples are retained separately as expected machine noise. All outputs stay under ignored `target/` and are never correctness evidence.
@@ -31,6 +33,7 @@ crates/agentir-core       canonical data and compiler state machine
 crates/agentir-eval       CPU reference semantics
 crates/agentir-store      versioned archive I/O and replay verification
 crates/agentir-backend-wgsl deterministic BackendIR/WGSL compiler and offline validator
+crates/agentir-backend-cpu deterministic ScheduleIR-to-portable-bytecode lowering and safe CPU interpreter
 crates/agentir-runtime-wgpu optional WebGPU discovery, execution and measurements
 crates/agentir-protocol   wire requests, responses, workspace registry
 crates/agentir-cli        stdin/stdout JSONL process
@@ -77,6 +80,14 @@ cargo run -p agentir-cli --bin agentir < examples/backend_reuse.jsonl
 cargo run -p agentir-cli --bin agentir < examples/backend_guarded_memory.jsonl
 cargo run -p agentir-cli --bin agentir < examples/equality_to_artifact.jsonl
 cargo run -p agentir-cli --bin agentir < examples/backend_rejected_reduce.jsonl
+cargo run -p agentir-cli --bin agentir < examples/cpu_saxpy.jsonl
+cargo run -p agentir-cli --bin agentir < examples/cpu_scalar_elementwise.jsonl
+cargo run -p agentir-cli --bin agentir < examples/cpu_rejected_reduction.jsonl
+cargo run -p agentir-cli --bin agentir < examples/cpu_malformed_input.jsonl
+cargo run -p agentir-cli --bin agentir < examples/cpu_archive_roundtrip.jsonl
+cargo run -p agentir-protocol --example stage8a_study -- --output target/stage8a-study/run-1
+cargo run -p agentir-protocol --example stage8a_study -- --output target/stage8a-study/run-2
+cargo run -p agentir-protocol --example stage8a_compare -- target/stage8a-study/run-1 target/stage8a-study/run-2
 cargo run --release -p agentir-protocol --example baseline
 cargo run -p agentir-eval -- < examples/eval_free_saxpy.jsonl
 cargo run -p agentir-eval -- < examples/eval_compare_policies.jsonl

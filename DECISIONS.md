@@ -789,3 +789,34 @@ Potential persistent references inside generic semantic attributes are rejected 
 The WebGPU executor, device discovery and physical recovery path remain supported optional compatibility surfaces, but they are not exercised by the default strategy and do not block Stage 8 scope. This readiness change does not alter compiler semantics, proof frontiers, workspace archive v1–v9, evaluation archive v1–v8, `HardwareMeasurementRecord` v1, or any Stage 6/7 hash domain.
 
 Offline closure proves deterministic orchestration and contract integrity only. It does not prove physical execution behavior, performance superiority, portability, statistical significance, exactly-once hardware execution, compiler correctness, or global optimality. Requiring hardware again needs a new explicit ADR and acceptance gate.
+
+## ADR-181: Stage 8A adds a portable scalar CPU artifact and archive v10
+
+**Decision.** Stage 8A introduces the immutable compiler-owned
+`cpu_scalar_v1` TargetManifest under a new CPU target hash domain and one
+separately domain-separated versioned CPU artifact. A trusted compiler lowers a
+proved serial ScheduleIR revision into bounded scalar bytecode for the minimal
+one-dimensional f32 elementwise subset. A safe interpreter validates the
+package, runtime names, types, dimensions, anchors and checked size/index
+arithmetic before executing it. Clients can select retained IDs and provide
+runtime inputs, but cannot submit bytecode, bindings, execution plans, hashes,
+results, success claims or certificates.
+
+`CpuArtifactEquivalentToSchedule` is compiler-owned structural evidence.
+Offline package validation establishes structure; CPU execution results and
+counters are non-correctness observations. Runtime limits, inputs, counters,
+timings and machine metadata enter no compiler or artifact identity. The CPU
+artifact hash is independent from WGSL `artifact_hash` and every Stage 1-7
+contract.
+
+CPU packages are persisted in workspace archive v10. V1-v9 remain immutable
+legacy inputs; v9 migrates explicitly by adding an empty CPU artifact store and
+inventing no package. Replay and archive verification perform zero bytecode
+execution. Existing WebGPU BackendIR, WGSL packages, hashes, fixtures and
+optional runtime remain unchanged.
+
+Stage 8A deliberately excludes JIT, LLVM, MLIR, native code generation, native
+ABI, dynamic libraries, external processes, raw pointers, `unsafe`, threads,
+SIMD, GPU work, autotuning and performance ranking. Real CPU timing records and
+Stage 7 measurement/recommendation integration require a separate Stage 8B
+contract.

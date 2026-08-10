@@ -92,6 +92,9 @@
 - **Campaign checkpoint** — exact zero-device restart snapshot carrying campaign and current Stage 7A–7D anchors.
 - **Campaign result** — non-authoritative final recommendation record; it neither publishes an artifact nor advances correctness.
 - **Stage 7 closure gate** — deterministic multi-artifact production replay, labelled synthetic lifecycle/recovery evidence, zero-device replay, archive verification and the full offline workspace gate; physical GPU execution is optional compatibility evidence.
+- **CPU scalar target** — immutable `cpu_scalar_v1` TargetManifest for deterministic serial rank-one f32 execution; it is distinct from GPU profiles and device discovery.
+- **CPU artifact** — compiler-owned portable scalar bytecode package anchored directly to one proved ScheduleIR revision and identified by `cpu_artifact_hash`.
+- **CPU execution observation** — deterministic element/instruction counters returned by the safe interpreter; it contains no timing and has no correctness authority.
 - **Acquisition slot** — one complete benchmark/publication unit; checkpoint and cancellation occur only between slots.
 - **Acquisition checkpoint** — independently hashed completed-prefix snapshot whose device/build/runtime/record anchors are revalidated before resume.
 - **Acquisition result** — non-correctness terminal orchestration record; it is not a cohort, recommendation or performance proof.

@@ -1,0 +1,15 @@
+[package]
+name = "agentir-backend-cpu"
+description = "Deterministic portable scalar CPU lowering and execution for AgentIR"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+agentir-core = { path = "../agentir-core" }
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

@@ -19,7 +19,7 @@ struct ArchiveBody<'a> {
     format: &'a str,
     format_version: u32,
     compiler_version: &'a str,
-    snapshot: &'a agentir_core::persistence::WorkspaceSnapshot,
+    snapshot: &'a agentir_core::persistence::LegacyWorkspaceSnapshotV9,
 }
 
 fn body_hash(archive: &WorkspaceArchiveV9) -> String {

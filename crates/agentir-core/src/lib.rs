@@ -15,6 +15,7 @@ pub mod candidate;
 pub mod canonical;
 pub mod constraints;
 pub mod continuation;
+pub mod cpu;
 pub mod diagnostics;
 pub mod equality;
 pub mod holes;
