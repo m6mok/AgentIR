@@ -1,0 +1,4 @@
+{"command":"workspace.open","request_id":"open","workspace":"w1"}
+{"command":"cpu_measurement.acquire","request_id":"malformed","workspace":"w1","cpu_artifact":"cpuart-client","expected_cpu_artifact_hash":"client","config":{"format_version":1,"warmups":0,"iterations":0,"aggregation":"ordered_integer_ns_v1"},"inputs":{}}
+{"command":"cpu_measurement.acquire","request_id":"over-limit","workspace":"w1","cpu_artifact":"cpuart-client","expected_cpu_artifact_hash":"client","config":{"format_version":1,"warmups":4294967295,"iterations":4294967295,"aggregation":"ordered_integer_ns_v1"},"inputs":{}}
+{"command":"cpu_measurement.list","request_id":"list","workspace":"w1"}

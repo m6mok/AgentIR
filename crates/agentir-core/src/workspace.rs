@@ -22,6 +22,10 @@ use crate::{
         CpuArtifactCheckReport, CpuArtifactDraft, CpuArtifactPackage, CpuArtifactQuery,
         CpuArtifactStore, verify_cpu_artifact,
     },
+    cpu_measurement::{
+        CPU_MEASUREMENT_EVENT_SEMANTICS_VERSION, CpuMeasurementDraft, CpuMeasurementRecord,
+        CpuMeasurementStore, verify_cpu_measurement,
+    },
     diagnostics::{AgentError, AgentResult, ErrorCode},
     equality::{
         EQUALITY_SEMANTICS_VERSION, EqualityContinuation, EqualityDischargeResult, EqualityEvent,
@@ -31,10 +35,10 @@ use crate::{
     holes::{ExpectedEffects, Hole, HoleStatus},
     ids::{
         ActionId, ArtifactId, BackendPlanId, BackendRevisionId, BufferId, CandidateId,
-        CandidateRevisionId, CpuArtifactId, EqualityNodeId, EqualityRevisionId, EqualitySpaceId,
-        HoleId, IdAllocator, MemoryPlanId, MemoryRevisionId, ObligationId, ProposalId, RevisionId,
-        ScheduleAxisId, SchedulePlanId, ScheduleRevisionId, TargetManifestId,
-        TargetManifestRevisionId, ValueId, WorkspaceId,
+        CandidateRevisionId, CpuArtifactId, CpuMeasurementId, EqualityNodeId, EqualityRevisionId,
+        EqualitySpaceId, HoleId, IdAllocator, MemoryPlanId, MemoryRevisionId, ObligationId,
+        ProposalId, RevisionId, ScheduleAxisId, SchedulePlanId, ScheduleRevisionId,
+        TargetManifestId, TargetManifestRevisionId, ValueId, WorkspaceId,
     },
     ir::{
         BlockArgument, ConstantValue, Dimension, Opcode, Operation, Program, Region,
@@ -806,6 +810,7 @@ pub struct Workspace {
     artifacts: ArtifactStore,
     measurements: MeasurementStore,
     cpu_artifacts: CpuArtifactStore,
+    cpu_measurements: CpuMeasurementStore,
     limits: ResourceLimits,
 }
 
@@ -846,6 +851,7 @@ impl Workspace {
             artifacts: ArtifactStore::default(),
             measurements: MeasurementStore::default(),
             cpu_artifacts: CpuArtifactStore::default(),
+            cpu_measurements: CpuMeasurementStore::default(),
             limits,
         })
     }
@@ -919,6 +925,12 @@ impl Workspace {
     #[must_use]
     pub const fn cpu_artifact_store(&self) -> &CpuArtifactStore {
         &self.cpu_artifacts
+    }
+
+    /// Returns separate bounded CPU timing observations.
+    #[must_use]
+    pub const fn cpu_measurement_store(&self) -> &CpuMeasurementStore {
+        &self.cpu_measurements
     }
 
     /// Returns the current head revision ID.
@@ -3135,6 +3147,60 @@ impl Workspace {
         self.cpu_artifacts.check(artifact)
     }
 
+    /// Atomically publishes one runtime-created Stage 8B observation after rechecking its artifact.
+    pub fn cpu_measurement_publish(
+        &mut self,
+        draft: CpuMeasurementDraft,
+    ) -> AgentResult<CpuMeasurementRecord> {
+        crate::cpu_measurement::validate_cpu_benchmark_config(&draft.config, &self.limits)?;
+        self.cpu_artifact_check(&draft.cpu_artifact)?;
+        BudgetCheck::against(
+            &self.limits,
+            ResourceKind::BenchmarkRecords,
+            as_u64(self.cpu_measurements.records.len()).saturating_add(1),
+            "CPU measurement publication",
+        )?;
+        let mut staged = self.cpu_measurements.clone();
+        let record = staged.publish(
+            &self.cpu_artifacts,
+            draft,
+            as_u64(self.cpu_artifacts.events.len()),
+        )?;
+        let encoded = serde_json::to_vec(&record).map_err(|error| {
+            AgentError::new(ErrorCode::CpuMeasurementHashMismatch, error.to_string())
+        })?;
+        BudgetCheck::against(
+            &self.limits,
+            ResourceKind::BenchmarkRecordBytes,
+            as_u64(encoded.len()),
+            "CPU measurement publication",
+        )?;
+        self.cpu_measurements = staged;
+        Ok(record)
+    }
+
+    /// Lists retained Stage 8B observations without execution or clock access.
+    #[must_use]
+    pub fn cpu_measurement_list(&self) -> Vec<CpuMeasurementRecord> {
+        self.cpu_measurements.list()
+    }
+
+    /// Reads one retained Stage 8B observation without execution or clock access.
+    pub fn cpu_measurement_query(
+        &self,
+        id: &CpuMeasurementId,
+    ) -> AgentResult<&CpuMeasurementRecord> {
+        self.cpu_measurements.query(id)
+    }
+
+    /// Structurally rechecks one Stage 8B observation without execution or clock access.
+    pub fn cpu_measurement_check(
+        &self,
+        id: &CpuMeasurementId,
+    ) -> AgentResult<CpuMeasurementRecord> {
+        self.cpu_measurements.check(id, &self.cpu_artifacts)
+    }
+
     /// Reads one completed confidence-only hardware measurement.
     pub fn measurement_query(
         &self,
@@ -3721,6 +3787,7 @@ impl Workspace {
         expected_artifacts: &ArtifactStore,
         expected_measurements: &MeasurementStore,
         expected_cpu_artifacts: &CpuArtifactStore,
+        expected_cpu_measurements: &CpuMeasurementStore,
     ) -> AgentResult<()> {
         let mut candidate_cursor = 0_usize;
         for equality_event in &expected_equality.events {
@@ -4232,10 +4299,48 @@ impl Workspace {
                 "CPU artifact event log does not reproduce CpuArtifactStore",
             ));
         }
+        let mut artifact_cursor = 0_u64;
+        let mut measurement_ids = BTreeSet::new();
+        for (index, event) in expected_cpu_measurements.events.iter().enumerate() {
+            let record = &event.event.record;
+            let expected_id = CpuMeasurementId::new(format!("cpum{}", index + 1));
+            if event.semantics_version != CPU_MEASUREMENT_EVENT_SEMANTICS_VERSION
+                || event.event.cpu_artifact_event_cursor < artifact_cursor
+                || event.event.cpu_artifact_event_cursor
+                    > expected_cpu_artifacts.events.len() as u64
+                || !expected_cpu_artifacts.events
+                    [..usize::try_from(event.event.cpu_artifact_event_cursor).unwrap_or(0)]
+                    .iter()
+                    .any(|artifact_event| artifact_event.event.package.id == record.cpu_artifact)
+                || !measurement_ids.insert(record.id.clone())
+                || record.id != expected_id
+                || expected_cpu_measurements.records.get(&record.id) != Some(record)
+            {
+                return Err(AgentError::new(
+                    ErrorCode::CpuMeasurementEventOrderInvalid,
+                    "CPU measurement event provenance, ordering, or identity is invalid",
+                ));
+            }
+            verify_cpu_measurement(
+                record,
+                expected_cpu_artifacts.package(&record.cpu_artifact)?,
+            )?;
+            artifact_cursor = event.event.cpu_artifact_event_cursor;
+        }
+        if measurement_ids != expected_cpu_measurements.records.keys().cloned().collect()
+            || expected_cpu_measurements.next_id
+                != u64::try_from(expected_cpu_measurements.records.len()).unwrap_or(u64::MAX)
+        {
+            return Err(AgentError::new(
+                ErrorCode::CpuMeasurementEventOrderInvalid,
+                "CPU measurement event log or allocator does not reproduce the store",
+            ));
+        }
         self.backends = expected_backends.clone();
         self.artifacts = expected_artifacts.clone();
         self.measurements = expected_measurements.clone();
         self.cpu_artifacts = expected_cpu_artifacts.clone();
+        self.cpu_measurements = expected_cpu_measurements.clone();
         Ok(())
     }
 
@@ -4258,6 +4363,7 @@ impl Workspace {
             artifact_store: self.artifacts.clone(),
             measurement_store: self.measurements.clone(),
             cpu_artifact_store: self.cpu_artifacts.clone(),
+            cpu_measurement_store: self.cpu_measurements.clone(),
         }
     }
 
@@ -4351,6 +4457,12 @@ impl Workspace {
             ResourceKind::ArtifactPackages,
             as_u64(snapshot.cpu_artifact_store.packages.len()),
             "CPU artifact snapshot replay preflight",
+        )?;
+        BudgetCheck::against(
+            &ResourceLimits::hard_safety_caps(),
+            ResourceKind::BenchmarkRecords,
+            as_u64(snapshot.cpu_measurement_store.records.len()),
+            "CPU measurement snapshot replay preflight",
         )?;
         let replay_actions = snapshot.events.iter().fold(0_u64, |total, versioned| {
             total.saturating_add(match &versioned.event {
@@ -4571,6 +4683,7 @@ impl Workspace {
             &snapshot.artifact_store,
             &snapshot.measurement_store,
             &snapshot.cpu_artifact_store,
+            &snapshot.cpu_measurement_store,
         )?;
         replayed.validate_target_budgets(&snapshot.target_store)?;
         replayed.validate_schedule_budgets(&snapshot.schedule_store)?;
@@ -4602,6 +4715,8 @@ impl Workspace {
             measurement_events_replayed: snapshot.measurement_store.events.len(),
             cpu_artifacts_verified: snapshot.cpu_artifact_store.packages.len(),
             cpu_artifact_events_replayed: snapshot.cpu_artifact_store.events.len(),
+            cpu_measurements_verified: snapshot.cpu_measurement_store.records.len(),
+            cpu_measurement_events_replayed: snapshot.cpu_measurement_store.events.len(),
         };
         replayed.revisions = snapshot.revisions;
         replayed.head = snapshot.head;
@@ -4616,6 +4731,7 @@ impl Workspace {
         replayed.artifacts = snapshot.artifact_store;
         replayed.measurements = snapshot.measurement_store;
         replayed.cpu_artifacts = snapshot.cpu_artifact_store;
+        replayed.cpu_measurements = snapshot.cpu_measurement_store;
         replayed.limits = ResourceLimits::default();
         Ok((replayed, report))
     }

@@ -22,3 +22,5 @@ EquivalentToSchedule
 ```
 
 The compiler-owned CPU certificate binds the exact Stage 1–4 anchor chain, serial schedule coverage, typed rank-one f32 ABI, ordered scalar bytecode lowering, bounds validation, validator version, and `cpu_artifact_hash`. Safe interpreter execution and comparison with the reference evaluator are confidence observations; neither advances the proof frontier. Archive v10 replay structurally verifies every retained CPU package and event without executing bytecode or acquiring hardware.
+
+Stage 8B measurement does not change this frontier. Archive v11 structurally checks frozen measurement provenance, raw samples, aggregates, input/output anchors, hashes, and event cursors without execution or clock reads. A valid record remains an observation: it proves no correctness, speedup, significance, portability, superiority, or global optimum, and timing cannot select or publish a live artifact.

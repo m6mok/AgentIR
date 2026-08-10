@@ -34,6 +34,7 @@ crates/agentir-eval       CPU reference semantics
 crates/agentir-store      versioned archive I/O and replay verification
 crates/agentir-backend-wgsl deterministic BackendIR/WGSL compiler and offline validator
 crates/agentir-backend-cpu deterministic ScheduleIR-to-portable-bytecode lowering and safe CPU interpreter
+crates/agentir-runtime-cpu bounded monotonic timing and output-consistency orchestration over CPU packages
 crates/agentir-runtime-wgpu optional WebGPU discovery, execution and measurements
 crates/agentir-protocol   wire requests, responses, workspace registry
 crates/agentir-cli        stdin/stdout JSONL process
@@ -85,6 +86,11 @@ cargo run -p agentir-cli --bin agentir < examples/cpu_scalar_elementwise.jsonl
 cargo run -p agentir-cli --bin agentir < examples/cpu_rejected_reduction.jsonl
 cargo run -p agentir-cli --bin agentir < examples/cpu_malformed_input.jsonl
 cargo run -p agentir-cli --bin agentir < examples/cpu_archive_roundtrip.jsonl
+cargo run -p agentir-cli --bin agentir < examples/cpu_measurement_saxpy.jsonl
+cargo run -p agentir-cli --bin agentir < examples/cpu_measurement_scalar_elementwise.jsonl
+cargo run -p agentir-cli --bin agentir < examples/cpu_measurement_rejected_timing.jsonl
+cargo run -p agentir-cli --bin agentir < examples/cpu_measurement_malformed_config.jsonl
+cargo run -p agentir-cli --bin agentir < examples/cpu_measurement_archive_roundtrip.jsonl
 cargo run -p agentir-protocol --example stage8a_study -- --output target/stage8a-study/run-1
 cargo run -p agentir-protocol --example stage8a_study -- --output target/stage8a-study/run-2
 cargo run -p agentir-protocol --example stage8a_compare -- target/stage8a-study/run-1 target/stage8a-study/run-2

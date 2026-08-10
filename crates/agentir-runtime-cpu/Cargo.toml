@@ -1,0 +1,15 @@
+[package]
+name = "agentir-runtime-cpu"
+description = "Bounded CPU measurement runtime for compiler-published AgentIR artifacts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+agentir-core = { path = "../agentir-core" }
+agentir-backend-cpu = { path = "../agentir-backend-cpu" }
+serde_json.workspace = true
+
+[lints]
+workspace = true

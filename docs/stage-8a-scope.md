@@ -36,4 +36,5 @@ Stage 8A contains no JIT, LLVM, MLIR, native code generation, native ABI,
 dynamic libraries, external processes, raw pointers, `unsafe`, threads, SIMD,
 GPU work, autotuning or performance selection. Existing WebGPU/WGSL emission
 and optional execution remain unchanged compatibility paths. Real CPU timing
-measurements and Stage 7 measured recommendations are reserved for Stage 8B.
+is layered separately by [Stage 8B](stage-8b-scope.md), which does not alter
+this artifact or correctness contract; measured recommendations remain out of scope.

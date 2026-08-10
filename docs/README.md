@@ -12,6 +12,7 @@ Start with the root [README](../README.md), then choose the document matching th
 - [Stage 4 scope](stage-4-scope.md) — exact scheduling completion and backend boundary.
 - [Stage 5 scope](stage-5-scope.md) — typed BackendIR, deterministic WGSL artifacts and optional WebGPU execution.
 - [Stage 8A scope](stage-8a-scope.md) — deterministic portable scalar CPU packages and safe execution without timing claims.
+- [Stage 8B scope](stage-8b-scope.md) — bounded CPU timing records, independent identities, zero-execution replay and archive v11.
 - [Stage 6A scope](stage-6a-scope.md) — reproducible policy evaluation without ranking or autotuning.
 - [Stage 6B scope](stage-6b-scope.md) — reproducible policy-owned ranking without tuning.
 - [Stage 6B compatibility audit](stage-6b-compatibility-audit.md) — frozen Stage 1–6A contracts and new domains.
@@ -53,7 +54,8 @@ Start with the root [README](../README.md), then choose the document matching th
 - [WGSL backend](wgsl-backend.md) — supported WebGPU/WGSL v1 subset and offline validation.
 - [Artifact format](artifact-format.md) — portable deterministic package wire contract.
 - [Artifact correctness](artifact-correctness.md) — compiler-owned backend and emission proof relations.
-- [CPU artifact runtime](stage-8a-scope.md) — `cpu_scalar_v1`, portable bytecode, exact interpreter semantics and archive v10.
+- [CPU artifact runtime](stage-8a-scope.md) — `cpu_scalar_v1`, portable bytecode and exact interpreter semantics.
+- [CPU measurement runtime](stage-8b-scope.md) — bounded timing over published packages and archive v11.
 - [WebGPU runtime](webgpu-runtime.md) — optional device discovery, execution and structured failure.
 - [Device fingerprints](device-fingerprints.md) — runtime provenance separated from target and correctness hashes.
 - [Hardware benchmarking](hardware-benchmarking.md) — bounded confidence-only device measurements.

@@ -12,7 +12,7 @@ AgentIR is an agent-native compiler prototype. Preserve these invariants in ever
 6. Serialization and traversal order must remain deterministic.
 7. Stage 1 stays transport-independent and contains no GPU/LLVM/MLIR integration.
 8. `content_hash`, `spec_hash`, `impl_hash`, `proposal_hash`, `candidate_hash`, `equality_hash`, `memory_hash`, and `archive_hash` are distinct contracts and must never be substituted.
-9. Archive v1/v2/v3/v4/v5/v6/v7/v8/v9 are immutable legacy inputs; new saves use v10 and old archives cross explicit migration steps.
+9. Archive v1/v2/v3/v4/v5/v6/v7/v8/v9/v10 are immutable legacy inputs; new saves use v11 and old archives cross explicit migration steps.
 10. Event compiler semantics and archive format versions are independent compatibility contracts.
 11. Resource limits never participate in any semantic, candidate, equality, memory, or archive hash contract.
 12. ImplIR is a separate typed graph anchored to one frozen `spec_hash`.
@@ -72,7 +72,10 @@ AgentIR is an agent-native compiler prototype. Preserve these invariants in ever
 66. Stage 8A CPU execution uses a separate immutable `cpu_scalar_v1` target and compiler-owned portable scalar package anchored to one proved ScheduleIR revision; CPU source, bytecode, bindings, guards and certificates are never client supplied.
 67. `cpu_artifact_hash` and the CPU compiler-build hash are distinct from `backend_hash`, WGSL `artifact_hash`, device, measurement, evaluation and archive hashes; execution inputs, resource policy, counters and timing never enter CPU artifact identity.
 68. CPU execution is safe, bounded and deterministic but never proof evidence, benchmarking, performance ranking or Stage 8B timing.
-69. Workspace archive v1/v2/v3/v4/v5/v6/v7/v8/v9 are immutable legacy inputs; new saves use v10 and migrate only through explicit v9→v10 without invented CPU package or execution history.
+69. Workspace archive v1/v2/v3/v4/v5/v6/v7/v8/v9 are immutable legacy inputs; Stage 8A saves used v10 and migrate only through explicit v9→v10 without invented CPU package or execution history.
+70. Stage 8B CPU measurements are bounded non-correctness observations over unchanged compiler-published CPU packages; only acquisition may execute or read a clock.
+71. `cpu_benchmark_config_hash`, `cpu_input_hash`, `cpu_host_fingerprint_hash`, `cpu_measurement_hash`, and the output anchor are independent contracts excluding resource policy and store-local IDs.
+72. Workspace archive v1–v10 are immutable legacy inputs; new saves use v11 and v10→v11 adds only an empty CPU measurement store.
 
 ## Where to look before changing code
 
@@ -161,6 +164,11 @@ cargo run -p agentir-cli --bin agentir < examples/cpu_scalar_elementwise.jsonl
 cargo run -p agentir-cli --bin agentir < examples/cpu_rejected_reduction.jsonl
 cargo run -p agentir-cli --bin agentir < examples/cpu_malformed_input.jsonl
 cargo run -p agentir-cli --bin agentir < examples/cpu_archive_roundtrip.jsonl
+cargo run -p agentir-cli --bin agentir < examples/cpu_measurement_saxpy.jsonl
+cargo run -p agentir-cli --bin agentir < examples/cpu_measurement_scalar_elementwise.jsonl
+cargo run -p agentir-cli --bin agentir < examples/cpu_measurement_rejected_timing.jsonl
+cargo run -p agentir-cli --bin agentir < examples/cpu_measurement_malformed_config.jsonl
+cargo run -p agentir-cli --bin agentir < examples/cpu_measurement_archive_roundtrip.jsonl
 cargo run -p agentir-protocol --example stage8a_study -- --output target/stage8a-study/run-1
 cargo run -p agentir-protocol --example stage8a_study -- --output target/stage8a-study/run-2
 cargo run -p agentir-protocol --example stage8a_compare -- target/stage8a-study/run-1 target/stage8a-study/run-2

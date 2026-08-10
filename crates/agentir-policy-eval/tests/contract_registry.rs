@@ -34,7 +34,7 @@ fn registry_documents_current_archives_and_every_migration_edge() {
     assert!(
         families
             .iter()
-            .any(|family| family["name"] == "workspace" && family["current"] == 10)
+            .any(|family| family["name"] == "workspace" && family["current"] == 11)
     );
     assert!(
         families
@@ -47,7 +47,7 @@ fn registry_documents_current_archives_and_every_migration_edge() {
         .iter()
         .map(|edge| edge.as_str().unwrap())
         .collect::<BTreeSet<_>>();
-    for version in 1..10 {
+    for version in 1..11 {
         assert!(edges.contains(format!("workspace:{version}->{}", version + 1).as_str()));
     }
     assert!(edges.contains("evaluation:1->2"));

@@ -7,13 +7,14 @@ use agentir_core::{
     candidate::{CandidateAction, ProposedImplFragment, RelationKind},
     continuation::InteractionMode,
     cpu::CpuArtifactHash,
+    cpu_measurement::CpuBenchmarkConfig,
     equality::EqualityHash,
     ids::{
         ArtifactId, BackendPlanId, BackendRevisionId, BufferId, CandidateId, CandidateRevisionId,
-        CpuArtifactId, EqualityNodeId, EqualityRevisionId, EqualitySpaceId, HoleId,
-        ImplOperationId, MeasurementId, MemoryGuardId, MemoryPlanId, MemoryRevisionId, ProposalId,
-        RevisionId, ScheduleAxisId, SchedulePlanId, ScheduleRevisionId, TargetManifestId,
-        TargetManifestRevisionId, WorkspaceId,
+        CpuArtifactId, CpuMeasurementId, EqualityNodeId, EqualityRevisionId, EqualitySpaceId,
+        HoleId, ImplOperationId, MeasurementId, MemoryGuardId, MemoryPlanId, MemoryRevisionId,
+        ProposalId, RevisionId, ScheduleAxisId, SchedulePlanId, ScheduleRevisionId,
+        TargetManifestId, TargetManifestRevisionId, WorkspaceId,
     },
     impl_ir::ImplHash,
     memory::{MemoryAction, MemoryHash},
@@ -1074,6 +1075,50 @@ pub enum Request {
         /// Exact runtime scalar/tensor values by compiler-owned binding name.
         inputs: BTreeMap<String, Value>,
     },
+    /// Executes the sole bounded CPU timing acquisition boundary and atomically publishes a record.
+    #[serde(rename = "cpu_measurement.acquire")]
+    CpuMeasurementAcquire {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Compiler-published CPU artifact.
+        cpu_artifact: CpuArtifactId,
+        /// Required exact portable package hash.
+        expected_cpu_artifact_hash: CpuArtifactHash,
+        /// Bounded benchmark configuration.
+        config: CpuBenchmarkConfig,
+        /// Ordinary runtime inputs.
+        inputs: BTreeMap<String, Value>,
+    },
+    /// Lists retained CPU measurements without execution or clock reads.
+    #[serde(rename = "cpu_measurement.list")]
+    CpuMeasurementList {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+    },
+    /// Reads one retained CPU measurement without execution or clock reads.
+    #[serde(rename = "cpu_measurement.query")]
+    CpuMeasurementQuery {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Compiler-assigned measurement ID.
+        cpu_measurement: CpuMeasurementId,
+    },
+    /// Rechecks one retained CPU measurement and exact expected hash without execution or clock reads.
+    #[serde(rename = "cpu_measurement.check")]
+    CpuMeasurementCheck {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Compiler-assigned measurement ID.
+        cpu_measurement: CpuMeasurementId,
+    },
     /// Lists WebGPU adapters against one immutable target contract.
     #[serde(rename = "device.list")]
     DeviceList {
@@ -1232,6 +1277,10 @@ impl Request {
             | Self::CpuArtifactQuery { request_id, .. }
             | Self::CpuArtifactCheck { request_id, .. }
             | Self::CpuArtifactExecute { request_id, .. }
+            | Self::CpuMeasurementAcquire { request_id, .. }
+            | Self::CpuMeasurementList { request_id, .. }
+            | Self::CpuMeasurementQuery { request_id, .. }
+            | Self::CpuMeasurementCheck { request_id, .. }
             | Self::DeviceList { request_id, .. }
             | Self::DeviceQuery { request_id, .. }
             | Self::BenchmarkStart { request_id, .. }

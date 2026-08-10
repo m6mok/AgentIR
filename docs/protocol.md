@@ -78,8 +78,8 @@ An optional `allow_branch: true` explicitly permits a transaction based on a non
 ## Commands
 
 - `workspace.open`: optional `workspace`; returns root `r0`.
-- `workspace.save`: workspace and destination `path`; writes an atomic archive v7.
-- `workspace.load`: archive v1/v2/v3/v4/v5/v6/v7 `path` and optional `replace`; verifies, migrates and replays before inserting.
+- `workspace.save`: workspace and destination `path`; writes an atomic archive v11.
+- `workspace.load`: archive v1–v11 `path` and optional `replace`; verifies, migrates and replays before inserting.
 - `workspace.verify_archive`: verifies checksum and replay without retaining the workspace.
 - `workspace.migrate_archive`: verifies `source_path`, migrates in memory and atomically writes `destination_path`; existing destinations require `overwrite: true`.
 - `spec.apply` and `transaction.apply`: workspace, base revision, actions and optional client transaction ID.
@@ -128,7 +128,7 @@ In a fresh CLI process, restore it:
 
 The result contains archive metadata and a replay report. `replace` defaults to `false`, so an archive cannot silently overwrite an already open workspace with the same ID.
 
-Load responses also contain a migration report. V7 reports `workspace_archive_v7_noop`; v6 reports `workspace_archive_v6_to_v7`; older sources report the explicit suffix of the v1 → v2 → v3 → v4 → v5 → v6 → v7 chain.
+Load responses also contain a migration report. V11 reports `workspace_archive_v11_noop`; v10 reports `workspace_archive_v10_to_v11`; older sources report the explicit suffix of the v1 → … → v10 → v11 chain.
 
 ## Candidate rewrite
 
@@ -192,5 +192,7 @@ Resource limits are policy, not SpecIR. Archive replay uses hard safety caps; no
 `backend.lower`, `backend.query`, `backend.check`, `backend.continuation`, `backend.fork` and `backend.seal` operate on immutable BackendIR plans. `artifact.emit`, `artifact.list`, `artifact.query`, `artifact.check` and `artifact.reference_evaluate` are GPU-independent. `artifact.execute`, `device.list`, `device.query`, and the `benchmark.start/status/cancel/query` family are optional device paths.
 
 `cpu_artifact.emit` accepts only a workspace, schedule plan/revision, and exact expected `schedule_hash`; lowering, bytecode, ABI, bounds checks, IDs, hashes, and certificates remain compiler-owned. `cpu_artifact.list`, `cpu_artifact.query`, and `cpu_artifact.check` are zero-execution structural operations. `cpu_artifact.execute` requires the exact expected `cpu_artifact_hash` plus named JSON inputs and returns named outputs with deterministic work counters. It performs no GPU discovery, timing, benchmarking, proof advancement, or workspace mutation. Unknown client fields such as bytecode, bindings, guards, or certificates are rejected.
+
+`cpu_measurement.acquire` selects one retained CPU artifact with its exact hash, v1 `{warmups, iterations, aggregation}` configuration, and ordinary inputs. It is the only CPU measurement command that executes bytecode or reads a monotonic clock. Runtime-owned samples, aggregates, host fingerprint, outputs, hashes, bytecode, ABI, proof and success fields are rejected. `cpu_measurement.list`, `cpu_measurement.query`, and `cpu_measurement.check` are zero-execution and zero-clock structural operations.
 
 Mutations require explicit source revisions and expected schedule/backend/artifact hashes. Requests accept only IDs, stable enums, runtime inputs and bounded benchmark configuration. Unknown WGSL, BackendIR nodes, bindings, dispatch expressions, guards, target capabilities, certificates, fingerprints or measurement results are rejected by `deny_unknown_fields`.

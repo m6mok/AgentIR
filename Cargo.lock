@@ -65,6 +65,7 @@ dependencies = [
  "agentir-backend-wgsl",
  "agentir-core",
  "agentir-reference-eval",
+ "agentir-runtime-cpu",
  "agentir-runtime-wgpu",
  "agentir-store",
  "serde",
@@ -78,6 +79,15 @@ version = "0.1.0"
 dependencies = [
  "agentir-core",
  "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "agentir-runtime-cpu"
+version = "0.1.0"
+dependencies = [
+ "agentir-backend-cpu",
+ "agentir-core",
  "serde_json",
 ]
 

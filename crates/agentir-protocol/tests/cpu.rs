@@ -298,13 +298,13 @@ fn unsupported_lowering_and_failed_execution_are_atomic() {
 }
 
 #[test]
-fn archive_v10_round_trip_verifies_cpu_packages_without_execution() {
+fn archive_v11_round_trip_verifies_cpu_packages_without_execution() {
     let (mut engine, _) = run(include_str!("../../../examples/cpu_saxpy.jsonl"));
     let path = save_engine(&mut engine, "archive");
     let bytes = std::fs::read(&path).unwrap();
     assert!(!String::from_utf8_lossy(&bytes).contains("instructions_executed"));
     let loaded = load_workspace_bytes(&bytes).unwrap();
-    assert_eq!(loaded.metadata.format_version, 10);
+    assert_eq!(loaded.metadata.format_version, 11);
     assert_eq!(loaded.replay.cpu_artifacts_verified, 1);
     assert_eq!(loaded.replay.cpu_artifact_events_replayed, 1);
     assert_eq!(loaded.workspace.id(), &WorkspaceId::new("w1"));

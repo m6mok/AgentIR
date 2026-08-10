@@ -300,6 +300,18 @@ pub enum ErrorCode {
     CpuExecutionOverflow,
     /// CPU artifact events violate schedule dependency order.
     CpuArtifactEventOrderInvalid,
+    /// CPU benchmark configuration is malformed or exceeds a bounded limit.
+    CpuMeasurementConfigInvalid,
+    /// CPU benchmark checked work or clock arithmetic overflowed.
+    CpuMeasurementOverflow,
+    /// CPU benchmark iterations produced inconsistent outputs.
+    CpuMeasurementOutputMismatch,
+    /// Requested CPU measurement does not exist.
+    CpuMeasurementNotFound,
+    /// CPU measurement hash or a hash-covered anchor is inconsistent.
+    CpuMeasurementHashMismatch,
+    /// CPU measurement events violate CPU-artifact dependency order.
+    CpuMeasurementEventOrderInvalid,
 }
 
 /// Structured compiler error suitable for agent repair loops.

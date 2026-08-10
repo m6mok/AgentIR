@@ -16,6 +16,7 @@ pub mod canonical;
 pub mod constraints;
 pub mod continuation;
 pub mod cpu;
+pub mod cpu_measurement;
 pub mod diagnostics;
 pub mod equality;
 pub mod holes;
@@ -41,8 +42,8 @@ pub mod workspace;
 pub use actions::{Action, Transaction};
 pub use diagnostics::{AgentError, AgentResult, ErrorCode};
 pub use ids::{
-    ArtifactId, BackendPlanId, BackendRevisionId, CandidateId, CandidateRevisionId, HoleId,
-    MemoryPlanId, MemoryRevisionId, ProposalId, RevisionId, SchedulePlanId, ScheduleRevisionId,
-    TargetManifestId, TargetManifestRevisionId, WorkspaceId,
+    ArtifactId, BackendPlanId, BackendRevisionId, CandidateId, CandidateRevisionId,
+    CpuMeasurementId, HoleId, MemoryPlanId, MemoryRevisionId, ProposalId, RevisionId,
+    SchedulePlanId, ScheduleRevisionId, TargetManifestId, TargetManifestRevisionId, WorkspaceId,
 };
 pub use workspace::Workspace;

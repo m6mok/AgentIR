@@ -165,6 +165,14 @@ Stage 7E integrates existing Stage 7A–7D records into a checkpointable campaig
 - workspace archive/snapshot v10 with pure v9→v10 empty-store migration and replay verification without execution;
 - byte-identical two-run Stage 8A study matching the reference evaluator.
 
-Stage 8B timing, native code generation, SIMD/threading, reductions, broader dtype/rank support, host ABI embedding and CPU performance ranking remain future work.
+## Completed Stage 8B: bounded CPU measurement
+
+- separate `agentir-runtime-cpu` boundary for real monotonic timing and unchanged Stage 8A interpreter execution;
+- bounded warmups/iterations, checked projected work, ordered raw nanosecond samples, output consistency, and deterministic integer min/median/p95/max;
+- independent configuration/input/host/output/measurement hashes and append-only `CpuMeasurementStore`;
+- acquire/list/query/check protocol with exactly one execution/clock command and no client-supplied observations;
+- workspace archive/snapshot v11 with pure v10→v11 empty-store migration and zero-execution replay.
+
+Native code generation, SIMD/threading, reductions, broader dtype/rank support, host ABI embedding and CPU/GPU performance ranking remain future work.
 
 Physical GPU qualification, concurrent/remote acquisition, multi-device pooling, new search algorithms, prediction, raw-sample significance, energy records, training during acquisition and live publication are outside the active strategy. Reintroducing a mandatory hardware gate requires a new ADR.

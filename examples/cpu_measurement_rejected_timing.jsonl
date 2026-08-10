@@ -1,0 +1,3 @@
+{"command":"workspace.open","request_id":"open","workspace":"w1"}
+{"command":"cpu_measurement.acquire","request_id":"rejected","workspace":"w1","cpu_artifact":"cpuart-client","expected_cpu_artifact_hash":"client","config":{"format_version":1,"warmups":0,"iterations":1,"aggregation":"ordered_integer_ns_v1"},"inputs":{},"raw_duration_ns":[1],"cpu_host_fingerprint_hash":"spoofed","cpu_measurement_hash":"spoofed"}
+{"command":"cpu_measurement.list","request_id":"list","workspace":"w1"}

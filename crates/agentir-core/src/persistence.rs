@@ -11,6 +11,7 @@ use crate::{
         LEGACY_CANDIDATE_CANONICAL_VERSION, RelationKind, VersionedCandidateEvent,
     },
     cpu::CpuArtifactStore,
+    cpu_measurement::CpuMeasurementStore,
     equality::EqualityStore,
     ids::{
         CandidateId, CandidateObligationId, CandidateRevisionId, EvidenceId, IdAllocator,
@@ -33,7 +34,10 @@ pub const CORE_SEMANTICS_VERSION: u32 = 2;
 pub const LEGACY_CORE_SEMANTICS_VERSION: u32 = 1;
 
 /// Current schema version for compiler-core workspace snapshots.
-pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 10;
+pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 11;
+
+/// Immutable Stage 8A snapshot schema migrated explicitly to v11.
+pub const LEGACY_WORKSPACE_SNAPSHOT_V10_VERSION: u32 = 10;
 
 /// Immutable Stage 5 snapshot schema migrated explicitly to v10.
 pub const LEGACY_WORKSPACE_SNAPSHOT_V9_VERSION: u32 = 9;
@@ -129,6 +133,43 @@ pub struct WorkspaceSnapshot {
     /// Confidence-only hardware measurement records and events.
     pub measurement_store: MeasurementStore,
     /// Deterministic portable CPU packages and dependency-ordered publication events.
+    pub cpu_artifact_store: CpuArtifactStore,
+    /// Separate bounded CPU measurement records and dependency-ordered events.
+    pub cpu_measurement_store: CpuMeasurementStore,
+}
+
+/// Immutable compiler-core snapshot schema embedded in archive format version 10.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LegacyWorkspaceSnapshotV10 {
+    /// Legacy schema discriminator, which must equal ten.
+    pub schema_version: u32,
+    /// Workspace identity.
+    pub workspace: WorkspaceId,
+    /// Current head revision.
+    pub head: RevisionId,
+    /// Immutable revision snapshots.
+    pub revisions: BTreeMap<RevisionId, Revision>,
+    /// Compiler ID counters.
+    pub allocator: IdAllocator,
+    /// Ordered SpecIR history.
+    pub events: Vec<VersionedWorkspaceEvent>,
+    /// Stage 2 candidate state.
+    pub candidate_forest: CandidateForest,
+    /// Stage 2C equality state.
+    pub equality_store: EqualityStore,
+    /// Stage 3 MemoryIR state.
+    pub memory_store: MemoryPlanStore,
+    /// Stage 4 target state.
+    pub target_store: TargetManifestStore,
+    /// Stage 4 schedule state.
+    pub schedule_store: SchedulePlanStore,
+    /// Stage 5 backend state.
+    pub backend_store: BackendStore,
+    /// Stage 5 WGSL artifact state.
+    pub artifact_store: ArtifactStore,
+    /// Stage 5 hardware measurement state.
+    pub measurement_store: MeasurementStore,
+    /// Stage 8A CPU artifact state.
     pub cpu_artifact_store: CpuArtifactStore,
 }
 
@@ -982,13 +1023,45 @@ pub fn migrate_snapshot_v8(
 /// Purely migrates immutable snapshot schema v9 to v10 with an empty CPU artifact store.
 pub fn migrate_snapshot_v9(
     snapshot: LegacyWorkspaceSnapshotV9,
-) -> crate::AgentResult<WorkspaceSnapshot> {
+) -> crate::AgentResult<LegacyWorkspaceSnapshotV10> {
     if snapshot.schema_version != LEGACY_WORKSPACE_SNAPSHOT_V9_VERSION {
         return Err(crate::AgentError::new(
             crate::ErrorCode::PersistenceFormat,
             format!(
                 "legacy workspace snapshot version {} is unsupported; expected {}",
                 snapshot.schema_version, LEGACY_WORKSPACE_SNAPSHOT_V9_VERSION
+            ),
+        ));
+    }
+    Ok(LegacyWorkspaceSnapshotV10 {
+        schema_version: LEGACY_WORKSPACE_SNAPSHOT_V10_VERSION,
+        workspace: snapshot.workspace,
+        head: snapshot.head,
+        revisions: snapshot.revisions,
+        allocator: snapshot.allocator,
+        events: snapshot.events,
+        candidate_forest: snapshot.candidate_forest,
+        equality_store: snapshot.equality_store,
+        memory_store: snapshot.memory_store,
+        target_store: snapshot.target_store,
+        schedule_store: snapshot.schedule_store,
+        backend_store: snapshot.backend_store,
+        artifact_store: snapshot.artifact_store,
+        measurement_store: snapshot.measurement_store,
+        cpu_artifact_store: CpuArtifactStore::default(),
+    })
+}
+
+/// Purely migrates immutable snapshot schema v10 to v11 with an empty CPU measurement store.
+pub fn migrate_snapshot_v10(
+    snapshot: LegacyWorkspaceSnapshotV10,
+) -> crate::AgentResult<WorkspaceSnapshot> {
+    if snapshot.schema_version != LEGACY_WORKSPACE_SNAPSHOT_V10_VERSION {
+        return Err(crate::AgentError::new(
+            crate::ErrorCode::PersistenceFormat,
+            format!(
+                "legacy workspace snapshot version {} is unsupported; expected {}",
+                snapshot.schema_version, LEGACY_WORKSPACE_SNAPSHOT_V10_VERSION
             ),
         ));
     }
@@ -1007,7 +1080,8 @@ pub fn migrate_snapshot_v9(
         backend_store: snapshot.backend_store,
         artifact_store: snapshot.artifact_store,
         measurement_store: snapshot.measurement_store,
-        cpu_artifact_store: CpuArtifactStore::default(),
+        cpu_artifact_store: snapshot.cpu_artifact_store,
+        cpu_measurement_store: CpuMeasurementStore::default(),
     })
 }
 
@@ -1064,4 +1138,8 @@ pub struct ReplayReport {
     pub cpu_artifacts_verified: usize,
     /// Number of CPU artifact publication events replayed without execution.
     pub cpu_artifact_events_replayed: usize,
+    /// Number of CPU timing observations structurally verified without execution or clock reads.
+    pub cpu_measurements_verified: usize,
+    /// Number of CPU measurement events replayed without execution or clock reads.
+    pub cpu_measurement_events_replayed: usize,
 }

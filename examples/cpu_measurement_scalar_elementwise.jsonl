@@ -1,0 +1,9 @@
+{"command":"workspace.open","request_id":"open","workspace":"w1"}
+{"command":"spec.apply","request_id":"build","workspace":"w1","base_revision":"r0","actions":[{"kind":"define_dimension","bind":"$N","name":"N","constraints":["N >= 0"]},{"kind":"create_parameter","bind":"$x","name":"x","type":"tensor<f32,[$N]>"},{"kind":"create_constant","bind":"$two","type":"f32","value":2.0},{"kind":"create_op","bind":"$out","opcode":"map","operands":["$x"],"region":{"arguments":[{"name":"xi","type":"f32"}],"captures":["$two"],"operations":[{"bind":"$result","opcode":"mul","operands":["xi","$two"]}],"yield_value":"$result"}},{"kind":"set_output","name":"out","value":"$out"}]}
+{"command":"spec.freeze","request_id":"freeze","workspace":"w1","base_revision":"r1"}
+{"command":"candidate.create","request_id":"candidate","workspace":"w1","spec_revision":"r2"}
+{"command":"memory.create","request_id":"memory","workspace":"w1","candidate":"c1","candidate_revision":"cr1"}
+{"command":"target.create","request_id":"target","workspace":"w1","profile":"cpu_scalar_v1"}
+{"command":"schedule.create","request_id":"schedule","workspace":"w1","memory_plan":"mp1","memory_revision":"mr1","target_manifest":"tm1","target_revision":"tmr1"}
+{"command":"cpu_artifact.emit","request_id":"emit","workspace":"w1","schedule_plan":"sp1","schedule_revision":"sr1","expected_schedule_hash":"55d6f10aaafac901cc81ed1f18858c43b0cfdf2c1547fca041a233daf1372a1e"}
+{"command":"cpu_measurement.acquire","request_id":"acquire","workspace":"w1","cpu_artifact":"cpuart-c6572dc6ab61af87","expected_cpu_artifact_hash":"c6572dc6ab61af87fe85bbaba71dc0667d7f93e8315d838b48553ac7498a0e2c","config":{"format_version":1,"warmups":1,"iterations":3,"aggregation":"ordered_integer_ns_v1"},"inputs":{"x":[1.0,2.0,3.0,4.0]}}

@@ -42,7 +42,7 @@
 **memory_hash** — exact history-sensitive identity of one typed MemoryIR revision, distinct from all SpecIR, candidate, equality and archive hashes.
 
 - **ActionIR** — typed algebra of graph edits submitted by an agent.
-- **Archive** — checksummed versioned workspace encoding; v1/v2/v3/v4/v5/v6 are immutable legacy inputs and v7 is current.
+- **Archive** — checksummed versioned workspace encoding; v1–v10 are immutable legacy inputs and v11 is current.
 - **Archive hash** — version-specific integrity hash of a concrete archive body.
 - **Canonical state** — deterministic serialized `Program` used for the history-sensitive `content_hash` and replay.
 - **Compiler core** — transport-independent verifier and workspace state machine.
@@ -95,6 +95,8 @@
 - **CPU scalar target** — immutable `cpu_scalar_v1` TargetManifest for deterministic serial rank-one f32 execution; it is distinct from GPU profiles and device discovery.
 - **CPU artifact** — compiler-owned portable scalar bytecode package anchored directly to one proved ScheduleIR revision and identified by `cpu_artifact_hash`.
 - **CPU execution observation** — deterministic element/instruction counters returned by the safe interpreter; it contains no timing and has no correctness authority.
+- **CPU measurement** — bounded Stage 8B observation over one exact compiler-published CPU package, with runtime-owned host provenance, ordered nanosecond samples, deterministic aggregates and an output anchor; never correctness or performance proof.
+- **CpuMeasurementStore** — independent append-only `cpum*` record/event store persisted by workspace archive v11 and replayed without execution or clock reads.
 - **Acquisition slot** — one complete benchmark/publication unit; checkpoint and cancellation occur only between slots.
 - **Acquisition checkpoint** — independently hashed completed-prefix snapshot whose device/build/runtime/record anchors are revalidated before resume.
 - **Acquisition result** — non-correctness terminal orchestration record; it is not a cohort, recommendation or performance proof.

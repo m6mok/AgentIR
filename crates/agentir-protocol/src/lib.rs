@@ -1349,6 +1349,57 @@ impl Engine {
                 )?)
                 .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
             }
+            Request::CpuMeasurementAcquire {
+                workspace,
+                cpu_artifact,
+                expected_cpu_artifact_hash,
+                config,
+                inputs,
+                ..
+            } => {
+                agentir_core::cpu_measurement::validate_cpu_benchmark_config(
+                    &config,
+                    &self.limits,
+                )?;
+                let package = {
+                    let retained = self.workspace(&workspace)?;
+                    retained.cpu_artifact_check(&cpu_artifact)?;
+                    let package = retained.cpu_artifact_package(&cpu_artifact)?;
+                    if package.cpu_artifact_hash != expected_cpu_artifact_hash {
+                        return Err(AgentError::new(ErrorCode::CpuArtifactHashMismatch, "cpu_measurement.acquire expected hash differs from the retained package")
+                            .with_types(expected_cpu_artifact_hash.to_string(), package.cpu_artifact_hash.to_string()));
+                    }
+                    package.clone()
+                };
+                let draft = agentir_runtime_cpu::acquire(&package, config, &inputs, &self.limits)?;
+                serde_json::to_value(
+                    self.workspace_mut(&workspace)?
+                        .cpu_measurement_publish(draft)?,
+                )
+                .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
+            }
+            Request::CpuMeasurementList { workspace, .. } => {
+                serde_json::to_value(self.workspace(&workspace)?.cpu_measurement_list())
+                    .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
+            }
+            Request::CpuMeasurementQuery {
+                workspace,
+                cpu_measurement,
+                ..
+            } => serde_json::to_value(
+                self.workspace(&workspace)?
+                    .cpu_measurement_query(&cpu_measurement)?,
+            )
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
+            Request::CpuMeasurementCheck {
+                workspace,
+                cpu_measurement,
+                ..
+            } => serde_json::to_value(
+                self.workspace(&workspace)?
+                    .cpu_measurement_check(&cpu_measurement)?,
+            )
+            .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string())),
             Request::DeviceList {
                 workspace,
                 target_manifest,

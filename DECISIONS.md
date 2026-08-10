@@ -820,3 +820,11 @@ ABI, dynamic libraries, external processes, raw pointers, `unsafe`, threads,
 SIMD, GPU work, autotuning and performance ranking. Real CPU timing records and
 Stage 7 measurement/recommendation integration require a separate Stage 8B
 contract.
+
+## ADR-182: Stage 8B is bounded CPU observation with archive v11
+
+**Decision.** Stage 8B adds `agentir-runtime-cpu` as the sole monotonic-clock and benchmark-orchestration boundary over unchanged, compiler-published `cpu_scalar_v1` packages. Core owns immutable measurement/config/input/host/output hash contracts, structural validation, an independent `CpuMeasurementStore`, atomic events, and zero-execution replay. The client supplies only an artifact ID and exact artifact hash, bounded v1 configuration, and ordinary inputs; runtime-owned timing, host, aggregates, outputs, hashes, bytecode, ABI, proof and success fields are forbidden.
+
+Only `cpu_measurement.acquire` reads the clock or executes bytecode. All other Stage 8B commands and archive operations are zero-execution. Measurements are non-correctness observations and have no ranking, selection, publication, significance, portability, or performance-proof authority. Resource policy is enforced but excluded from every measurement identity.
+
+New saves use workspace archive/snapshot v11. V1–v10 remain immutable legacy inputs; the sole v10→v11 edge adds an empty CPU measurement store without invented history. Stage 1–8A hashes, CPU bytecode/build identity, WebGPU measurement-record v1, and evaluation archives/contracts remain unchanged.

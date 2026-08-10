@@ -2,7 +2,7 @@
 
 AgentIR — экспериментальная агентно-нативная компиляционная среда для численных вычислений. В ней программа хранится не как исходный текст, а как типизированный граф. Агент меняет граф небольшими атомарными ActionIR-транзакциями, а compiler core выводит типы, проверяет формы и сохраняет каждое принятое состояние как неизменяемую ревизию.
 
-Сейчас репозиторий содержит Stage 7E reference prototype. Поверх exact Stage 1–5 compiler stack и Stage 6A–7D он объединяет bounded search, explicit acquisition, durable crash recovery и offline recommendation в restartable campaign с evaluation archive v8. Это single-workspace/single-writer evaluation contract, а не exactly-once hardware, performance/correctness proof, live publication или global-optimality claim. Полное закрытие Stage 7 всё ещё требует controlled real-device gate.
+Сейчас репозиторий завершает Stage 8B reference prototype. Поверх exact Stage 1–8A compiler/CPU stack он добавляет bounded local timing уже опубликованных `cpu_scalar_v1` packages с отдельными hash-контрактами и workspace archive v11. Это non-correctness observation layer, а не performance/correctness proof, ranking, live publication или global-optimality claim.
 
 ## Что уже работает
 
@@ -18,7 +18,7 @@ AgentIR — экспериментальная агентно-нативная �
 - CPU reference interpreter;
 - компактный deterministic `ConstraintFacts`, который доказывает symbol/static equality и закрывает `ShapeCompatible` obligations;
 - event-level compiler semantics v1/v2 для точного replay исторических транзакций;
-- workspace archive v10, явная migration v1 → v2 → v3 → v4 → v5 → v6 → v7 → v8 → v9 → v10, mixed candidate/equality/memory/target/schedule/backend/WGSL/CPU-artifact replay;
+- workspace archive v11, явная migration v1 → v2 → v3 → v4 → v5 → v6 → v7 → v8 → v9 → v10 → v11, mixed candidate/equality/memory/target/schedule/backend/WGSL/CPU-artifact/CPU-measurement replay;
 - централизованные resource budgets для core, evaluator, store, protocol и CLI;
 - fixed-seed soundness/mutation corpora и statistical benchmark schema v2;
 - stateful JSONL CLI с одним ответом на каждый запрос;
@@ -101,6 +101,7 @@ cargo run -p agentir-cli --bin agentir < examples/equality_to_schedule.jsonl
 - `agentir-eval` — детерминированные semantic и physical reference interpreters;
 - `agentir-backend-wgsl` — deterministic lowering, WGSL package emission и offline Naga validation без device I/O;
 - `agentir-runtime-wgpu` — опциональные adapter/device, upload/dispatch/readback и confidence-only hardware measurements;
+- `agentir-runtime-cpu` — bounded warmup/timing orchestration над неизменными Stage 8A packages; единственная CPU clock boundary;
 - `agentir-store` — atomic file persistence, archive integrity и deterministic replay;
 - `agentir-protocol` — wire types и stateful command engine;
 - `agentir-cli` — тонкий JSONL stdin/stdout frontend.
@@ -142,6 +143,7 @@ Evaluation harness измеряет взаимодействие и policy-owned
 - `artifact_hash` идентифицирует manifest, ABI и exact ordered WGSL bytes;
 - `device_fingerprint_hash` идентифицирует runtime adapter provenance, но не correctness;
 - `measurement_hash` идентифицирует completed confidence-only benchmark record;
+- `cpu_benchmark_config_hash`, `cpu_input_hash`, `cpu_host_fingerprint_hash` и `cpu_measurement_hash` независимо идентифицируют bounded Stage 8B observation;
 - `archive_hash` проверяет конкретный versioned on-disk archive.
 - `corpus_hash`, `policy_hash`, `observation_hash`, `episode_hash`, `evaluation_hash` и evaluation `archive_hash` идентифицируют только Stage 6A экспериментальные данные.
 - `choice_set_hash`, `feature_schema_hash`, `ranking_policy_hash`, `ranking_trace_hash` и `selection_hash` идентифицируют только Stage 6B ranking data.
@@ -150,7 +152,7 @@ Evaluation harness измеряет взаимодействие и policy-owned
 
 ## Roadmap
 
-Stage 7E composes bounded search, explicit acquisition, durable recovery, and offline measured recommendation into a restartable evaluation campaign. Hardware remains behind one explicit execute command; replay and archive verification are zero-device. The controlled real-device closure gate is still required before Stage 8 scope; see [Stage 7 readiness](docs/stage-7-readiness.md) and [the roadmap](docs/roadmap.md).
+Stage 8B adds bounded local CPU timing over compiler-published Stage 8A packages. Only explicit acquisition executes or reads a clock; query/check/archive replay are zero-execution and measurements have no correctness, ranking, or performance-proof authority. See [Stage 8B scope](docs/stage-8b-scope.md) and [the roadmap](docs/roadmap.md).
 
 ## Документация
 
