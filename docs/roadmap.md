@@ -173,6 +173,13 @@ Stage 7E integrates existing Stage 7A–7D records into a checkpointable campaig
 - acquire/list/query/check protocol with exactly one execution/clock command and no client-supplied observations;
 - workspace archive/snapshot v11 with pure v10→v11 empty-store migration and zero-execution replay.
 
+## Completed Stage 8
+
+- Stage 8A publishes structurally proved, deterministic `cpu_scalar_v1` packages from verified ScheduleIR and executes them with the safe bounded interpreter.
+- Stage 8B measures only retained, structurally verified packages through the sole execution/monotonic-clock acquisition boundary; measurements remain non-correctness observations.
+- Stage 8C closes the combined contract with exact SAXPY execution, isolated synthetic clock/execution doubles, artifact/hash stability, atomic rejection, zero-execution query/check/archive replay, corruption rejection, archive v11 round-trip, and pure v10→v11 migration evidence.
+- ADR-183 makes this offline gate authoritative for Stage 8 completion without speed, significance, portability, ranking, recommendation, selection, publication, or global-optimality claims.
+
 Native code generation, SIMD/threading, reductions, broader dtype/rank support, host ABI embedding and CPU/GPU performance ranking remain future work.
 
 Physical GPU qualification, concurrent/remote acquisition, multi-device pooling, new search algorithms, prediction, raw-sample significance, energy records, training during acquisition and live publication are outside the active strategy. Reintroducing a mandatory hardware gate requires a new ADR.

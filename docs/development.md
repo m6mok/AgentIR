@@ -20,6 +20,8 @@ Stage 7E offline readiness uses `cargo test -p agentir-policy-eval --test stage7
 
 Stage 8A is offline and CPU-only. Run the `cpu_*.jsonl` examples, `cargo test -p agentir-protocol --test cpu`, and two `stage8a_study` runs followed by `stage8a_compare`. The comparator requires four semantic files to be byte-identical. The study records exact outputs and deterministic work counters, never wall-clock timing, and performs zero GPU/device calls.
 
+Stage 8 closure is the fast `cargo test -p agentir-protocol --test stage8_closure` gate. It builds the production SAXPY chain, counts synthetic clock and interpreter calls in an isolated store, checks exact output and artifact stability, performs one no-threshold real monotonic smoke observation, round-trips archive v11 without execution, rejects corruption, and rechecks v10→v11 empty-store migration. It makes no speed or comparative claim.
+
 Before/after audits built from different checkouts must use separate `CARGO_TARGET_DIR` values. Sharing one release directory between identical package names and versions can reuse the wrong checkout's example binary and invalidate the comparison.
 
 The expanded local Stage 6B.1 study is generated with `cargo run --release -p agentir-policy-eval --example stage6b_study -- --output target/stage6b-study/run-1`. Repeat with a second directory, then run `cargo run --release -p agentir-policy-eval --example stage6b_compare -- target/stage6b-study/run-1 target/stage6b-study/run-2`. The comparator requires byte-identical `semantic.json`; timing samples are retained separately as expected machine noise. All outputs stay under ignored `target/` and are never correctness evidence.
@@ -94,6 +96,7 @@ cargo run -p agentir-cli --bin agentir < examples/cpu_measurement_archive_roundt
 cargo run -p agentir-protocol --example stage8a_study -- --output target/stage8a-study/run-1
 cargo run -p agentir-protocol --example stage8a_study -- --output target/stage8a-study/run-2
 cargo run -p agentir-protocol --example stage8a_compare -- target/stage8a-study/run-1 target/stage8a-study/run-2
+cargo test -p agentir-protocol --test stage8_closure
 cargo run --release -p agentir-protocol --example baseline
 cargo run -p agentir-eval -- < examples/eval_free_saxpy.jsonl
 cargo run -p agentir-eval -- < examples/eval_compare_policies.jsonl

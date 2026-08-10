@@ -29,6 +29,21 @@ pub trait CpuClock {
     fn now_ns(&mut self) -> AgentResult<u64>;
 }
 
+/// Explicit execution double used only by Stage 8 closure tests and fixtures.
+///
+/// Production acquisition does not accept this interface and always invokes the
+/// unchanged Stage 8A interpreter directly.
+#[doc(hidden)]
+pub trait CpuExecutionTestDouble {
+    /// Executes one structurally verified package while recording fixture-owned calls.
+    fn execute(
+        &mut self,
+        package: &CpuArtifactPackage,
+        inputs: &BTreeMap<String, Value>,
+        limits: &ResourceLimits,
+    ) -> AgentResult<agentir_backend_cpu::CpuExecutionResult>;
+}
+
 /// Production process-local monotonic clock.
 #[derive(Debug)]
 pub struct MonotonicClock {
@@ -237,6 +252,55 @@ pub fn acquire_with_clock<C: CpuClock>(
     limits: &ResourceLimits,
     clock: &mut C,
 ) -> AgentResult<CpuMeasurementDraft> {
+    acquire_with_components(
+        package,
+        config,
+        inputs,
+        limits,
+        clock,
+        &mut agentir_backend_cpu::execute,
+    )
+}
+
+/// Acquires a deterministic fixture measurement with explicit clock and execution doubles.
+///
+/// This seam is intentionally absent from the production protocol. It exists so closure
+/// tests can prove exact interpreter and clock call counts without adding persisted state.
+#[doc(hidden)]
+pub fn acquire_with_test_doubles<C: CpuClock, E: CpuExecutionTestDouble>(
+    package: &CpuArtifactPackage,
+    config: CpuBenchmarkConfig,
+    inputs: &BTreeMap<String, Value>,
+    limits: &ResourceLimits,
+    clock: &mut C,
+    executor: &mut E,
+) -> AgentResult<CpuMeasurementDraft> {
+    acquire_with_components(
+        package,
+        config,
+        inputs,
+        limits,
+        clock,
+        &mut |package, inputs, limits| executor.execute(package, inputs, limits),
+    )
+}
+
+fn acquire_with_components<C, F>(
+    package: &CpuArtifactPackage,
+    config: CpuBenchmarkConfig,
+    inputs: &BTreeMap<String, Value>,
+    limits: &ResourceLimits,
+    clock: &mut C,
+    execute: &mut F,
+) -> AgentResult<CpuMeasurementDraft>
+where
+    C: CpuClock,
+    F: FnMut(
+        &CpuArtifactPackage,
+        &BTreeMap<String, Value>,
+        &ResourceLimits,
+    ) -> AgentResult<agentir_backend_cpu::CpuExecutionResult>,
+{
     let executions = validate_cpu_benchmark_config(&config, limits)?;
     let (_, input_elements) = tensor_dimensions(package, inputs)?;
     BudgetCheck::against(
@@ -273,7 +337,7 @@ pub fn acquire_with_clock<C: CpuClock>(
 
     let mut agreed_outputs = None;
     for _ in 0..config.warmups {
-        let result = agentir_backend_cpu::execute(package, inputs, limits)?;
+        let result = execute(package, inputs, limits)?;
         if agreed_outputs
             .as_ref()
             .is_some_and(|outputs| outputs != &result.outputs)
@@ -288,7 +352,7 @@ pub fn acquire_with_clock<C: CpuClock>(
     let mut raw_duration_ns = Vec::with_capacity(usize::try_from(config.iterations).unwrap_or(0));
     for _ in 0..config.iterations {
         let before = clock.now_ns()?;
-        let result = agentir_backend_cpu::execute(package, inputs, limits)?;
+        let result = execute(package, inputs, limits)?;
         let after = clock.now_ns()?;
         let elapsed = after.checked_sub(before).ok_or_else(|| {
             AgentError::new(

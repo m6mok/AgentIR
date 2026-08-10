@@ -828,3 +828,11 @@ contract.
 Only `cpu_measurement.acquire` reads the clock or executes bytecode. All other Stage 8B commands and archive operations are zero-execution. Measurements are non-correctness observations and have no ranking, selection, publication, significance, portability, or performance-proof authority. Resource policy is enforced but excluded from every measurement identity.
 
 New saves use workspace archive/snapshot v11. V1–v10 remain immutable legacy inputs; the sole v10→v11 edge adds an empty CPU measurement store without invented history. Stage 1–8A hashes, CPU bytecode/build identity, WebGPU measurement-record v1, and evaluation archives/contracts remain unchanged.
+
+## ADR-183: Stage 8 closes through an offline CPU execution and measurement gate
+
+**Decision.** Stage 8A portable deterministic CPU execution and Stage 8B bounded CPU measurement are complete contracts. Stage 8 closes when one fast offline integration gate reconstructs the production SpecIR→ImplIR→MemoryIR→ScheduleIR→CPU-artifact chain, executes the unchanged package, records one isolated synthetic measurement with explicit clock/execution doubles, structurally checks it, round-trips archive v11, rejects corrupt record/cursor state, verifies pure v10→v11 migration, and observes zero extra execution or clock calls during query/check/replay.
+
+Stage 8C is validation and closure only. It adds no correctness or performance authority, persisted state, archive/evaluation version, hash domain, mutation command, target, opcode, lowering, benchmark algorithm, ranking, recommendation, selection, or live publication path. Physical monotonic timing is an optional compatibility observation with no threshold or comparative claim. Synthetic evidence establishes deterministic orchestration, hashing, atomicity, and replay, not speed.
+
+SIMD, threads, native/JIT/AOT code, LLVM/MLIR, reductions, broader types/ranks, CPU/GPU comparison, statistical inference, ranking, search, and autotuning remain future scope and do not block Stage 8 closure. Reopening Stage 8 or granting timing any acceptance authority requires a new ADR.

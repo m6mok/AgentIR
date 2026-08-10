@@ -76,6 +76,7 @@ AgentIR is an agent-native compiler prototype. Preserve these invariants in ever
 70. Stage 8B CPU measurements are bounded non-correctness observations over unchanged compiler-published CPU packages; only acquisition may execute or read a clock.
 71. `cpu_benchmark_config_hash`, `cpu_input_hash`, `cpu_host_fingerprint_hash`, `cpu_measurement_hash`, and the output anchor are independent contracts excluding resource policy and store-local IDs.
 72. Workspace archive v1–v10 are immutable legacy inputs; new saves use v11 and v10→v11 adds only an empty CPU measurement store.
+73. Stage 8 closes only through an offline Stage 8A/8B integrity gate; synthetic orchestration and real monotonic timing remain non-correctness observations with no performance, ranking, selection, or publication authority.
 
 ## Where to look before changing code
 
@@ -98,6 +99,7 @@ Use `docs/` instead of expanding this file with broad background:
 - Stage 6B ranking boundary: `docs/stage-6b-scope.md`, `docs/multi-choice-continuations.md`, `docs/ranking-policy-model.md`, `docs/ranking-transcripts.md`;
 - architectural trade-offs: `DECISIONS.md`.
 - Stage 7B measured search: `docs/stage-7b-scope.md`, `docs/measurement-cohorts.md`, `docs/measured-search-objectives.md`, `docs/measured-recommendations.md`, `docs/measured-search-replay.md`, `docs/measured-search-fairness.md`, `docs/evaluation-archive-v5.md`.
+- Stage 8 closure: `docs/stage-8a-scope.md`, `docs/stage-8b-scope.md`, `docs/stage-8-closure.md`.
 
 When documentation and behavior disagree, consult `docs/reference/stage-1-brief.md` first for Stage 1, then `docs/reference/agentir-spec-0.1.md`. Record intentional deviations in `DECISIONS.md`.
 
@@ -183,6 +185,7 @@ cargo test -p agentir-policy-eval --test stage7b
 cargo test -p agentir-policy-eval --test stage7c
 cargo test -p agentir-policy-eval --test stage7d
 cargo test -p agentir-policy-eval --test stage7e
+cargo test -p agentir-protocol --test stage8_closure
 cargo run --release -p agentir-policy-eval --example stage6c_study -- --output target/stage6c-study/run-1
 cargo run --release -p agentir-policy-eval --example stage6c_study -- --output target/stage6c-study/run-2
 cargo run --release -p agentir-policy-eval --example stage6c_compare -- target/stage6c-study/run-1 target/stage6c-study/run-2

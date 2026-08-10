@@ -46,6 +46,8 @@ evaluation archive v8 (v1→v2→v3→v4→v5→v6→v7→v8 migration; never wo
 
 Stage 8B adds a side boundary from compiler-published CPU artifacts to `agentir-runtime-cpu`, which performs bounded real interpreter execution and monotonic timing. It returns a runtime-owned draft to core for atomic publication in `CpuMeasurementStore`. Only acquisition crosses the clock/execution boundary; structural queries and archive replay do not.
 
+Stage 8C closes this architecture without adding a layer or state. One offline integration gate checks the complete proved compiler chain, unchanged package execution, isolated synthetic measurement orchestration, exact artifact/hash stability, archive v11 replay, corruption rejection, and pure v10→v11 migration. A separate real-clock smoke observation has no threshold or correctness/performance authority.
+
 The dependency direction is one-way: `core` knows nothing about JSONL sessions, policy evaluation, learned models, search plans/frontiers, transcripts or filesystems; the reference evaluator and store depend on `core`; `protocol` composes production components; `agentir-policy-eval` invokes that production surface and owns offline ranking, learning and bounded search; both CLIs only stream lines.
 
 ## Stage 7A search boundary

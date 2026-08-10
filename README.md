@@ -2,7 +2,7 @@
 
 AgentIR — экспериментальная агентно-нативная компиляционная среда для численных вычислений. В ней программа хранится не как исходный текст, а как типизированный граф. Агент меняет граф небольшими атомарными ActionIR-транзакциями, а compiler core выводит типы, проверяет формы и сохраняет каждое принятое состояние как неизменяемую ревизию.
 
-Сейчас репозиторий завершает Stage 8B reference prototype. Поверх exact Stage 1–8A compiler/CPU stack он добавляет bounded local timing уже опубликованных `cpu_scalar_v1` packages с отдельными hash-контрактами и workspace archive v11. Это non-correctness observation layer, а не performance/correctness proof, ranking, live publication или global-optimality claim.
+Репозиторий завершил Stage 8 через offline CPU execution closure gate. Exact Stage 1–8A compiler/CPU stack, bounded Stage 8B timing опубликованных `cpu_scalar_v1` packages и workspace archive v11 проверяются совместно без нового persisted state или authority. Timing остаётся non-correctness observation, а не performance/correctness proof, ranking, live publication или global-optimality claim.
 
 ## Что уже работает
 
@@ -152,7 +152,7 @@ Evaluation harness измеряет взаимодействие и policy-owned
 
 ## Roadmap
 
-Stage 8B adds bounded local CPU timing over compiler-published Stage 8A packages. Only explicit acquisition executes or reads a clock; query/check/archive replay are zero-execution and measurements have no correctness, ranking, or performance-proof authority. See [Stage 8B scope](docs/stage-8b-scope.md) and [the roadmap](docs/roadmap.md).
+Stage 8 is complete at the offline contract boundary. Only explicit Stage 8B acquisition executes or reads a clock; query/check/archive replay are zero-execution and measurements have no correctness, ranking, or performance-proof authority. See [Stage 8 closure](docs/stage-8-closure.md) and [the roadmap](docs/roadmap.md).
 
 ## Документация
 
