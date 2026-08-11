@@ -2,7 +2,7 @@ use agentir_core::{
     cpu::CpuArtifactHash,
     cpu_measurement::{
         CpuBenchmarkConfig, CpuClockSource, CpuMeasurementHash, aggregate_cpu_durations,
-        cpu_measurement_hash, verify_cpu_measurement,
+        cpu_host_fingerprint_hash, cpu_measurement_hash, verify_cpu_measurement,
     },
     ids::{CpuArtifactId, CpuMeasurementId},
     resources::ResourceLimits,
@@ -384,6 +384,38 @@ fn archive_v11_round_trip_is_exact_and_corruption_is_rejected_without_execution(
             "{mutation}"
         );
     }
+
+    let mut mixed_source: WorkspaceArchiveV11 = serde_json::from_slice(&bytes).unwrap();
+    let first = mixed_source
+        .snapshot
+        .cpu_measurement_store
+        .records
+        .get(&CpuMeasurementId::new("cpum1"))
+        .unwrap()
+        .clone();
+    let mut second = first;
+    second.id = CpuMeasurementId::new("cpum2");
+    second.host.clock_source = CpuClockSource::ProductionMonotonicV1;
+    second.cpu_host_fingerprint_hash = cpu_host_fingerprint_hash(&second.host).unwrap();
+    second.cpu_measurement_hash = cpu_measurement_hash(&second).unwrap();
+    mixed_source
+        .snapshot
+        .cpu_measurement_store
+        .records
+        .insert(second.id.clone(), second.clone());
+    let mut second_event = mixed_source.snapshot.cpu_measurement_store.events[0].clone();
+    second_event.event.record = second;
+    mixed_source
+        .snapshot
+        .cpu_measurement_store
+        .events
+        .push(second_event);
+    mixed_source.snapshot.cpu_measurement_store.next_id = 2;
+    let error = load_workspace_bytes(&rehash(&mut mixed_source)).unwrap_err();
+    assert_eq!(
+        error.code,
+        agentir_core::ErrorCode::CpuMeasurementEventOrderInvalid
+    );
 }
 
 #[test]

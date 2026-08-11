@@ -20,7 +20,7 @@ Stage 7E offline readiness uses `cargo test -p agentir-policy-eval --test stage7
 
 Stage 8A is offline and CPU-only. Run the `cpu_*.jsonl` examples, `cargo test -p agentir-protocol --test cpu`, and two `stage8a_study` runs followed by `stage8a_compare`. The comparator requires four semantic files to be byte-identical. The study records exact outputs and deterministic work counters, never wall-clock timing, and performs zero GPU/device calls.
 
-Stage 8 closure is the fast `cargo test -p agentir-protocol --test stage8_closure` gate. It builds the production SAXPY chain, counts synthetic clock and interpreter calls in an isolated store, checks exact output and artifact stability, performs one no-threshold real monotonic smoke observation, round-trips archive v11 without execution, rejects corruption, and rechecks v10→v11 empty-store migration. It makes no speed or comparative claim.
+Stage 8 closure is the fast `cargo test -p agentir-protocol --test stage8_closure` gate. It builds the production SAXPY chain, counts synthetic acquisition clock and interpreter calls in an isolated store, checks exact output and artifact stability, performs one no-threshold real monotonic smoke observation, round-trips archive v11 through capability-free structural replay, rejects corruption, and rechecks v10→v11 empty-store migration. Replay reuses archived revision timestamps and makes no speed or comparative claim.
 
 Before/after audits built from different checkouts must use separate `CARGO_TARGET_DIR` values. Sharing one release directory between identical package names and versions can reuse the wrong checkout's example binary and invalidate the comparison.
 

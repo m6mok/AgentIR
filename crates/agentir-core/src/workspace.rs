@@ -19,8 +19,8 @@ use crate::{
     constraints::{ConstraintFacts, ConstraintQueryResult},
     continuation::{ContinuationFrame, InteractionMode, build_frame},
     cpu::{
-        CpuArtifactCheckReport, CpuArtifactDraft, CpuArtifactPackage, CpuArtifactQuery,
-        CpuArtifactStore, verify_cpu_artifact,
+        CpuArtifactAnchor, CpuArtifactCheckReport, CpuArtifactDraft, CpuArtifactPackage,
+        CpuArtifactQuery, CpuArtifactStore, verify_cpu_artifact,
     },
     cpu_measurement::{
         CPU_MEASUREMENT_EVENT_SEMANTICS_VERSION, CpuMeasurementDraft, CpuMeasurementRecord,
@@ -822,6 +822,14 @@ impl Workspace {
 
     /// Creates a workspace with explicit interactive limits.
     pub fn with_limits(id: WorkspaceId, limits: ResourceLimits) -> AgentResult<Self> {
+        Self::with_limits_at(id, limits, now_unix_ms())
+    }
+
+    fn with_limits_at(
+        id: WorkspaceId,
+        limits: ResourceLimits,
+        created_at_unix_ms: u128,
+    ) -> AgentResult<Self> {
         let program = Program::default();
         let root = RevisionId::new("r0");
         let hash = content_hash_with_limit(&program, limits.canonical_output_bytes)?;
@@ -834,7 +842,7 @@ impl Workspace {
             status: StatusSummary::from_program(&program),
             program,
             applied_transaction: None,
-            created_at_unix_ms: now_unix_ms(),
+            created_at_unix_ms,
         };
         Ok(Self {
             id,
@@ -964,6 +972,15 @@ impl Workspace {
         &mut self,
         transaction: &Transaction,
         semantics_version: u32,
+    ) -> AgentResult<CommitResult> {
+        self.apply_with_semantics_at(transaction, semantics_version, now_unix_ms())
+    }
+
+    fn apply_with_semantics_at(
+        &mut self,
+        transaction: &Transaction,
+        semantics_version: u32,
+        created_at_unix_ms: u128,
     ) -> AgentResult<CommitResult> {
         if !matches!(
             semantics_version,
@@ -1546,7 +1563,7 @@ impl Workspace {
             status: StatusSummary::from_program(&program),
             program,
             applied_transaction: Some(transaction_id.clone()),
-            created_at_unix_ms: now_unix_ms(),
+            created_at_unix_ms,
         };
         self.allocator = allocator;
         self.revisions.insert(revision_id.clone(), revision);
@@ -1587,6 +1604,15 @@ impl Workspace {
         base_revision: &RevisionId,
         semantics_version: u32,
     ) -> AgentResult<RevisionId> {
+        self.fork_with_semantics_at(base_revision, semantics_version, now_unix_ms())
+    }
+
+    fn fork_with_semantics_at(
+        &mut self,
+        base_revision: &RevisionId,
+        semantics_version: u32,
+        created_at_unix_ms: u128,
+    ) -> AgentResult<RevisionId> {
         if !matches!(
             semantics_version,
             LEGACY_CORE_SEMANTICS_VERSION | CORE_SEMANTICS_VERSION
@@ -1608,7 +1634,7 @@ impl Workspace {
             status: base.status,
             program: base.program,
             applied_transaction: None,
-            created_at_unix_ms: now_unix_ms(),
+            created_at_unix_ms,
         };
         self.revisions.insert(revision_id.clone(), revision);
         self.head = revision_id.clone();
@@ -3065,14 +3091,21 @@ impl Workspace {
         }
         let (_, _, implementation, target) = self.schedule_inputs(schedule_plan)?;
         let draft = lower(&plan, &revision, &implementation, &target)?;
-        if draft.anchor.schedule_plan != *schedule_plan
-            || draft.anchor.schedule_revision != *schedule_revision
-            || draft.anchor.schedule_hash != revision.schedule_hash
-            || draft.anchor.spec_hash != plan.anchor.spec_hash
-            || draft.anchor.impl_hash != plan.anchor.impl_hash
-            || draft.anchor.memory_hash != plan.anchor.memory_hash
-            || draft.anchor.target_hash != plan.anchor.target_hash
-        {
+        let expected_anchor = CpuArtifactAnchor {
+            spec_revision: plan.anchor.spec_revision.clone(),
+            spec_hash: plan.anchor.spec_hash.clone(),
+            impl_hash: plan.anchor.impl_hash.clone(),
+            memory_hash: plan.anchor.memory_hash.clone(),
+            memory_plan: plan.anchor.memory_plan.clone(),
+            memory_revision: plan.anchor.memory_revision.clone(),
+            target_hash: plan.anchor.target_hash.clone(),
+            target_manifest: plan.anchor.target_manifest.clone(),
+            target_revision: plan.anchor.target_revision.clone(),
+            schedule_hash: revision.schedule_hash.clone(),
+            schedule_plan: schedule_plan.clone(),
+            schedule_revision: schedule_revision.clone(),
+        };
+        if draft.anchor != expected_anchor {
             return Err(AgentError::new(
                 ErrorCode::CpuArtifactInvalid,
                 "trusted CPU lowering returned an inconsistent immutable anchor chain",
@@ -4301,6 +4334,7 @@ impl Workspace {
         }
         let mut artifact_cursor = 0_u64;
         let mut measurement_ids = BTreeSet::new();
+        let mut measurement_clock_source = None;
         for (index, event) in expected_cpu_measurements.events.iter().enumerate() {
             let record = &event.event.record;
             let expected_id = CpuMeasurementId::new(format!("cpum{}", index + 1));
@@ -4315,6 +4349,7 @@ impl Workspace {
                 || !measurement_ids.insert(record.id.clone())
                 || record.id != expected_id
                 || expected_cpu_measurements.records.get(&record.id) != Some(record)
+                || measurement_clock_source.is_some_and(|source| source != record.host.clock_source)
             {
                 return Err(AgentError::new(
                     ErrorCode::CpuMeasurementEventOrderInvalid,
@@ -4325,6 +4360,7 @@ impl Workspace {
                 record,
                 expected_cpu_artifacts.package(&record.cpu_artifact)?,
             )?;
+            measurement_clock_source.get_or_insert(record.host.clock_source);
             artifact_cursor = event.event.cpu_artifact_event_cursor;
         }
         if measurement_ids != expected_cpu_measurements.records.keys().cloned().collect()
@@ -4478,9 +4514,21 @@ impl Workspace {
             replay_actions,
             "snapshot replay preflight",
         )?;
-        let mut replayed = Self::with_limits(
+        let root = RevisionId::new("r0");
+        let root_created_at_unix_ms = snapshot
+            .revisions
+            .get(&root)
+            .ok_or_else(|| {
+                AgentError::new(
+                    ErrorCode::PersistenceIntegrity,
+                    "snapshot replay requires the root revision `r0`",
+                )
+            })?
+            .created_at_unix_ms;
+        let mut replayed = Self::with_limits_at(
             snapshot.workspace.clone(),
             ResourceLimits::hard_safety_caps(),
+            root_created_at_unix_ms,
         )?;
         for versioned in &snapshot.events {
             if !matches!(
@@ -4503,8 +4551,21 @@ impl Workspace {
                     content_hash: expected_hash,
                     transaction,
                 } => {
-                    let commit =
-                        replayed.apply_with_semantics(transaction, versioned.semantics_version)?;
+                    let created_at_unix_ms = snapshot
+                        .revisions
+                        .get(revision)
+                        .ok_or_else(|| {
+                            AgentError::new(
+                                ErrorCode::PersistenceIntegrity,
+                                format!("event references missing revision `{revision}`"),
+                            )
+                        })?
+                        .created_at_unix_ms;
+                    let commit = replayed.apply_with_semantics_at(
+                        transaction,
+                        versioned.semantics_version,
+                        created_at_unix_ms,
+                    )?;
                     if commit.transaction != *transaction_id
                         || commit.revision != *revision
                         || commit.content_hash != *expected_hash
@@ -4524,8 +4585,21 @@ impl Workspace {
                     revision,
                     content_hash: expected_hash,
                 } => {
-                    let actual_revision =
-                        replayed.fork_with_semantics(base_revision, versioned.semantics_version)?;
+                    let created_at_unix_ms = snapshot
+                        .revisions
+                        .get(revision)
+                        .ok_or_else(|| {
+                            AgentError::new(
+                                ErrorCode::PersistenceIntegrity,
+                                format!("event references missing revision `{revision}`"),
+                            )
+                        })?
+                        .created_at_unix_ms;
+                    let actual_revision = replayed.fork_with_semantics_at(
+                        base_revision,
+                        versioned.semantics_version,
+                        created_at_unix_ms,
+                    )?;
                     let actual_hash = replayed.revision(&actual_revision)?.content_hash.clone();
                     if actual_revision != *revision || actual_hash != *expected_hash {
                         return Err(AgentError::new(

@@ -243,8 +243,6 @@ fn stage8_closes_through_offline_cpu_execution_measurement_and_replay() {
         artifact_bytes_before
     );
 
-    let clock_calls = clock.calls;
-    let execution_calls = executor.calls;
     let listed = synthetic.cpu_measurement_list();
     assert_eq!(listed.len(), 1);
     assert_eq!(&listed[0], &record);
@@ -253,9 +251,8 @@ fn stage8_closes_through_offline_cpu_execution_measurement_and_replay() {
         &record
     );
     assert_eq!(synthetic.cpu_measurement_check(&record.id).unwrap(), record);
-    assert_eq!(clock.calls, clock_calls);
-    assert_eq!(executor.calls, execution_calls);
 
+    let snapshot_before_replay = synthetic.snapshot();
     let archive_bytes = encode_workspace_archive(&synthetic).unwrap();
     let loaded = load_workspace_bytes(&archive_bytes).unwrap();
     assert_eq!(loaded.metadata.format_version, 11);
@@ -266,8 +263,7 @@ fn stage8_closes_through_offline_cpu_execution_measurement_and_replay() {
         loaded.workspace.cpu_measurement_check(&record.id).unwrap(),
         record
     );
-    assert_eq!(clock.calls, clock_calls);
-    assert_eq!(executor.calls, execution_calls);
+    assert_eq!(loaded.workspace.snapshot(), snapshot_before_replay);
 
     let mut corrupt_record: WorkspaceArchiveV11 = serde_json::from_slice(&archive_bytes).unwrap();
     corrupt_record
@@ -288,8 +284,6 @@ fn stage8_closes_through_offline_cpu_execution_measurement_and_replay() {
         .event
         .cpu_artifact_event_cursor = 0;
     assert!(load_workspace_bytes(&rehash(&mut corrupt_cursor)).is_err());
-    assert_eq!(clock.calls, clock_calls);
-    assert_eq!(executor.calls, execution_calls);
 
     let mut production = load_workspace_bytes(&baseline_bytes).unwrap().workspace;
     let production_package = production

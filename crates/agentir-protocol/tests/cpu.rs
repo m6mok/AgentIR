@@ -2,8 +2,9 @@ use agentir_core::{
     cpu::{
         CpuArtifactPackage, CpuInstruction, CpuScalarOpcode, cpu_artifact_hash, verify_cpu_artifact,
     },
-    ids::{CpuArtifactId, WorkspaceId},
+    ids::{CpuArtifactId, MemoryPlanId, SchedulePlanId, ScheduleRevisionId, WorkspaceId},
     resources::ResourceLimits,
+    schedule::ScheduleHash,
 };
 use agentir_protocol::Engine;
 use agentir_store::{load_workspace, load_workspace_bytes};
@@ -261,6 +262,45 @@ fn clients_cannot_supply_bytecode_or_correctness_claims() {
         assert_eq!(parsed["ok"], false);
         assert_eq!(parsed["error"]["code"], "INVALID_REQUEST");
     }
+}
+
+#[test]
+fn malformed_trusted_cpu_anchor_is_rejected_before_publication() {
+    let mut engine = Engine::new();
+    let mut schedule_hash = None;
+    for line in include_str!("../../../examples/cpu_saxpy.jsonl").lines() {
+        let request: Value = serde_json::from_str(line).unwrap();
+        if request["request_id"] == "emit" {
+            break;
+        }
+        let response: Value = serde_json::from_str(&engine.process_line(line)).unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        if response["request_id"] == "schedule" {
+            schedule_hash = Some(ScheduleHash::new(
+                response["result"]["query"]["schedule_hash"]
+                    .as_str()
+                    .unwrap(),
+            ));
+        }
+    }
+    let path = save_engine(&mut engine, "malformed-anchor");
+    let mut workspace = load_workspace(&path).unwrap().workspace;
+    let error = workspace
+        .cpu_artifact_emit_with(
+            &SchedulePlanId::new("sp1"),
+            &ScheduleRevisionId::new("sr1"),
+            &schedule_hash.unwrap(),
+            |plan, revision, implementation, target| {
+                let mut draft =
+                    agentir_backend_cpu::lower_schedule(plan, revision, implementation, target)?;
+                draft.anchor.memory_plan = MemoryPlanId::new("mp999");
+                Ok(draft)
+            },
+        )
+        .unwrap_err();
+    assert_eq!(error.code, agentir_core::ErrorCode::CpuArtifactInvalid);
+    assert!(workspace.cpu_artifact_list().unwrap().is_empty());
+    let _ = std::fs::remove_file(path);
 }
 
 #[test]
