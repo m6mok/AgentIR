@@ -8,6 +8,7 @@ members = [
     "crates/agentir-backend-wgsl",
     "crates/agentir-backend-cpu",
     "crates/agentir-runtime-cpu",
+    "crates/agentir-native-cpu-worker",
     "crates/agentir-runtime-wgpu",
     "crates/agentir-policy-eval",
     "crates/agentir-eval-cli",
@@ -28,6 +29,11 @@ sha2 = "0.10"
 naga = { version = "24.0.0", features = ["wgsl-in"] }
 wgpu = "24.0.0"
 pollster = "0.4"
+cranelift-codegen = "=0.116.1"
+cranelift-frontend = "=0.116.1"
+cranelift-jit = "=0.116.1"
+cranelift-module = "=0.116.1"
+cranelift-native = "=0.116.1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

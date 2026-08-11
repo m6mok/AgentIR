@@ -180,6 +180,16 @@ Stage 7E integrates existing Stage 7A–7D records into a checkpointable campaig
 - Stage 8C closes the combined contract with exact SAXPY execution, isolated synthetic clock/execution doubles, artifact/hash stability, atomic rejection, zero-execution query/check/archive replay, corruption rejection, archive v11 round-trip, and pure v10→v11 migration evidence.
 - ADR-183 makes this offline gate authoritative for Stage 8 completion without speed, significance, portability, ranking, recommendation, selection, publication, or global-optimality claims.
 
-Native code generation, SIMD/threading, reductions, broader dtype/rank support, host ABI embedding and CPU/GPU performance ranking remain future work.
+## Planned Stage 9: isolated native CPU execution
+
+Stage 9 reuses an unchanged, compiler-published Stage 8A package as the sole
+input to a pinned Cranelift JIT. Native lowering and the one audited call bridge
+run in a fresh worker process, while core, persistence and the protocol process
+retain their existing safe structural boundaries. Machine code remains
+ephemeral; Stage 9 adds no native artifact publication, persistent store,
+archive migration, proof relation, ranking or performance authority. See
+[the Stage 9 scope](stage-9-scope.md) and ADR-184.
+
+AOT publication, SIMD/threading, reductions, broader dtype/rank support, host ABI embedding and CPU/GPU performance ranking remain future work.
 
 Physical GPU qualification, concurrent/remote acquisition, multi-device pooling, new search algorithms, prediction, raw-sample significance, energy records, training during acquisition and live publication are outside the active strategy. Reintroducing a mandatory hardware gate requires a new ADR.

@@ -836,3 +836,35 @@ New saves use workspace archive/snapshot v11. V1–v10 remain immutable legacy i
 Stage 8C is validation and closure only. It adds no correctness or performance authority, persisted state, archive/evaluation version, hash domain, mutation command, target, opcode, lowering, benchmark algorithm, ranking, recommendation, selection, or live publication path. Physical monotonic timing is an optional compatibility observation with no threshold or comparative claim. Synthetic evidence establishes deterministic orchestration, hashing, atomicity, and replay, not speed.
 
 SIMD, threads, native/JIT/AOT code, LLVM/MLIR, reductions, broader types/ranks, CPU/GPU comparison, statistical inference, ranking, search, and autotuning remain future scope and do not block Stage 8 closure. Reopening Stage 8 or granting timing any acceptance authority requires a new ADR.
+
+## ADR-184: Stage 9 is isolated native JIT execution over Stage 8A packages
+
+**Decision.** Stage 9 compiles the exact retained, structurally verified Stage
+8A `cpu_scalar_v1` package with one pinned Cranelift JIT configuration. It does
+not lower from ScheduleIR again, mutate or replace the portable package, or
+persist native code. Machine code, Cranelift IR and executable memory remain
+ephemeral inside one fresh worker process per explicit `cpu_native.execute`.
+
+Direct in-process JIT is rejected because its unsafe ABI and code-generation
+faults would share the protocol process. WebAssembly is not the first native
+path because core Wasm cannot directly preserve the existing exact scalar FMA
+instruction, while relaxed SIMD multiply-add is not an exact substitute. AOT
+objects and LLVM/MLIR are deferred until the smaller execution, ABI and failure
+boundary has offline closure evidence.
+
+The worker independently verifies the compiler-owned package, uses a fixed
+server-owned target/settings/ABI contract, runs the Cranelift verifier and
+contains the only local unsafe call bridge permitted by Stage 9. The process is
+crash containment, not a security sandbox. JSONL clients cannot supply or
+select bytecode, IR, target features, compiler flags, symbols, ABI, machine
+bytes, worker path, timeout, results, hashes or success claims. Failure causes
+no workspace mutation, persistent ID or event, and there is no silent fallback
+or automatic retry.
+
+`cpu_native_runtime_hash` and `cpu_native_execution_hash` are independent
+observation-only identities with no correctness, artifact, persistence,
+measurement, ranking or publication authority. Stage 9 adds no store, archive
+version, evaluation version or proof relation. Every non-native command and all
+archive operations remain zero-worker and zero-native-execution. Exact scope,
+closure evidence and non-goals are frozen in
+[docs/stage-9-scope.md](docs/stage-9-scope.md).
