@@ -1075,6 +1075,20 @@ pub enum Request {
         /// Exact runtime scalar/tensor values by compiler-owned binding name.
         inputs: BTreeMap<String, Value>,
     },
+    /// Executes one retained CPU package in one fresh isolated native worker.
+    #[serde(rename = "cpu_native.execute")]
+    CpuNativeExecute {
+        /// Correlation ID echoed in the response.
+        request_id: String,
+        /// Target workspace.
+        workspace: WorkspaceId,
+        /// Compiler-owned portable CPU artifact.
+        cpu_artifact: CpuArtifactId,
+        /// Required exact portable package hash.
+        expected_cpu_artifact_hash: CpuArtifactHash,
+        /// Exact runtime scalar/tensor values by compiler-owned binding name.
+        inputs: BTreeMap<String, Value>,
+    },
     /// Executes the sole bounded CPU timing acquisition boundary and atomically publishes a record.
     #[serde(rename = "cpu_measurement.acquire")]
     CpuMeasurementAcquire {
@@ -1277,6 +1291,7 @@ impl Request {
             | Self::CpuArtifactQuery { request_id, .. }
             | Self::CpuArtifactCheck { request_id, .. }
             | Self::CpuArtifactExecute { request_id, .. }
+            | Self::CpuNativeExecute { request_id, .. }
             | Self::CpuMeasurementAcquire { request_id, .. }
             | Self::CpuMeasurementList { request_id, .. }
             | Self::CpuMeasurementQuery { request_id, .. }

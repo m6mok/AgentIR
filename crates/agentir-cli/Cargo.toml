@@ -12,6 +12,8 @@ path = "src/main.rs"
 
 [dependencies]
 agentir-protocol = { path = "../agentir-protocol" }
+agentir-native-cpu-worker = { path = "../agentir-native-cpu-worker" }
+agentir-runtime-native-cpu = { path = "../agentir-runtime-native-cpu" }
 serde_json.workspace = true
 
 [lints]

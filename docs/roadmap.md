@@ -180,7 +180,7 @@ Stage 7E integrates existing Stage 7A–7D records into a checkpointable campaig
 - Stage 8C closes the combined contract with exact SAXPY execution, isolated synthetic clock/execution doubles, artifact/hash stability, atomic rejection, zero-execution query/check/archive replay, corruption rejection, archive v11 round-trip, and pure v10→v11 migration evidence.
 - ADR-183 makes this offline gate authoritative for Stage 8 completion without speed, significance, portability, ranking, recommendation, selection, publication, or global-optimality claims.
 
-## Planned Stage 9: isolated native CPU execution
+## Completed Stage 9A/9B: isolated native CPU execution foundation and production command
 
 Stage 9 reuses an unchanged, compiler-published Stage 8A package as the sole
 input to a pinned Cranelift JIT. Native lowering and the one audited call bridge
@@ -189,6 +189,12 @@ retain their existing safe structural boundaries. Machine code remains
 ephemeral; Stage 9 adds no native artifact publication, persistent store,
 archive migration, proof relation, ranking or performance authority. See
 [the Stage 9 scope](stage-9-scope.md) and ADR-184.
+
+Stage 9A pins Cranelift 0.116.1, preserves exact add/mul/FMA semantics, verifies generated IR and confines the sole AgentIR-owned unsafe call to the worker bridge. Stage 9B implements production `cpu_native.execute` through a safe parent runtime, a server-selected hidden CLI worker mode, one fresh process and one native call. Parent and worker independently validate the unchanged package, while the parent additionally enforces bounded work, timeout/reaping, exact response framing, output validation and the runtime/execution observation identities. There is no interpreter fallback, retry, persisted state or performance claim.
+
+## Planned Stage 9C: offline closure gate
+
+Stage 9 is not complete. Stage 9C remains the separate fast offline closure gate defined in [the Stage 9 scope](stage-9-scope.md); this Stage 9B implementation does not declare cross-target portability or close the stage.
 
 AOT publication, SIMD/threading, reductions, broader dtype/rank support, host ABI embedding and CPU/GPU performance ranking remain future work.
 

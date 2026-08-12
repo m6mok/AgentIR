@@ -195,4 +195,14 @@ Resource limits are policy, not SpecIR. Archive replay uses hard safety caps; no
 
 `cpu_measurement.acquire` selects one retained CPU artifact with its exact hash, v1 `{warmups, iterations, aggregation}` configuration, and ordinary inputs. It is the only CPU measurement command that executes bytecode or reads a monotonic clock. Runtime-owned samples, aggregates, host fingerprint, outputs, hashes, bytecode, ABI, proof and success fields are rejected. `cpu_measurement.list`, `cpu_measurement.query`, and `cpu_measurement.check` are zero-execution and zero-clock structural operations.
 
+`cpu_native.execute` is the sole production native-JIT command. Its request is exactly:
+
+```json
+{"command":"cpu_native.execute","request_id":"native","workspace":"w1","cpu_artifact":"cpuart-…","expected_cpu_artifact_hash":"…","inputs":{"a":2.0,"x":[1.0,2.0],"y":[10.0,20.0]}}
+```
+
+The artifact ID resolves an immutable retained Stage 8A package; the exact hash and ordinary scalar/tensor inputs are checked by the safe parent before one fresh worker is launched. Bytecode/package data, Cranelift IR, native code/ABI, target or ISA settings, symbols, worker mode/path, timeout, environment, outputs, hashes, counters, proof, success, retry, fallback and response-reference fields are not accepted.
+
+The successful `result` contains `outputs`, `cpu_artifact_hash`, `compiler_build_hash`, `cpu_input_hash`, the canonical `runtime` identity, `cpu_native_runtime_hash`, checked `projected_work`, ordered `output_shapes`, `output_hash`, and `cpu_native_execution_hash`. It contains no duration, PID/path, machine bytes, Cranelift IR, resource policy, proof, persisted ID, measurement or ranking data. The command creates no revision, event, artifact, measurement or archive state. There is no retry or interpreter fallback.
+
 Mutations require explicit source revisions and expected schedule/backend/artifact hashes. Requests accept only IDs, stable enums, runtime inputs and bounded benchmark configuration. Unknown WGSL, BackendIR nodes, bindings, dispatch expressions, guards, target capabilities, certificates, fingerprints or measurement results are rejected by `deny_unknown_fields`.

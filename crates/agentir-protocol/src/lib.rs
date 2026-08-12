@@ -115,13 +115,43 @@ fn check_runtime_limits(
 }
 
 /// Stateful in-memory request engine shared by CLI and future transports.
-#[derive(Debug, Default)]
 pub struct Engine {
     workspaces: BTreeMap<WorkspaceId, Workspace>,
     next_workspace: u64,
     limits: ResourceLimits,
     benchmark_tasks: BTreeMap<String, Value>,
     next_benchmark_task: u64,
+    native_launcher: Box<dyn agentir_runtime_native_cpu::NativeWorkerLauncher>,
+    native_policy: agentir_runtime_native_cpu::NativeCpuPolicy,
+}
+
+impl std::fmt::Debug for Engine {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Engine")
+            .field("workspaces", &self.workspaces)
+            .field("next_workspace", &self.next_workspace)
+            .field("limits", &self.limits)
+            .field("benchmark_tasks", &self.benchmark_tasks)
+            .field("next_benchmark_task", &self.next_benchmark_task)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Default for Engine {
+    fn default() -> Self {
+        Self {
+            workspaces: BTreeMap::new(),
+            next_workspace: 0,
+            limits: ResourceLimits::default(),
+            benchmark_tasks: BTreeMap::new(),
+            next_benchmark_task: 0,
+            native_launcher: Box::new(
+                agentir_runtime_native_cpu::ProcessNativeWorkerLauncher::default(),
+            ),
+            native_policy: agentir_runtime_native_cpu::NativeCpuPolicy::default(),
+        }
+    }
 }
 
 impl Engine {
@@ -138,6 +168,39 @@ impl Engine {
             limits,
             ..Self::default()
         }
+    }
+
+    /// Creates an engine with an explicit native launcher and policy for structural tests.
+    ///
+    /// This injection path is absent from JSONL and does not change production defaults.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn with_native_launcher(
+        limits: ResourceLimits,
+        policy: agentir_runtime_native_cpu::NativeCpuPolicy,
+        launcher: Box<dyn agentir_runtime_native_cpu::NativeWorkerLauncher>,
+    ) -> Self {
+        Self {
+            limits,
+            native_policy: policy,
+            native_launcher: launcher,
+            ..Self::default()
+        }
+    }
+
+    /// Replaces server-owned interactive limits after fixture construction.
+    #[doc(hidden)]
+    pub fn set_limits_for_tests(&mut self, limits: ResourceLimits) {
+        self.limits = limits;
+    }
+
+    /// Returns the exact workspace snapshot for atomicity assertions in explicit tests.
+    #[doc(hidden)]
+    pub fn workspace_snapshot_for_tests(
+        &self,
+        workspace: &WorkspaceId,
+    ) -> AgentResult<agentir_core::persistence::WorkspaceSnapshot> {
+        Ok(self.workspace(workspace)?.snapshot())
     }
 
     /// Returns the request byte limit used by bounded frontends.
@@ -1346,6 +1409,28 @@ impl Engine {
                     package,
                     &inputs,
                     &self.limits,
+                )?)
+                .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
+            }
+            Request::CpuNativeExecute {
+                workspace,
+                cpu_artifact,
+                expected_cpu_artifact_hash,
+                inputs,
+                ..
+            } => {
+                let package = {
+                    let retained = self.workspace(&workspace)?;
+                    retained.cpu_artifact_check(&cpu_artifact)?;
+                    retained.cpu_artifact_package(&cpu_artifact)?.clone()
+                };
+                serde_json::to_value(agentir_runtime_native_cpu::execute_with_launcher(
+                    &package,
+                    &expected_cpu_artifact_hash,
+                    &inputs,
+                    &self.limits,
+                    &self.native_policy,
+                    self.native_launcher.as_mut(),
                 )?)
                 .map_err(|error| AgentError::new(ErrorCode::InvalidRequest, error.to_string()))
             }

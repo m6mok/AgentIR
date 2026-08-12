@@ -1,11 +1,14 @@
 use crate::{
-    CRANELIFT_VERSION, CpuNativeRuntimeIdentity, NATIVE_CALL_ABI_VERSION,
-    NATIVE_WORKER_PROTOCOL_VERSION, NativeWorkerError, NativeWorkerRequest, NativeWorkerResult,
-    NativeWorkerSuccess, bridge,
+    NativeWorkerError, NativeWorkerRequest, NativeWorkerResult, NativeWorkerSuccess, bridge,
 };
 use agentir_core::cpu::{
     CpuArtifactPackage, CpuExtent, CpuInstruction, CpuScalarFunction, CpuScalarOpcode,
     CpuScalarOperand, CpuValueType, verify_cpu_artifact,
+};
+use agentir_runtime_native_cpu::{
+    CRANELIFT_VERSION, CpuNativeRuntimeIdentity, FIXED_CODEGEN_SETTINGS, NATIVE_CALL_ABI_VERSION,
+    NATIVE_RUNTIME_BUILD, NATIVE_WORKER_PROTOCOL_VERSION, build_execution_identity,
+    cpu_native_runtime_hash, prepare_native_execution,
 };
 use cranelift_codegen::{
     ir::{
@@ -18,20 +21,11 @@ use cranelift_codegen::{
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{Linkage, Module, default_libcall_names};
-use serde::Serialize;
 use serde_json::{Number, Value};
-use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, fmt::Write as _, ptr::NonNull};
+use std::{collections::BTreeMap, ptr::NonNull};
 
-const RUNTIME_HASH_DOMAIN: &[u8] = b"agentir.cpu.native.runtime.v1\0";
 const MAX_PACKED_VALUES: usize = 1_000_000;
 const MAX_LOWERED_INSTRUCTIONS: u64 = 1_000_000;
-const FIXED_CODEGEN_SETTINGS: [(&str, &str); 4] = [
-    ("enable_verifier", "true"),
-    ("is_pic", "false"),
-    ("opt_level", "none"),
-    ("use_colocated_libcalls", "false"),
-];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Slot {
@@ -46,17 +40,6 @@ struct Prepared {
     packed: Vec<f32>,
     dimensions: BTreeMap<String, usize>,
     instruction_work: u64,
-}
-
-#[derive(Serialize)]
-struct RuntimeHashModel<'a> {
-    worker_protocol_version: u32,
-    runtime_build: &'a str,
-    cranelift_version: &'a str,
-    target_triple: String,
-    enabled_isa_features: &'a [String],
-    codegen_settings: &'a [String],
-    abi_version: u32,
 }
 
 fn error(code: &'static str, message: impl Into<String>) -> NativeWorkerError {
@@ -425,7 +408,7 @@ fn lower_tensor_loop(
     Ok(())
 }
 
-fn runtime_identity(module: &JITModule) -> NativeWorkerResult<CpuNativeRuntimeIdentity> {
+fn runtime_identity(module: &JITModule) -> CpuNativeRuntimeIdentity {
     let mut enabled_isa_features = module
         .isa()
         .isa_flags()
@@ -437,37 +420,16 @@ fn runtime_identity(module: &JITModule) -> NativeWorkerResult<CpuNativeRuntimeId
     let codegen_settings = FIXED_CODEGEN_SETTINGS
         .map(|(name, value)| format!("{name}={value}"))
         .to_vec();
-    let runtime_build = format!("agentir_native_cpu_worker_{}", env!("CARGO_PKG_VERSION"));
     let target_triple = module.isa().triple().to_string();
-    let model = RuntimeHashModel {
+    CpuNativeRuntimeIdentity {
         worker_protocol_version: NATIVE_WORKER_PROTOCOL_VERSION,
-        runtime_build: &runtime_build,
-        cranelift_version: CRANELIFT_VERSION,
-        target_triple: target_triple.clone(),
-        enabled_isa_features: &enabled_isa_features,
-        codegen_settings: &codegen_settings,
-        abi_version: NATIVE_CALL_ABI_VERSION,
-    };
-    let bytes = serde_json::to_vec(&model)
-        .map_err(|error| NativeWorkerError::new("NATIVE_RUNTIME_HASH", error.to_string()))?;
-    let mut hasher = Sha256::new();
-    hasher.update(RUNTIME_HASH_DOMAIN);
-    hasher.update(bytes);
-    let mut cpu_native_runtime_hash = String::with_capacity(64);
-    for byte in hasher.finalize() {
-        write!(cpu_native_runtime_hash, "{byte:02x}")
-            .map_err(|error| NativeWorkerError::new("NATIVE_RUNTIME_HASH", error.to_string()))?;
-    }
-    Ok(CpuNativeRuntimeIdentity {
-        cpu_native_runtime_hash,
-        worker_protocol_version: NATIVE_WORKER_PROTOCOL_VERSION,
-        runtime_build,
+        runtime_build: NATIVE_RUNTIME_BUILD.to_owned(),
         cranelift_version: CRANELIFT_VERSION.to_owned(),
         target_triple,
         enabled_isa_features,
         codegen_settings,
         abi_version: NATIVE_CALL_ABI_VERSION,
-    })
+    }
 }
 
 fn outputs(
@@ -523,6 +485,13 @@ pub(super) fn execute(request: &NativeWorkerRequest) -> NativeWorkerResult<Nativ
             "expected Stage 8A artifact hash differs from the supplied package",
         ));
     }
+    let shared_prepared = prepare_native_execution(
+        &request.package,
+        &request.expected_cpu_artifact_hash,
+        &request.inputs,
+        &agentir_core::resources::ResourceLimits::default(),
+    )
+    .map_err(|error| NativeWorkerError::new("NATIVE_PARENT_VALIDATION", error.to_string()))?;
     let mut prepared = prepare(&request.package, &request.inputs)?;
     let mut flag_builder = settings::builder();
     for (name, value) in FIXED_CODEGEN_SETTINGS {
@@ -538,7 +507,7 @@ pub(super) fn execute(request: &NativeWorkerRequest) -> NativeWorkerResult<Nativ
         .finish(settings::Flags::new(flag_builder))
         .map_err(|error| NativeWorkerError::new("NATIVE_TARGET_UNSUPPORTED", error.to_string()))?;
     let mut module = JITModule::new(JITBuilder::with_isa(isa, default_libcall_names()));
-    let runtime = runtime_identity(&module)?;
+    let runtime = runtime_identity(&module);
     let mut context = module.make_context();
     let mut builder_context = FunctionBuilderContext::new();
     let mut signature = module.make_signature();
@@ -706,10 +675,22 @@ pub(super) fn execute(request: &NativeWorkerRequest) -> NativeWorkerResult<Nativ
     )?;
     let _ = prepared.instruction_work;
     let _ = &prepared.dimensions;
+    let outputs = outputs(&request.package, &prepared)?;
+    let cpu_native_runtime_hash = cpu_native_runtime_hash(&runtime)
+        .map_err(|error| NativeWorkerError::new("NATIVE_RUNTIME_HASH", error.to_string()))?;
+    let (_, execution) = build_execution_identity(
+        &request.package,
+        &cpu_native_runtime_hash,
+        &shared_prepared,
+        &outputs,
+    )
+    .map_err(|error| NativeWorkerError::new("NATIVE_EXECUTION_HASH", error.to_string()))?;
     Ok(NativeWorkerSuccess {
         protocol_version: NATIVE_WORKER_PROTOCOL_VERSION,
         runtime,
+        cpu_native_runtime_hash,
         cpu_artifact_hash: request.package.cpu_artifact_hash.clone(),
-        outputs: outputs(&request.package, &prepared)?,
+        outputs,
+        execution,
     })
 }

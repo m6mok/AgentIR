@@ -8,6 +8,7 @@ rust-version.workspace = true
 
 [dependencies]
 agentir-core = { path = "../agentir-core" }
+agentir-runtime-native-cpu = { path = "../agentir-runtime-native-cpu" }
 cranelift-codegen.workspace = true
 cranelift-frontend.workspace = true
 cranelift-jit.workspace = true
@@ -15,7 +16,6 @@ cranelift-module.workspace = true
 cranelift-native.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-sha2.workspace = true
 
 [dev-dependencies]
 agentir-backend-cpu = { path = "../agentir-backend-cpu" }

@@ -312,6 +312,28 @@ pub enum ErrorCode {
     CpuMeasurementHashMismatch,
     /// CPU measurement events violate CPU-artifact dependency order.
     CpuMeasurementEventOrderInvalid,
+    /// Native request inputs, shapes, or checked work failed parent validation.
+    CpuNativeValidationFailed,
+    /// The server-owned native worker executable could not be started.
+    CpuNativeWorkerUnavailable,
+    /// The fresh native worker exceeded the server-owned timeout.
+    CpuNativeWorkerTimeout,
+    /// The native worker crashed, was signalled, or exited unsuccessfully.
+    CpuNativeWorkerCrashed,
+    /// The native worker emitted malformed, truncated, extra, or stderr data.
+    CpuNativeWorkerResponseMalformed,
+    /// The native worker protocol version is incompatible.
+    CpuNativeWorkerProtocolMismatch,
+    /// A retained or worker-reported CPU artifact identity is inconsistent.
+    CpuNativeArtifactIdentityMismatch,
+    /// Native runtime fields or their independent hash are inconsistent.
+    CpuNativeRuntimeIdentityMismatch,
+    /// A worker-reported native execution identity is inconsistent.
+    CpuNativeExecutionIdentityMismatch,
+    /// Native outputs have invalid names, types, shapes, or non-finite values.
+    CpuNativeOutputInvalid,
+    /// The independently validating worker rejected the request.
+    CpuNativeWorkerRejected,
 }
 
 /// Structured compiler error suitable for agent repair loops.

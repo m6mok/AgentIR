@@ -77,6 +77,10 @@ AgentIR is an agent-native compiler prototype. Preserve these invariants in ever
 71. `cpu_benchmark_config_hash`, `cpu_input_hash`, `cpu_host_fingerprint_hash`, `cpu_measurement_hash`, and the output anchor are independent contracts excluding resource policy and store-local IDs.
 72. Workspace archive v1–v10 are immutable legacy inputs; new saves use v11 and v10→v11 adds only an empty CPU measurement store.
 73. Stage 8 closes only through an offline Stage 8A/8B integrity gate; synthetic orchestration and real monotonic timing remain non-correctness observations with no performance, ranking, selection, or publication authority.
+74. Stage 9 native execution consumes one unchanged retained Stage 8A package through a safe parent runtime and one fresh isolated worker; native code, runtime observations and both native hashes are non-correctness and non-persistent.
+75. Only `cpu_native.execute` may launch the native worker; it performs no retry or interpreter fallback, and timeout/resource policy enters no identity.
+76. Cranelift and the sole audited unsafe native-call bridge remain confined to `agentir-native-cpu-worker`; `agentir-protocol` depends only on `agentir-runtime-native-cpu` and must have no Cranelift dependency.
+77. Stage 9A/9B implementation does not close Stage 9; the separate Stage 9C offline closure gate remains required.
 
 ## Where to look before changing code
 
@@ -171,6 +175,7 @@ cargo run -p agentir-cli --bin agentir < examples/cpu_measurement_scalar_element
 cargo run -p agentir-cli --bin agentir < examples/cpu_measurement_rejected_timing.jsonl
 cargo run -p agentir-cli --bin agentir < examples/cpu_measurement_malformed_config.jsonl
 cargo run -p agentir-cli --bin agentir < examples/cpu_measurement_archive_roundtrip.jsonl
+cargo run -p agentir-cli --bin agentir < examples/cpu_native_saxpy.jsonl
 cargo run -p agentir-protocol --example stage8a_study -- --output target/stage8a-study/run-1
 cargo run -p agentir-protocol --example stage8a_study -- --output target/stage8a-study/run-2
 cargo run -p agentir-protocol --example stage8a_compare -- target/stage8a-study/run-1 target/stage8a-study/run-2

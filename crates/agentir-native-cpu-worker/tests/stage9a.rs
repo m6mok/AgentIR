@@ -22,12 +22,13 @@ use agentir_native_cpu_worker::{
     launch_worker_once,
 };
 use agentir_protocol::Engine;
+use agentir_runtime_native_cpu::{NativeWorkerLauncher, ProcessNativeWorkerLauncher};
 use agentir_store::load_workspace;
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 fn anchor() -> CpuArtifactAnchor {
@@ -523,4 +524,123 @@ fn constant_instruction_is_covered() {
     );
     let result = native(&request(package, BTreeMap::new())).unwrap();
     assert_eq!(result.outputs["out"], json!(1.0));
+}
+
+#[test]
+fn production_launcher_timeout_terminates_without_retry() {
+    let package = scalar_package(CpuScalarOpcode::AddF32);
+    let inputs = BTreeMap::from([
+        ("a".to_owned(), json!(1.0)),
+        ("b".to_owned(), json!(2.0)),
+        ("c".to_owned(), json!(0.0)),
+    ]);
+    let mut launcher = ProcessNativeWorkerLauncher::dedicated(env!("CARGO_BIN_EXE_hung-worker"));
+    let started = Instant::now();
+    let error = launcher
+        .launch(&request(package, inputs), Duration::from_millis(20))
+        .unwrap_err();
+    assert_eq!(
+        error.code,
+        agentir_core::diagnostics::ErrorCode::CpuNativeWorkerTimeout
+    );
+    assert!(started.elapsed() < Duration::from_secs(1));
+}
+
+#[test]
+fn production_launcher_rejects_stderr_exit_and_extra_data() {
+    let package = scalar_package(CpuScalarOpcode::AddF32);
+    let inputs = BTreeMap::from([
+        ("a".to_owned(), json!(1.0)),
+        ("b".to_owned(), json!(2.0)),
+        ("c".to_owned(), json!(0.0)),
+    ]);
+    let request = request(package, inputs);
+    for (path, code) in [
+        (
+            env!("CARGO_BIN_EXE_stderr-worker"),
+            agentir_core::diagnostics::ErrorCode::CpuNativeWorkerResponseMalformed,
+        ),
+        (
+            env!("CARGO_BIN_EXE_exit-worker"),
+            agentir_core::diagnostics::ErrorCode::CpuNativeWorkerCrashed,
+        ),
+        (
+            env!("CARGO_BIN_EXE_extra-worker"),
+            agentir_core::diagnostics::ErrorCode::CpuNativeWorkerResponseMalformed,
+        ),
+    ] {
+        let mut launcher = ProcessNativeWorkerLauncher::dedicated(path);
+        assert_eq!(
+            launcher
+                .launch(&request, Duration::from_secs(5))
+                .unwrap_err()
+                .code,
+            code,
+            "fixture {path}"
+        );
+    }
+}
+
+#[test]
+fn production_launcher_reports_unavailable_worker_without_retry() {
+    let package = scalar_package(CpuScalarOpcode::AddF32);
+    let inputs = BTreeMap::from([
+        ("a".to_owned(), json!(1.0)),
+        ("b".to_owned(), json!(2.0)),
+        ("c".to_owned(), json!(0.0)),
+    ]);
+    let missing = std::env::temp_dir().join(format!(
+        "agentir-native-worker-does-not-exist-{}",
+        std::process::id()
+    ));
+    let mut launcher = ProcessNativeWorkerLauncher::dedicated(missing);
+    assert_eq!(
+        launcher
+            .launch(&request(package, inputs), Duration::from_millis(50))
+            .unwrap_err()
+            .code,
+        agentir_core::diagnostics::ErrorCode::CpuNativeWorkerUnavailable
+    );
+}
+
+#[test]
+fn native_execution_hash_tracks_inputs_outputs_and_excludes_timeout_policy() {
+    let package = scalar_package(CpuScalarOpcode::AddF32);
+    let first_request = request(
+        package.clone(),
+        BTreeMap::from([
+            ("a".to_owned(), json!(1.0)),
+            ("b".to_owned(), json!(2.0)),
+            ("c".to_owned(), json!(0.0)),
+        ]),
+    );
+    let second_request = request(
+        package,
+        BTreeMap::from([
+            ("a".to_owned(), json!(2.0)),
+            ("b".to_owned(), json!(2.0)),
+            ("c".to_owned(), json!(0.0)),
+        ]),
+    );
+    let worker = env!("CARGO_BIN_EXE_agentir-native-cpu-worker");
+    let first = native(&first_request).unwrap();
+    let second = native(&second_request).unwrap();
+    assert_ne!(
+        first.execution.cpu_input_hash,
+        second.execution.cpu_input_hash
+    );
+    assert_ne!(first.execution.output_hash, second.execution.output_hash);
+    assert_ne!(
+        first.execution.cpu_native_execution_hash,
+        second.execution.cpu_native_execution_hash
+    );
+
+    let mut launcher = ProcessNativeWorkerLauncher::dedicated(worker);
+    let different_timeout = launcher
+        .launch(&first_request, Duration::from_secs(2))
+        .unwrap();
+    assert_eq!(
+        first.execution.cpu_native_execution_hash,
+        different_timeout.execution.cpu_native_execution_hash
+    );
 }

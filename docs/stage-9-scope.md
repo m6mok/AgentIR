@@ -8,6 +8,10 @@ or grant execution and timing any correctness or selection authority.
 This is the normative implementation plan selected by ADR-184. Stage 9 is not
 complete until the closure gate in this document passes.
 
+**Implementation status.** Stage 9A and the bounded Stage 9B production
+`cpu_native.execute` contract are implemented. Stage 9C remains planned, so
+Stage 9 is not complete and no portability claim is made beyond tested hosts.
+
 ## Why this is the next boundary
 
 Stage 8 already provides the right stable input to native compilation: a
@@ -97,6 +101,14 @@ the server-owned launcher before JSONL processing; no JSONL request can select
 worker mode.
 
 ## Stage 9B: bounded production execution
+
+**Implemented.** `agentir-runtime-native-cpu` is the safe parent runtime and
+contains the single shared internal wire/identity/launcher contract. Production
+uses a hidden mode of the current `agentir` executable, selected from a
+server-owned argument before JSONL processing. The protocol crate depends only
+on the safe parent runtime; the CLI and worker package own the child entry and
+Cranelift dependency. Tests inject a launcher only through an explicit Engine
+constructor and retain direct structural call/request evidence.
 
 The only production command that may compile or execute native code is
 `cpu_native.execute`. The request contains only:

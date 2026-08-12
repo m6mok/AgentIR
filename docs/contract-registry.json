@@ -21,6 +21,7 @@
     "agentir.workspace.archive.v9","agentir.workspace.archive.v10","agentir.workspace.archive.v11","agentir.compiler.cpu_scalar.v1",
     "agentir.artifact.cpu.scalar.v1","agentir.cpu.benchmark.config.v1","agentir.cpu.benchmark.input.v1",
     "agentir.cpu.host.fingerprint.v1","agentir.cpu.measurement.output.v1","agentir.cpu.measurement.v1",
+    "agentir.cpu.native.runtime.v1","agentir.cpu.native.execution.v1",
     "agentir.evaluation.corpus.v1","agentir.evaluation.policy.v1",
     "agentir.evaluation.observation.v1","agentir.evaluation.episode.v1","agentir.evaluation.episode.v2",
     "agentir.evaluation.aggregate.v1","agentir.evaluation.archive.v1","agentir.evaluation.archive.v2",
@@ -154,6 +155,6 @@
     "docs/autotuning-campaign-checkpoints.md","docs/autotuning-campaign-replay.md",
     "docs/autotuning-campaign-fairness.md","docs/evaluation-archive-v8.md",
     "docs/stage-7e-readiness.md","docs/stage-7-readiness.md","docs/stage-8a-scope.md","docs/stage-8b-scope.md",
-    "docs/stage-8-closure.md"
+    "docs/stage-8-closure.md","docs/stage-9-scope.md"
   ]
 }

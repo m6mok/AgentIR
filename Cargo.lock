@@ -24,7 +24,9 @@ dependencies = [
 name = "agentir-cli"
 version = "0.1.0"
 dependencies = [
+ "agentir-native-cpu-worker",
  "agentir-protocol",
+ "agentir-runtime-native-cpu",
  "serde_json",
 ]
 
@@ -51,6 +53,7 @@ dependencies = [
  "agentir-backend-cpu",
  "agentir-core",
  "agentir-protocol",
+ "agentir-runtime-native-cpu",
  "agentir-store",
  "cranelift-codegen",
  "cranelift-frontend",
@@ -59,7 +62,6 @@ dependencies = [
  "cranelift-native",
  "serde",
  "serde_json",
- "sha2",
 ]
 
 [[package]]
@@ -84,6 +86,7 @@ dependencies = [
  "agentir-core",
  "agentir-reference-eval",
  "agentir-runtime-cpu",
+ "agentir-runtime-native-cpu",
  "agentir-runtime-wgpu",
  "agentir-store",
  "serde",
@@ -107,6 +110,16 @@ dependencies = [
  "agentir-backend-cpu",
  "agentir-core",
  "serde_json",
+]
+
+[[package]]
+name = "agentir-runtime-native-cpu"
+version = "0.1.0"
+dependencies = [
+ "agentir-core",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

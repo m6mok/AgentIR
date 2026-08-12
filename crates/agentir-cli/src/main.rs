@@ -65,6 +65,12 @@ fn run() -> io::Result<()> {
 }
 
 fn main() {
+    if std::env::args().nth(1).as_deref()
+        == Some(agentir_runtime_native_cpu::HIDDEN_WORKER_ARGUMENT)
+    {
+        agentir_native_cpu_worker::run_worker_stdio();
+        return;
+    }
     if let Err(error) = run() {
         eprintln!("agentir CLI failed: {error}");
         std::process::exit(1);

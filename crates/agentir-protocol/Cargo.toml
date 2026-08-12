@@ -11,6 +11,7 @@ agentir-core = { path = "../agentir-core" }
 agentir-backend-wgsl = { path = "../agentir-backend-wgsl" }
 agentir-backend-cpu = { path = "../agentir-backend-cpu" }
 agentir-runtime-cpu = { path = "../agentir-runtime-cpu" }
+agentir-runtime-native-cpu = { path = "../agentir-runtime-native-cpu" }
 agentir-eval = { package = "agentir-reference-eval", path = "../agentir-eval" }
 agentir-runtime-wgpu = { path = "../agentir-runtime-wgpu" }
 agentir-store = { path = "../agentir-store" }
