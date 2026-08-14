@@ -1,6 +1,8 @@
 use agentir_core::{
+    cpu::{CpuInstruction, CpuScalarOpcode},
     diagnostics::{AgentError, ErrorCode},
     ids::WorkspaceId,
+    ir::Opcode,
     resources::ResourceLimits,
 };
 use agentir_protocol::Engine;
@@ -218,6 +220,110 @@ fn production_contract_executes_once_and_leaves_workspace_unchanged() {
 }
 
 #[test]
+fn cpu_axpby_fixture_preserves_the_exact_graph_and_workspace() {
+    let (mut engine, state) = engine(Behavior::Correct);
+    let mut responses = Vec::new();
+    let mut before_native = None;
+    for line in include_str!("../../../examples/cpu_axpby.jsonl").lines() {
+        let request: Value = serde_json::from_str(line).unwrap();
+        if request["request_id"] == "native" {
+            before_native = Some(
+                engine
+                    .workspace_snapshot_for_tests(&WorkspaceId::new("w1"))
+                    .unwrap(),
+            );
+        }
+        let response = process(&mut engine, &request);
+        assert_eq!(response["ok"], true, "{response}");
+        responses.push(response);
+    }
+
+    let output = json!([32.0, 64.0, 96.0, 128.0]);
+    for request_id in ["reference", "portable", "native"] {
+        let response = responses
+            .iter()
+            .find(|response| response["request_id"] == request_id)
+            .unwrap();
+        assert_eq!(response["result"]["outputs"]["out"], output);
+    }
+
+    let snapshot = before_native.unwrap();
+    let program = &snapshot.revisions.get(&snapshot.head).unwrap().program;
+    let zip_maps = program
+        .operations
+        .values()
+        .filter(|operation| operation.opcode == Opcode::ZipMap)
+        .collect::<Vec<_>>();
+    assert_eq!(zip_maps.len(), 1);
+    let source_region = zip_maps[0].region.as_ref().unwrap();
+    assert_eq!(source_region.operations.len(), 3);
+    assert_eq!(
+        source_region
+            .operations
+            .iter()
+            .filter(|operation| operation.opcode == Opcode::Mul)
+            .count(),
+        2
+    );
+    assert_eq!(
+        source_region
+            .operations
+            .iter()
+            .filter(|operation| operation.opcode == Opcode::Add)
+            .count(),
+        1
+    );
+    assert!(
+        source_region
+            .operations
+            .iter()
+            .all(|operation| operation.opcode != Opcode::Fma)
+    );
+
+    let package = snapshot
+        .cpu_artifact_store
+        .packages
+        .values()
+        .next()
+        .unwrap();
+    assert_eq!(package.functions[0].instructions.len(), 1);
+    let CpuInstruction::ZipMapF32 { body, .. } = &package.functions[0].instructions[0] else {
+        panic!("AXPBY must retain one zip_map instruction");
+    };
+    assert_eq!(body.instructions.len(), 3);
+    assert_eq!(
+        body.instructions
+            .iter()
+            .filter(|instruction| instruction.opcode == CpuScalarOpcode::MulF32)
+            .count(),
+        2
+    );
+    assert_eq!(
+        body.instructions
+            .iter()
+            .filter(|instruction| instruction.opcode == CpuScalarOpcode::AddF32)
+            .count(),
+        1
+    );
+    assert!(
+        body.instructions
+            .iter()
+            .all(|instruction| instruction.opcode != CpuScalarOpcode::FmaF32)
+    );
+    assert_eq!(
+        package.certificate.relation,
+        "cpu_artifact_equivalent_to_schedule"
+    );
+    assert_eq!(state.lock().unwrap().calls, 1);
+    assert_eq!(
+        engine
+            .workspace_snapshot_for_tests(&WorkspaceId::new("w1"))
+            .unwrap(),
+        snapshot
+    );
+}
+
+#[test]
 fn every_forbidden_client_field_rejects_before_launch() {
     let forbidden = [
         "package",
@@ -268,6 +374,9 @@ fn every_forbidden_client_field_rejects_before_launch() {
 fn bad_inputs_and_stale_hash_reject_before_launch() {
     let (mut engine, state) = engine(Behavior::Correct);
     build_saxpy(&mut engine);
+    let baseline = engine
+        .workspace_snapshot_for_tests(&WorkspaceId::new("w1"))
+        .unwrap();
     for mutation in [
         json!({"a":2.0,"x":[1.0],"y":[10.0,20.0]}),
         json!({"a":"wrong","x":[1.0],"y":[10.0]}),
@@ -280,6 +389,12 @@ fn bad_inputs_and_stale_hash_reject_before_launch() {
             response["error"]["code"], "CPU_NATIVE_VALIDATION_FAILED",
             "{response}"
         );
+        assert_eq!(
+            engine
+                .workspace_snapshot_for_tests(&WorkspaceId::new("w1"))
+                .unwrap(),
+            baseline
+        );
     }
     let mut stale_request = native_request();
     stale_request["expected_cpu_artifact_hash"] = json!("stale");
@@ -287,6 +402,12 @@ fn bad_inputs_and_stale_hash_reject_before_launch() {
     assert_eq!(
         response["error"]["code"], "CPU_NATIVE_ARTIFACT_IDENTITY_MISMATCH",
         "{response}"
+    );
+    assert_eq!(
+        engine
+            .workspace_snapshot_for_tests(&WorkspaceId::new("w1"))
+            .unwrap(),
+        baseline
     );
     assert_eq!(state.lock().unwrap().calls, 0);
 }
@@ -300,10 +421,19 @@ fn projected_work_limit_rejects_before_launch() {
         ..ResourceLimits::default()
     };
     engine.set_limits_for_tests(limits);
+    let before = engine
+        .workspace_snapshot_for_tests(&WorkspaceId::new("w1"))
+        .unwrap();
     let response = process(&mut engine, &native_request());
     assert_eq!(
         response["error"]["code"], "CPU_NATIVE_VALIDATION_FAILED",
         "{response}"
+    );
+    assert_eq!(
+        engine
+            .workspace_snapshot_for_tests(&WorkspaceId::new("w1"))
+            .unwrap(),
+        before
     );
     assert_eq!(state.lock().unwrap().calls, 0);
 }
@@ -313,6 +443,10 @@ fn structural_paths_and_portable_execution_never_launch_native_worker() {
     let (mut engine, state) = engine(Behavior::Crash);
     build_saxpy(&mut engine);
     for request in [
+        json!({"command":"spec.check","request_id":"spec-check","workspace":"w1"}),
+        json!({"command":"program.evaluate","request_id":"reference","workspace":"w1","revision":"r2","inputs":{"a":2.0,"x":[1.0,2.0,3.0,4.0],"y":[10.0,20.0,30.0,40.0]}}),
+        json!({"command":"target.check","request_id":"target-check","workspace":"w1","target_manifest":"tm1","target_revision":"tmr1"}),
+        json!({"command":"schedule.check","request_id":"schedule-check","workspace":"w1","schedule_plan":"sp1","schedule_revision":"sr1"}),
         json!({"command":"cpu_artifact.list","request_id":"list","workspace":"w1"}),
         json!({"command":"cpu_artifact.query","request_id":"query","workspace":"w1","cpu_artifact":"cpuart-c6eb17c4671f1cb8"}),
         json!({"command":"cpu_artifact.check","request_id":"check","workspace":"w1","cpu_artifact":"cpuart-c6eb17c4671f1cb8","expected_cpu_artifact_hash":"c6eb17c4671f1cb8988e92b275357d80a921da61d423bc12211117fef7ea9025"}),
@@ -329,14 +463,23 @@ fn structural_paths_and_portable_execution_never_launch_native_worker() {
         "agentir-native-structural-{}-{nonce}.json",
         std::process::id()
     ));
+    let migrated = std::env::temp_dir().join(format!(
+        "agentir-native-structural-migrated-{}-{nonce}.json",
+        std::process::id()
+    ));
     for request in [
-        json!({"command":"workspace.save","request_id":"save","workspace":"w1","path":archive}),
-        json!({"command":"workspace.verify_archive","request_id":"verify","path":archive}),
+        json!({"command":"workspace.save","request_id":"save","workspace":"w1","path":archive.clone()}),
+        json!({"command":"workspace.verify_archive","request_id":"verify","path":archive.clone()}),
+        json!({"command":"workspace.load","request_id":"load","path":archive.clone(),"replace":true}),
+        json!({"command":"workspace.migrate_archive","request_id":"migrate","source_path":archive.clone(),"destination_path":migrated.clone()}),
+        json!({"command":"workspace.verify_archive","request_id":"verify-migrated","path":migrated.clone()}),
+        json!({"command":"workspace.load","request_id":"load-migrated","path":migrated.clone(),"replace":true}),
     ] {
         let response = process(&mut engine, &request);
         assert_eq!(response["ok"], true, "{response}");
     }
     std::fs::remove_file(archive).unwrap();
+    std::fs::remove_file(migrated).unwrap();
     assert_eq!(state.lock().unwrap().calls, 0);
 }
 

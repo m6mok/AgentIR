@@ -318,7 +318,10 @@ fn native_saxpy_is_exact_and_process_isolated() {
         bytes_before
     );
     assert_eq!(response.runtime.cranelift_version, "0.116.1");
-    assert_eq!(response.runtime.target_triple, "aarch64-apple-darwin");
+    assert_eq!(
+        response.runtime.target_triple,
+        agentir_runtime_native_cpu::PARENT_TARGET_TRIPLE
+    );
 }
 
 #[test]

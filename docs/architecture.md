@@ -50,7 +50,21 @@ Stage 8C closes this architecture without adding a layer or state. One offline i
 
 Stage 9B adds a non-persistent side boundary from one retained Stage 8A package to `agentir-runtime-native-cpu`. The safe parent validates the package, inputs, shapes, checked work and server resource policy, then launches the current server executable in a hidden mode selected before JSONL processing. The fresh child clears inherited environment configuration, independently validates the package, performs fixed-setting Cranelift lowering and one audited native call, emits one bounded response, and exits. The parent validates process exit, stderr/framing, artifact/runtime/execution identities, output coverage/shapes/finiteness and both native observation hashes. `agentir-protocol` depends only on the safe parent runtime and has no dependency on the Cranelift-owning worker crate. Machine code is ephemeral worker-local state; the process boundary is crash containment, not a security sandbox.
 
-The dependency direction is one-way: `core` knows nothing about JSONL sessions, policy evaluation, learned models, search plans/frontiers, transcripts or filesystems; the reference evaluator and store depend on `core`; `protocol` composes production components and the safe native parent runtime; the Cranelift worker depends on that shared safe wire contract but never flows back into `protocol`; `agentir-policy-eval` invokes the production surface and owns offline ranking, learning and bounded search; both CLIs only stream lines.
+Stage 9C closes that boundary without adding a layer, state, command, hash domain, or authority. The fast `stage9_closure` target composes the real worker, production Engine/JSONL contract, unchanged Stage 8 closure, fixed-seed bitwise corpus, typed failure/atomicity paths, zero-launch structural/archive paths, process reaping control flow, pinned legacy fixtures, and dependency/unsafe audits. This is offline contract and macOS/aarch64 compatibility evidence; Linux/x86_64 portability is not inferred until the same target passes there.
+
+The optional local `agentir-authoring` adapter sits above `agentir-protocol`. It
+accepts one strict graph, incremental-batch, bounded staged v1, or compiler-
+framed staged v2 response. The authoring-only structures deterministically
+lower to the same ordinary graph proposal. A v2 frame is public, immutable,
+task-bound, and compiler-hashed; it owns stage/cycle/warmup addressing while the
+model still chooses exact opcodes, operand roles, and state. Strict parsing,
+local expansion, task-relative graph validation, and exact server-owned intent
+comparison all happen before `workspace.open`; only then does the shared
+gateway fill production identities from prior `Engine` responses. The adapter
+does not flow into core, add a protocol command or canonical IR, or alter any
+hash, archive, or proof contract.
+
+The dependency direction is one-way: `core` knows nothing about JSONL sessions, policy evaluation, learned models, search plans/frontiers, transcripts or filesystems; the reference evaluator and store depend on `core`; `protocol` composes production components and the safe native parent runtime; the Cranelift worker depends on that shared safe wire contract but never flows back into `protocol`; `agentir-policy-eval` invokes the production surface and owns offline ranking, learning and bounded search. The production JSONL CLIs only stream lines, while the optional local authoring CLI submits one bounded proposal through the adapter above `protocol`.
 
 ## Stage 7A search boundary
 

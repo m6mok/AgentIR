@@ -5,12 +5,13 @@ compiler-published Stage 8A `cpu_scalar_v1` package. It does not publish native
 machine code, replace the portable package, widen the supported program subset,
 or grant execution and timing any correctness or selection authority.
 
-This is the normative implementation plan selected by ADR-184. Stage 9 is not
-complete until the closure gate in this document passes.
+This is the normative implementation plan selected by ADR-184. Stage 9 is
+complete only while the closure gate in this document passes.
 
-**Implementation status.** Stage 9A and the bounded Stage 9B production
-`cpu_native.execute` contract are implemented. Stage 9C remains planned, so
-Stage 9 is not complete and no portability claim is made beyond tested hosts.
+**Implementation status.** Stage 9A, the bounded Stage 9B production
+`cpu_native.execute` contract, and the Stage 9C offline closure gate are
+implemented. The gate passes on macOS/aarch64. Linux/x86_64 portability is not
+claimed until the same command passes on that target.
 
 ## Why this is the next boundary
 
@@ -179,7 +180,13 @@ native compilations, native executions and native timeout-clock reads.
 
 ## Stage 9C closure gate
 
-Stage 9 closes only when one fast offline gate proves the following evidence:
+Stage 9 closes only while the following fast offline gate passes:
+
+```bash
+cargo test -p agentir-native-cpu-worker --test stage9_closure
+```
+
+The gate proves the following evidence:
 
 1. The production SpecIR -> ImplIR -> MemoryIR -> ScheduleIR -> Stage 8A CPU
    artifact chain is reconstructed without a second lowering from ScheduleIR.
@@ -209,6 +216,12 @@ native smoke run is compatibility evidence only and may be skipped on an
 unsupported host without weakening the offline double-based orchestration gate;
 at least macOS/aarch64 and Linux/x86_64 must pass before Stage 9 is declared
 portable across those two targets.
+
+The checked closure report is generated as a local reproducibility artifact at
+`target/stage9-closure/report.md`. On the recorded macOS/aarch64 host the gate
+executes the real worker and exact SAXPY/bitwise corpus. The report deliberately
+keeps Linux/x86_64 portability open pending an independent run of the same
+command.
 
 ## Explicit non-goals
 

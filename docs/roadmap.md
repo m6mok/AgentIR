@@ -180,7 +180,7 @@ Stage 7E integrates existing Stage 7A–7D records into a checkpointable campaig
 - Stage 8C closes the combined contract with exact SAXPY execution, isolated synthetic clock/execution doubles, artifact/hash stability, atomic rejection, zero-execution query/check/archive replay, corruption rejection, archive v11 round-trip, and pure v10→v11 migration evidence.
 - ADR-183 makes this offline gate authoritative for Stage 8 completion without speed, significance, portability, ranking, recommendation, selection, publication, or global-optimality claims.
 
-## Completed Stage 9A/9B: isolated native CPU execution foundation and production command
+## Completed Stage 9: isolated native CPU execution and offline closure
 
 Stage 9 reuses an unchanged, compiler-published Stage 8A package as the sole
 input to a pinned Cranelift JIT. Native lowering and the one audited call bridge
@@ -192,9 +192,9 @@ archive migration, proof relation, ranking or performance authority. See
 
 Stage 9A pins Cranelift 0.116.1, preserves exact add/mul/FMA semantics, verifies generated IR and confines the sole AgentIR-owned unsafe call to the worker bridge. Stage 9B implements production `cpu_native.execute` through a safe parent runtime, a server-selected hidden CLI worker mode, one fresh process and one native call. Parent and worker independently validate the unchanged package, while the parent additionally enforces bounded work, timeout/reaping, exact response framing, output validation and the runtime/execution observation identities. There is no interpreter fallback, retry, persisted state or performance claim.
 
-## Planned Stage 9C: offline closure gate
+Stage 9C closes the combined contract through `cargo test -p agentir-native-cpu-worker --test stage9_closure`. The gate composes the production compiler/package chain, real worker, unchanged portable interpreter, fixed-seed bitwise enum corpus, malformed/crash/timeout/forgery atomicity, zero-native structural/archive paths, reaping control flow, legacy archive pins and dependency/unsafe audits. It adds no production semantics or authority.
 
-Stage 9 is not complete. Stage 9C remains the separate fast offline closure gate defined in [the Stage 9 scope](stage-9-scope.md); this Stage 9B implementation does not declare cross-target portability or close the stage.
+The Stage 9 contract is closed offline and the real-worker compatibility smoke passes on macOS/aarch64. Linux/x86_64 portability remains unconfirmed until the same closure command passes on that target; the offline closure result does not imply it.
 
 AOT publication, SIMD/threading, reductions, broader dtype/rank support, host ABI embedding and CPU/GPU performance ranking remain future work.
 

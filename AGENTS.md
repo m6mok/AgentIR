@@ -167,6 +167,7 @@ cargo run -p agentir-cli --bin agentir < examples/equality_to_artifact.jsonl
 cargo run -p agentir-cli --bin agentir < examples/backend_rejected_reduce.jsonl
 cargo run -p agentir-cli --bin agentir < examples/cpu_saxpy.jsonl
 cargo run -p agentir-cli --bin agentir < examples/cpu_scalar_elementwise.jsonl
+cargo run -p agentir-cli --bin agentir < examples/cpu_axpby.jsonl
 cargo run -p agentir-cli --bin agentir < examples/cpu_rejected_reduction.jsonl
 cargo run -p agentir-cli --bin agentir < examples/cpu_malformed_input.jsonl
 cargo run -p agentir-cli --bin agentir < examples/cpu_archive_roundtrip.jsonl
@@ -176,6 +177,7 @@ cargo run -p agentir-cli --bin agentir < examples/cpu_measurement_rejected_timin
 cargo run -p agentir-cli --bin agentir < examples/cpu_measurement_malformed_config.jsonl
 cargo run -p agentir-cli --bin agentir < examples/cpu_measurement_archive_roundtrip.jsonl
 cargo run -p agentir-cli --bin agentir < examples/cpu_native_saxpy.jsonl
+cargo test -p agentir-native-cpu-worker --test stage9_closure
 cargo run -p agentir-protocol --example stage8a_study -- --output target/stage8a-study/run-1
 cargo run -p agentir-protocol --example stage8a_study -- --output target/stage8a-study/run-2
 cargo run -p agentir-protocol --example stage8a_compare -- target/stage8a-study/run-1 target/stage8a-study/run-2

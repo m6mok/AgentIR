@@ -66,6 +66,7 @@ dependencies = [
  "agentir-backend-cpu",
  "agentir-core",
  "agentir-protocol",
+ "agentir-runtime-cpu",
  "agentir-runtime-native-cpu",
  "agentir-store",
  "cranelift-codegen",
@@ -75,6 +76,7 @@ dependencies = [
  "cranelift-native",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

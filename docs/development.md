@@ -22,6 +22,14 @@ Stage 8A is offline and CPU-only. Run the `cpu_*.jsonl` examples, `cargo test -p
 
 Stage 8 closure is the fast `cargo test -p agentir-protocol --test stage8_closure` gate. It builds the production SAXPY chain, counts synthetic acquisition clock and interpreter calls in an isolated store, checks exact output and artifact stability, performs one no-threshold real monotonic smoke observation, round-trips archive v11 through capability-free structural replay, rejects corruption, and rechecks v10→v11 empty-store migration. Replay reuses archived revision timestamps and makes no speed or comparative claim.
 
+Stage 9 closure is the fast `cargo test -p agentir-native-cpu-worker --test stage9_closure` gate. It composes the focused Stage 9A worker, production `cpu_native.execute`, and unchanged Stage 8 closure evidence in the only crate whose test dependency direction may reach both the safe protocol parent and Cranelift worker. It also runs a fixed-seed bitwise corpus with exhaustive current CPU enum coverage, failure/atomicity and no-retry paths, zero-launch structural/archive operations, reaping control-flow checks, legacy fixture pins, and dependency/unsafe audits. The command performs no network/device work, timing threshold, ranking, recommendation, publication, or performance comparison. Record its exact target triple separately on every portability host.
+
+## External-agent CPU authoring UX evaluation
+
+Treat each run as an isolated qualitative evaluation. The external runner must record the model name and authoritative Power/reasoning setting, pin the commit, start a fresh chat/session with no previous run reports in context, and give the agent a fresh temporary clone or worktree. Record `git status` for both the source checkout and temporary checkout before the run. The prompt must explicitly forbid working in, deleting from, or cleaning the source checkout and must assign a unique output path inside the temporary checkout.
+
+After the run, retain the temporary checkout for audit, record its final status, and collect a separate independent report. A grader must independently inspect the mutation boundary and verify that the source checkout is unchanged both before and after the run. The agent's self-report may say `Power/reasoning: UNKNOWN`; the external runner's configuration record is authoritative. A functional PASS does not cancel an isolation violation: any mutation-boundary violation lowers the overall result to at least PARTIAL.
+
 Before/after audits built from different checkouts must use separate `CARGO_TARGET_DIR` values. Sharing one release directory between identical package names and versions can reuse the wrong checkout's example binary and invalidate the comparison.
 
 The expanded local Stage 6B.1 study is generated with `cargo run --release -p agentir-policy-eval --example stage6b_study -- --output target/stage6b-study/run-1`. Repeat with a second directory, then run `cargo run --release -p agentir-policy-eval --example stage6b_compare -- target/stage6b-study/run-1 target/stage6b-study/run-2`. The comparator requires byte-identical `semantic.json`; timing samples are retained separately as expected machine noise. All outputs stay under ignored `target/` and are never correctness evidence.
@@ -116,6 +124,7 @@ cargo run -p agentir-protocol --example stage8a_study -- --output target/stage8a
 cargo run -p agentir-protocol --example stage8a_study -- --output target/stage8a-study/run-2
 cargo run -p agentir-protocol --example stage8a_compare -- target/stage8a-study/run-1 target/stage8a-study/run-2
 cargo test -p agentir-protocol --test stage8_closure
+cargo test -p agentir-native-cpu-worker --test stage9_closure
 cargo run --release -p agentir-protocol --example baseline
 cargo run -p agentir-eval -- < examples/eval_free_saxpy.jsonl
 cargo run -p agentir-eval -- < examples/eval_compare_policies.jsonl

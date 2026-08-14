@@ -14,7 +14,7 @@ Start with the root [README](../README.md), then choose the document matching th
 - [Stage 8A scope](stage-8a-scope.md) — deterministic portable scalar CPU packages and safe execution without timing claims.
 - [Stage 8B scope](stage-8b-scope.md) — bounded CPU timing records, independent identities, zero-execution replay and archive v11.
 - [Stage 8 closure](stage-8-closure.md) — offline Stage 8A/8B integrity gate, evidence classes, and explicitly unproved performance claims.
-- [Stage 9 scope](stage-9-scope.md) — planned isolated Cranelift JIT execution over unchanged Stage 8A packages.
+- [Stage 9 scope](stage-9-scope.md) — completed Stage 9A/9B isolated Cranelift JIT execution, authoritative Stage 9C offline closure gate, and target-specific portability status.
 - [Stage 6A scope](stage-6a-scope.md) — reproducible policy evaluation without ranking or autotuning.
 - [Stage 6B scope](stage-6b-scope.md) — reproducible policy-owned ranking without tuning.
 - [Stage 6B compatibility audit](stage-6b-compatibility-audit.md) — frozen Stage 1–6A contracts and new domains.
