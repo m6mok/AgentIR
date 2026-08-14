@@ -1,0 +1,23 @@
+[package]
+name = "agentir-authoring"
+description = "Strict graph, incremental, and staged authoring SDK and CLI for AgentIR"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "agentir-authoring"
+path = "src/main.rs"
+
+[dependencies]
+agentir-core = { path = "../agentir-core" }
+agentir-protocol = { path = "../agentir-protocol" }
+agentir-native-cpu-worker = { path = "../agentir-native-cpu-worker" }
+agentir-runtime-native-cpu = { path = "../agentir-runtime-native-cpu" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
+[lints]
+workspace = true

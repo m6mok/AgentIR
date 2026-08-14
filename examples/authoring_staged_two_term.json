@@ -1,0 +1,32 @@
+{
+  "schema": "agentir.elementwise_staged.v1",
+  "stages": 1,
+  "seed": {"kind": "tensor", "name": "x"},
+  "body": [
+    {
+      "bind": "$ax",
+      "op": "mul",
+      "operands": [
+        {"kind": "scalar", "name": "a"},
+        {"kind": "tensor", "name": "x"}
+      ]
+    },
+    {
+      "bind": "$by",
+      "op": "mul",
+      "operands": [
+        {"kind": "scalar", "name": "b"},
+        {"kind": "tensor", "name": "y"}
+      ]
+    },
+    {
+      "bind": "$out",
+      "op": "add",
+      "operands": [
+        {"kind": "stage_local", "name": "$ax"},
+        {"kind": "stage_local", "name": "$by"}
+      ]
+    }
+  ],
+  "state": "$out"
+}

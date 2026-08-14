@@ -191,6 +191,33 @@ Resource limits are policy, not SpecIR. Archive replay uses hard safety caps; no
 
 `backend.lower`, `backend.query`, `backend.check`, `backend.continuation`, `backend.fork` and `backend.seal` operate on immutable BackendIR plans. `artifact.emit`, `artifact.list`, `artifact.query`, `artifact.check` and `artifact.reference_evaluate` are GPU-independent. `artifact.execute`, `device.list`, `device.query`, and the `benchmark.start/status/cancel/query` family are optional device paths.
 
+## CPU JSONL authoring quickstart
+
+For model authoring, prefer the separate local
+[LLM-native authoring SDK](authoring-sdk.md). Its graph, incremental-batch, and
+bounded staged surfaces all lower to one ordinary graph, check server-owned
+exact intent before mutation, and carry compiler identities through one
+persistent `Engine` session. It deliberately adds no command to this production
+JSONL protocol; the manual flow below remains the contract for static fixtures
+and general clients.
+
+A repository JSONL example is a static deterministic transcript, not a programmatic response-reference format. Compiler-assigned IDs and hashes are already written into the fixture because its author obtained them from successful prefix runs. An ordinary client does not predict them: it sends one command, checks `ok` in that command's response, reads the returned ID or hash, and supplies it to the next command. The shell process exit code is not a substitute for checking every response. A JSONL process can emit a request-level `ok:false`, continue with later input lines, and still exit with status zero.
+
+Use this clean procedure to author a CPU fixture without treating an intentional mismatch as an API:
+
+1. Write a prefix through `schedule.create`, run it, and verify that every response has `ok:true`.
+2. Copy `schedule_hash` from the successful `schedule.create` response into a new `cpu_artifact.emit` line.
+3. Run the extended prefix, verify every response again, and copy the returned `cpu_artifact` ID and `cpu_artifact_hash` from the successful emit response.
+4. Add `cpu_artifact.check`, portable `cpu_artifact.execute`, and `cpu_native.execute` using those exact returned identities.
+5. Run the complete transcript, require every response to have `ok:true`, and compare the intended `program.evaluate` reference output with both portable and native outputs.
+6. Save the resulting lines, including their compiler-returned identities, as the canonical static fixture.
+
+Persistent IDs are compiler assigned, and clients must not rely on their apparent sequence. Semantic, proof, and artifact hashes are compiler owned; clients do not compute or substitute them. `request_id` is only a correlation label. An artifact ID locates a retained package but does not replace its exact artifact hash. Runtime inputs do not enter CPU artifact identity, and resource limits enter neither artifact identity nor native observation identity. Native execution publishes no new artifact, revision, event, measurement, archive data, or other workspace state.
+
+The canonical AgentIR program is its typed operation graph, not only a mathematical formula. `fma(a,b,c)` is one fused operation with one rounding, while `add(mul(a,b),c)` is a separate multiplication followed by a separate addition. They are not interchangeable for arbitrary `f32`, so a client or agent must not replace one with the other. Such a change is valid only through a supported trusted compiler rewrite with exact side conditions and a compiler-owned certificate. Equal output for one input is confidence evidence, not proof that two programs are equivalent.
+
+See [cpu_saxpy.jsonl](../examples/cpu_saxpy.jsonl) for explicit FMA, [cpu_scalar_elementwise.jsonl](../examples/cpu_scalar_elementwise.jsonl) for scalar elementwise multiplication, [cpu_axpby.jsonl](../examples/cpu_axpby.jsonl) for an exact two-`mul`/one-`add` `zip_map`, and [cpu_native_saxpy.jsonl](../examples/cpu_native_saxpy.jsonl) for the compact native path.
+
 `cpu_artifact.emit` accepts only a workspace, schedule plan/revision, and exact expected `schedule_hash`; lowering, bytecode, ABI, bounds checks, IDs, hashes, and certificates remain compiler-owned. `cpu_artifact.list`, `cpu_artifact.query`, and `cpu_artifact.check` are zero-execution structural operations. `cpu_artifact.execute` requires the exact expected `cpu_artifact_hash` plus named JSON inputs and returns named outputs with deterministic work counters. It performs no GPU discovery, timing, benchmarking, proof advancement, or workspace mutation. Unknown client fields such as bytecode, bindings, guards, or certificates are rejected.
 
 `cpu_measurement.acquire` selects one retained CPU artifact with its exact hash, v1 `{warmups, iterations, aggregation}` configuration, and ordinary inputs. It is the only CPU measurement command that executes bytecode or reads a monotonic clock. Runtime-owned samples, aggregates, host fingerprint, outputs, hashes, bytecode, ABI, proof and success fields are rejected. `cpu_measurement.list`, `cpu_measurement.query`, and `cpu_measurement.check` are zero-execution and zero-clock structural operations.

@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agentir-elementwise-staged-v1.schema.json",
+  "title": "AgentIR bounded staged authoring payload v1",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "agentir.elementwise_staged.v1",
+      "type": "string"
+    },
+    "stages": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "seed": {"$ref": "#/$defs/graph_operand"},
+    "body": {
+      "items": {"$ref": "#/$defs/staged_operation"},
+      "maxItems": 8,
+      "minItems": 1,
+      "type": "array"
+    },
+    "state": {
+      "pattern": "^\\$[A-Za-z_][A-Za-z0-9_]*$",
+      "type": "string"
+    }
+  },
+  "required": ["schema", "stages", "seed", "body", "state"],
+  "type": "object",
+  "$defs": {
+    "graph_operand": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {"const": "scalar", "type": "string"},
+            "name": {"minLength": 1, "type": "string"}
+          },
+          "required": ["kind", "name"],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {"const": "tensor", "type": "string"},
+            "name": {"minLength": 1, "type": "string"}
+          },
+          "required": ["kind", "name"],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {"const": "local", "type": "string"},
+            "operation": {"minimum": 0, "type": "integer"}
+          },
+          "required": ["kind", "operation"],
+          "type": "object"
+        }
+      ]
+    },
+    "staged_operand": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {"enum": ["scalar", "tensor"], "type": "string"},
+            "name": {"minLength": 1, "type": "string"}
+          },
+          "required": ["kind", "name"],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {"const": "stage_local", "type": "string"},
+            "name": {
+              "pattern": "^\\$[A-Za-z_][A-Za-z0-9_]*$",
+              "type": "string"
+            }
+          },
+          "required": ["kind", "name"],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {"const": "state_prev", "type": "string"}
+          },
+          "required": ["kind"],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {"const": "state_lag", "type": "string"},
+            "stages": {"minimum": 1, "type": "integer"},
+            "initial": {
+              "items": {"$ref": "#/$defs/graph_operand"},
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": ["kind", "stages", "initial"],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": ["scalar_cycle", "tensor_cycle"],
+              "type": "string"
+            },
+            "prefix": {"type": "string"},
+            "count": {"minimum": 1, "type": "integer"},
+            "stride": {"minimum": 0, "type": "integer"},
+            "offset": {"minimum": 0, "type": "integer"}
+          },
+          "required": ["kind", "prefix", "count", "stride", "offset"],
+          "type": "object"
+        }
+      ]
+    },
+    "staged_operation": {
+      "additionalProperties": false,
+      "properties": {
+        "bind": {
+          "pattern": "^\\$[A-Za-z_][A-Za-z0-9_]*$",
+          "type": "string"
+        },
+        "op": {
+          "enum": ["add", "mul", "fma"],
+          "type": "string"
+        },
+        "operands": {
+          "items": {"$ref": "#/$defs/staged_operand"},
+          "maxItems": 3,
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": ["bind", "op", "operands"],
+      "type": "object"
+    }
+  }
+}

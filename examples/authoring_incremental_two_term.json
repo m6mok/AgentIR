@@ -1,0 +1,42 @@
+{
+  "schema": "agentir.elementwise_incremental_batch.v1",
+  "transactions": [
+    {
+      "schema": "agentir.elementwise_transaction.v1",
+      "base_operations": 0,
+      "operations": [
+        {
+          "bind": "$ax",
+          "op": "mul",
+          "operands": [
+            {"kind": "scalar", "name": "a"},
+            {"kind": "tensor", "name": "x"}
+          ]
+        },
+        {
+          "bind": "$by",
+          "op": "mul",
+          "operands": [
+            {"kind": "scalar", "name": "b"},
+            {"kind": "tensor", "name": "y"}
+          ]
+        }
+      ]
+    },
+    {
+      "schema": "agentir.elementwise_transaction.v1",
+      "base_operations": 2,
+      "operations": [
+        {
+          "bind": "$out",
+          "op": "add",
+          "operands": [
+            {"kind": "local", "name": "$ax"},
+            {"kind": "local", "name": "$by"}
+          ]
+        }
+      ]
+    }
+  ],
+  "yield": "$out"
+}

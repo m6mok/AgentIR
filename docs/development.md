@@ -42,14 +42,33 @@ crates/agentir-protocol   wire requests, responses, workspace registry
 crates/agentir-cli        stdin/stdout JSONL process
 crates/agentir-policy-eval immutable corpus, ranking/learning/search, replay, metrics, evaluation archive v4
 crates/agentir-eval-cli   Stage 6A stdin/stdout JSONL process
+crates/agentir-authoring  strict local graph/incremental/staged authoring SDK and CLI
 examples                  reproducible protocol sessions
 docs                      project and reference documentation
 ```
+
+The authoring ergonomics v2 offline plan is generated without provider calls:
+
+```bash
+AGENTIR_AUTHORING_EVAL_MODELS='gpt-5.6-terra,gpt-5.6-luna,gpt-5.3-codex-spark' \
+AGENTIR_AUTHORING_EVAL_REASONING_LEVELS='low,medium' \
+cargo run -p agentir-authoring --bin agentir-authoring-eval -- \
+  generate-v2 --output target/authoring-eval/ergonomics-v2-20260814
+```
+
+Use `verify-replay`, not `replay`, when checking a frozen historical evaluation
+without updating its summary or appending an event.
 
 ## Quality gate
 
 ```bash
 cargo fmt --all --check
+cargo clippy -p agentir-authoring --all-targets -- -D warnings
+cargo test -p agentir-authoring
+cargo doc -p agentir-authoring --no-deps
+cargo run -p agentir-authoring --bin agentir-authoring -- --task examples/authoring_task_two_term.json --surface graph < examples/authoring_proposal_two_term.json
+cargo run -p agentir-authoring --bin agentir-authoring -- --task examples/authoring_task_two_term.json --surface incremental-batch < examples/authoring_incremental_two_term.json
+cargo run -p agentir-authoring --bin agentir-authoring -- --task examples/authoring_task_two_term.json --surface staged < examples/authoring_staged_two_term.json
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps

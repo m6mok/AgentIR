@@ -64,7 +64,8 @@ Start with the root [README](../README.md), then choose the document matching th
 - [Hardware benchmarking](hardware-benchmarking.md) — bounded confidence-only device measurements.
 - [Reproducibility manifest](reproducibility-manifest.md) — exact included/excluded artifact state.
 - [Guarded fallback](guarded-fallback.md) — restricted self-division rule and lazy execution.
-- [JSONL protocol](protocol.md) — commands, references, regions, errors and response envelopes.
+- [JSONL protocol and CPU authoring quickstart](protocol.md#cpu-jsonl-authoring-quickstart) — commands, static fixtures, compiler-owned identities, exact floating-point graphs, errors and response envelopes.
+- [LLM-native authoring SDK](authoring-sdk.md) — graph, incremental-batch and bounded staged payloads with server-owned intent checking over the unchanged protocol.
 - [Persistence and replay](persistence.md) — archive format, save/load lifecycle and integrity model.
 - [Semantic canonicalization](semantic-canonicalization.md) — `spec_hash`, alpha-normalization and graph identity limits.
 - [Constraint solving](constraint-solving.md) — compact facts, soundness and obligation discharge.

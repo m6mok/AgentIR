@@ -1,0 +1,4912 @@
+{
+  "campaign": "A",
+  "cases": [
+    {
+      "id": "A1",
+      "proposal": {
+        "schema": "agentir.elementwise_graph.v1",
+        "operations": [
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x0"
+              },
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "tensor",
+                "name": "x1"
+              }
+            ]
+          }
+        ],
+        "yield": 0
+      }
+    },
+    {
+      "id": "A2",
+      "proposal": {
+        "schema": "agentir.elementwise_graph.v1",
+        "operations": [
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x2"
+              },
+              {
+                "type": "tensor",
+                "name": "x2"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 0
+              },
+              {
+                "type": "scalar",
+                "name": "a1"
+              }
+            ]
+          }
+        ],
+        "yield": 0
+      }
+    },
+    {
+      "id": "A3",
+      "proposal": {
+        "schema": "agentir.elementwise_graph.v1",
+        "operations": [
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a2"
+              },
+              {
+                "type": "tensor",
+                "name": "x3"
+              },
+              {
+                "type": "tensor",
+                "name": "x4"
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 0
+              },
+              {
+                "type": "tensor",
+                "name": "x5"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x6"
+              },
+              {
+                "type": "local",
+                "operation": 0
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 1
+              },
+              {
+                "type": "local",
+                "operation": 2
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 3
+              },
+              {
+                "type": "scalar",
+                "name": "a3"
+              },
+              {
+                "type": "local",
+                "operation": 0
+              }
+            ]
+          }
+        ],
+        "yield": 4
+      }
+    },
+    {
+      "id": "A4",
+      "proposal": {
+        "schema": "agentir.elementwise_graph.v1",
+        "operations": [
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x0"
+              },
+              {
+                "type": "scalar",
+                "name": "a0"
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x1"
+              },
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "tensor",
+                "name": "x2"
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 1
+              },
+              {
+                "type": "local",
+                "operation": 0
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 2
+              },
+              {
+                "type": "tensor",
+                "name": "x3"
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x4"
+              },
+              {
+                "type": "local",
+                "operation": 0
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 4
+              },
+              {
+                "type": "scalar",
+                "name": "a2"
+              },
+              {
+                "type": "local",
+                "operation": 3
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 5
+              },
+              {
+                "type": "local",
+                "operation": 1
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x5"
+              },
+              {
+                "type": "local",
+                "operation": 6
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a3"
+              },
+              {
+                "type": "local",
+                "operation": 7
+              },
+              {
+                "type": "local",
+                "operation": 2
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 8
+              },
+              {
+                "type": "local",
+                "operation": 0
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x6"
+              },
+              {
+                "type": "local",
+                "operation": 9
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 10
+              },
+              {
+                "type": "local",
+                "operation": 5
+              }
+            ]
+          }
+        ],
+        "yield": 11
+      }
+    },
+    {
+      "id": "A5",
+      "proposal": {
+        "schema": "agentir.elementwise_graph.v1",
+        "operations": [
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x0"
+              },
+              {
+                "type": "scalar",
+                "name": "a0"
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x1"
+              },
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "tensor",
+                "name": "x2"
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 1
+              },
+              {
+                "type": "local",
+                "operation": 0
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 2
+              },
+              {
+                "type": "tensor",
+                "name": "x3"
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x4"
+              },
+              {
+                "type": "local",
+                "operation": 0
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 4
+              },
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "local",
+                "operation": 0
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x9"
+              },
+              {
+                "type": "local",
+                "operation": 5
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 6
+              },
+              {
+                "type": "tensor",
+                "name": "x5"
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 7
+              },
+              {
+                "type": "local",
+                "operation": 5
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "local",
+                "operation": 8
+              },
+              {
+                "type": "local",
+                "operation": 5
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 9
+              },
+              {
+                "type": "scalar",
+                "name": "a2"
+              },
+              {
+                "type": "local",
+                "operation": 5
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x4"
+              },
+              {
+                "type": "local",
+                "operation": 10
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 11
+              },
+              {
+                "type": "tensor",
+                "name": "x5"
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 12
+              },
+              {
+                "type": "local",
+                "operation": 10
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "local",
+                "operation": 13
+              },
+              {
+                "type": "local",
+                "operation": 10
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 14
+              },
+              {
+                "type": "scalar",
+                "name": "a3"
+              },
+              {
+                "type": "local",
+                "operation": 10
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x9"
+              },
+              {
+                "type": "local",
+                "operation": 15
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 16
+              },
+              {
+                "type": "tensor",
+                "name": "x5"
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 17
+              },
+              {
+                "type": "local",
+                "operation": 15
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "local",
+                "operation": 18
+              },
+              {
+                "type": "local",
+                "operation": 15
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 19
+              },
+              {
+                "type": "scalar",
+                "name": "a4"
+              },
+              {
+                "type": "local",
+                "operation": 15
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x4"
+              },
+              {
+                "type": "local",
+                "operation": 20
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 21
+              },
+              {
+                "type": "tensor",
+                "name": "x5"
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 22
+              },
+              {
+                "type": "local",
+                "operation": 20
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "local",
+                "operation": 23
+              },
+              {
+                "type": "local",
+                "operation": 20
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 24
+              },
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "local",
+                "operation": 20
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x9"
+              },
+              {
+                "type": "local",
+                "operation": 25
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 26
+              },
+              {
+                "type": "tensor",
+                "name": "x5"
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 27
+              },
+              {
+                "type": "local",
+                "operation": 25
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "local",
+                "operation": 28
+              },
+              {
+                "type": "local",
+                "operation": 25
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 29
+              },
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "local",
+                "operation": 25
+              }
+            ]
+          }
+        ],
+        "yield": 30
+      }
+    },
+    {
+      "id": "A6",
+      "proposal": {
+        "schema": "agentir.elementwise_graph.v1",
+        "operations": [
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x0"
+              },
+              {
+                "type": "scalar",
+                "name": "a0"
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x1"
+              },
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "tensor",
+                "name": "x2"
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 1
+              },
+              {
+                "type": "local",
+                "operation": 0
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 2
+              },
+              {
+                "type": "tensor",
+                "name": "x3"
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x4"
+              },
+              {
+                "type": "local",
+                "operation": 0
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 4
+              },
+              {
+                "type": "tensor",
+                "name": "x0"
+              },
+              {
+                "type": "local",
+                "operation": 1
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 5
+              },
+              {
+                "type": "local",
+                "operation": 1
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x3"
+              },
+              {
+                "type": "local",
+                "operation": 6
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a4"
+              },
+              {
+                "type": "local",
+                "operation": 7
+              },
+              {
+                "type": "local",
+                "operation": 1
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x3"
+              },
+              {
+                "type": "local",
+                "operation": 8
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 9
+              },
+              {
+                "type": "scalar",
+                "name": "a3"
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 10
+              },
+              {
+                "type": "tensor",
+                "name": "x2"
+              },
+              {
+                "type": "local",
+                "operation": 7
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 11
+              },
+              {
+                "type": "local",
+                "operation": 7
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x1"
+              },
+              {
+                "type": "local",
+                "operation": 12
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a2"
+              },
+              {
+                "type": "local",
+                "operation": 13
+              },
+              {
+                "type": "local",
+                "operation": 7
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x9"
+              },
+              {
+                "type": "local",
+                "operation": 14
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 15
+              },
+              {
+                "type": "scalar",
+                "name": "a4"
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 16
+              },
+              {
+                "type": "tensor",
+                "name": "x4"
+              },
+              {
+                "type": "local",
+                "operation": 13
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 17
+              },
+              {
+                "type": "local",
+                "operation": 13
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x9"
+              },
+              {
+                "type": "local",
+                "operation": 18
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "local",
+                "operation": 19
+              },
+              {
+                "type": "local",
+                "operation": 13
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x5"
+              },
+              {
+                "type": "local",
+                "operation": 20
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 21
+              },
+              {
+                "type": "scalar",
+                "name": "a0"
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 22
+              },
+              {
+                "type": "tensor",
+                "name": "x6"
+              },
+              {
+                "type": "local",
+                "operation": 19
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 23
+              },
+              {
+                "type": "local",
+                "operation": 19
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x7"
+              },
+              {
+                "type": "local",
+                "operation": 24
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a3"
+              },
+              {
+                "type": "local",
+                "operation": 25
+              },
+              {
+                "type": "local",
+                "operation": 19
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x1"
+              },
+              {
+                "type": "local",
+                "operation": 26
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 27
+              },
+              {
+                "type": "scalar",
+                "name": "a1"
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 28
+              },
+              {
+                "type": "tensor",
+                "name": "x8"
+              },
+              {
+                "type": "local",
+                "operation": 25
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 29
+              },
+              {
+                "type": "local",
+                "operation": 25
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x5"
+              },
+              {
+                "type": "local",
+                "operation": 30
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "local",
+                "operation": 31
+              },
+              {
+                "type": "local",
+                "operation": 25
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x7"
+              },
+              {
+                "type": "local",
+                "operation": 32
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 33
+              },
+              {
+                "type": "scalar",
+                "name": "a2"
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 34
+              },
+              {
+                "type": "tensor",
+                "name": "x0"
+              },
+              {
+                "type": "local",
+                "operation": 31
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 35
+              },
+              {
+                "type": "local",
+                "operation": 31
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x3"
+              },
+              {
+                "type": "local",
+                "operation": 36
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a4"
+              },
+              {
+                "type": "local",
+                "operation": 37
+              },
+              {
+                "type": "local",
+                "operation": 31
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x3"
+              },
+              {
+                "type": "local",
+                "operation": 38
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 39
+              },
+              {
+                "type": "scalar",
+                "name": "a3"
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 40
+              },
+              {
+                "type": "tensor",
+                "name": "x2"
+              },
+              {
+                "type": "local",
+                "operation": 37
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 41
+              },
+              {
+                "type": "local",
+                "operation": 37
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x1"
+              },
+              {
+                "type": "local",
+                "operation": 42
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a2"
+              },
+              {
+                "type": "local",
+                "operation": 43
+              },
+              {
+                "type": "local",
+                "operation": 37
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x9"
+              },
+              {
+                "type": "local",
+                "operation": 44
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 45
+              },
+              {
+                "type": "scalar",
+                "name": "a4"
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 46
+              },
+              {
+                "type": "tensor",
+                "name": "x4"
+              },
+              {
+                "type": "local",
+                "operation": 43
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 47
+              },
+              {
+                "type": "local",
+                "operation": 43
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x9"
+              },
+              {
+                "type": "local",
+                "operation": 48
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "local",
+                "operation": 49
+              },
+              {
+                "type": "local",
+                "operation": 43
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x5"
+              },
+              {
+                "type": "local",
+                "operation": 50
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 51
+              },
+              {
+                "type": "scalar",
+                "name": "a0"
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 52
+              },
+              {
+                "type": "tensor",
+                "name": "x6"
+              },
+              {
+                "type": "local",
+                "operation": 49
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 53
+              },
+              {
+                "type": "local",
+                "operation": 49
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x7"
+              },
+              {
+                "type": "local",
+                "operation": 54
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a3"
+              },
+              {
+                "type": "local",
+                "operation": 55
+              },
+              {
+                "type": "local",
+                "operation": 49
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x1"
+              },
+              {
+                "type": "local",
+                "operation": 56
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 57
+              },
+              {
+                "type": "scalar",
+                "name": "a1"
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 58
+              },
+              {
+                "type": "tensor",
+                "name": "x8"
+              },
+              {
+                "type": "local",
+                "operation": 55
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 59
+              },
+              {
+                "type": "local",
+                "operation": 55
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x5"
+              },
+              {
+                "type": "local",
+                "operation": 60
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "local",
+                "operation": 61
+              },
+              {
+                "type": "local",
+                "operation": 55
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x7"
+              },
+              {
+                "type": "local",
+                "operation": 62
+              }
+            ]
+          }
+        ],
+        "yield": 63
+      }
+    },
+    {
+      "id": "A7",
+      "proposal": {
+        "schema": "agentir.elementwise_graph.v1",
+        "operations": [
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "tensor",
+                "name": "x0"
+              },
+              {
+                "type": "tensor",
+                "name": "x1"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x2"
+              },
+              {
+                "type": "local",
+                "operation": 0
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x3"
+              },
+              {
+                "type": "local",
+                "operation": 0
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 1
+              },
+              {
+                "type": "local",
+                "operation": 2
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 3
+              },
+              {
+                "type": "scalar",
+                "name": "a2"
+              },
+              {
+                "type": "tensor",
+                "name": "x0"
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 4
+              },
+              {
+                "type": "tensor",
+                "name": "x9"
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "local",
+                "operation": 5
+              },
+              {
+                "type": "tensor",
+                "name": "x3"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x5"
+              },
+              {
+                "type": "local",
+                "operation": 6
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x8"
+              },
+              {
+                "type": "local",
+                "operation": 6
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 7
+              },
+              {
+                "type": "local",
+                "operation": 8
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 9
+              },
+              {
+                "type": "scalar",
+                "name": "a3"
+              },
+              {
+                "type": "local",
+                "operation": 5
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 10
+              },
+              {
+                "type": "tensor",
+                "name": "x8"
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a2"
+              },
+              {
+                "type": "local",
+                "operation": 11
+              },
+              {
+                "type": "tensor",
+                "name": "x5"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x8"
+              },
+              {
+                "type": "local",
+                "operation": 12
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x3"
+              },
+              {
+                "type": "local",
+                "operation": 12
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 13
+              },
+              {
+                "type": "local",
+                "operation": 14
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 15
+              },
+              {
+                "type": "scalar",
+                "name": "a4"
+              },
+              {
+                "type": "local",
+                "operation": 11
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 16
+              },
+              {
+                "type": "tensor",
+                "name": "x7"
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a3"
+              },
+              {
+                "type": "local",
+                "operation": 17
+              },
+              {
+                "type": "tensor",
+                "name": "x7"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x1"
+              },
+              {
+                "type": "local",
+                "operation": 18
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x8"
+              },
+              {
+                "type": "local",
+                "operation": 18
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 19
+              },
+              {
+                "type": "local",
+                "operation": 20
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 21
+              },
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "local",
+                "operation": 17
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 22
+              },
+              {
+                "type": "tensor",
+                "name": "x6"
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a4"
+              },
+              {
+                "type": "local",
+                "operation": 23
+              },
+              {
+                "type": "tensor",
+                "name": "x9"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x4"
+              },
+              {
+                "type": "local",
+                "operation": 24
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x3"
+              },
+              {
+                "type": "local",
+                "operation": 24
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 25
+              },
+              {
+                "type": "local",
+                "operation": 26
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 27
+              },
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "local",
+                "operation": 23
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 28
+              },
+              {
+                "type": "local",
+                "operation": 11
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "local",
+                "operation": 29
+              },
+              {
+                "type": "tensor",
+                "name": "x1"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x7"
+              },
+              {
+                "type": "local",
+                "operation": 30
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x8"
+              },
+              {
+                "type": "local",
+                "operation": 30
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 31
+              },
+              {
+                "type": "local",
+                "operation": 32
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 33
+              },
+              {
+                "type": "scalar",
+                "name": "a2"
+              },
+              {
+                "type": "local",
+                "operation": 29
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 34
+              },
+              {
+                "type": "local",
+                "operation": 17
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "local",
+                "operation": 35
+              },
+              {
+                "type": "tensor",
+                "name": "x3"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x0"
+              },
+              {
+                "type": "local",
+                "operation": 36
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x3"
+              },
+              {
+                "type": "local",
+                "operation": 36
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 37
+              },
+              {
+                "type": "local",
+                "operation": 38
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 39
+              },
+              {
+                "type": "scalar",
+                "name": "a3"
+              },
+              {
+                "type": "local",
+                "operation": 35
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 40
+              },
+              {
+                "type": "local",
+                "operation": 23
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a2"
+              },
+              {
+                "type": "local",
+                "operation": 41
+              },
+              {
+                "type": "tensor",
+                "name": "x5"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x3"
+              },
+              {
+                "type": "local",
+                "operation": 42
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x8"
+              },
+              {
+                "type": "local",
+                "operation": 42
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 43
+              },
+              {
+                "type": "local",
+                "operation": 44
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 45
+              },
+              {
+                "type": "scalar",
+                "name": "a4"
+              },
+              {
+                "type": "local",
+                "operation": 41
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 46
+              },
+              {
+                "type": "local",
+                "operation": 29
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a3"
+              },
+              {
+                "type": "local",
+                "operation": 47
+              },
+              {
+                "type": "tensor",
+                "name": "x7"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x6"
+              },
+              {
+                "type": "local",
+                "operation": 48
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x3"
+              },
+              {
+                "type": "local",
+                "operation": 48
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 49
+              },
+              {
+                "type": "local",
+                "operation": 50
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 51
+              },
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "local",
+                "operation": 47
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 52
+              },
+              {
+                "type": "local",
+                "operation": 35
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a4"
+              },
+              {
+                "type": "local",
+                "operation": 53
+              },
+              {
+                "type": "tensor",
+                "name": "x9"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x9"
+              },
+              {
+                "type": "local",
+                "operation": 54
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x8"
+              },
+              {
+                "type": "local",
+                "operation": 54
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 55
+              },
+              {
+                "type": "local",
+                "operation": 56
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 57
+              },
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "local",
+                "operation": 53
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 58
+              },
+              {
+                "type": "local",
+                "operation": 41
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "local",
+                "operation": 59
+              },
+              {
+                "type": "tensor",
+                "name": "x1"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x2"
+              },
+              {
+                "type": "local",
+                "operation": 60
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x3"
+              },
+              {
+                "type": "local",
+                "operation": 60
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 61
+              },
+              {
+                "type": "local",
+                "operation": 62
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 63
+              },
+              {
+                "type": "scalar",
+                "name": "a2"
+              },
+              {
+                "type": "local",
+                "operation": 59
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 64
+              },
+              {
+                "type": "local",
+                "operation": 47
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "local",
+                "operation": 65
+              },
+              {
+                "type": "tensor",
+                "name": "x3"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x5"
+              },
+              {
+                "type": "local",
+                "operation": 66
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x8"
+              },
+              {
+                "type": "local",
+                "operation": 66
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 67
+              },
+              {
+                "type": "local",
+                "operation": 68
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 69
+              },
+              {
+                "type": "scalar",
+                "name": "a3"
+              },
+              {
+                "type": "local",
+                "operation": 65
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 70
+              },
+              {
+                "type": "local",
+                "operation": 53
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a2"
+              },
+              {
+                "type": "local",
+                "operation": 71
+              },
+              {
+                "type": "tensor",
+                "name": "x5"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x8"
+              },
+              {
+                "type": "local",
+                "operation": 72
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x3"
+              },
+              {
+                "type": "local",
+                "operation": 72
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 73
+              },
+              {
+                "type": "local",
+                "operation": 74
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 75
+              },
+              {
+                "type": "scalar",
+                "name": "a4"
+              },
+              {
+                "type": "local",
+                "operation": 71
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 76
+              },
+              {
+                "type": "local",
+                "operation": 59
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a3"
+              },
+              {
+                "type": "local",
+                "operation": 77
+              },
+              {
+                "type": "tensor",
+                "name": "x7"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x1"
+              },
+              {
+                "type": "local",
+                "operation": 78
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x8"
+              },
+              {
+                "type": "local",
+                "operation": 78
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 79
+              },
+              {
+                "type": "local",
+                "operation": 80
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 81
+              },
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "local",
+                "operation": 77
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 82
+              },
+              {
+                "type": "local",
+                "operation": 65
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a4"
+              },
+              {
+                "type": "local",
+                "operation": 83
+              },
+              {
+                "type": "tensor",
+                "name": "x9"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x4"
+              },
+              {
+                "type": "local",
+                "operation": 84
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x3"
+              },
+              {
+                "type": "local",
+                "operation": 84
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 85
+              },
+              {
+                "type": "local",
+                "operation": 86
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 87
+              },
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "local",
+                "operation": 83
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 88
+              },
+              {
+                "type": "local",
+                "operation": 71
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "local",
+                "operation": 89
+              },
+              {
+                "type": "tensor",
+                "name": "x1"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x7"
+              },
+              {
+                "type": "local",
+                "operation": 90
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x8"
+              },
+              {
+                "type": "local",
+                "operation": 90
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 91
+              },
+              {
+                "type": "local",
+                "operation": 92
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 93
+              },
+              {
+                "type": "scalar",
+                "name": "a2"
+              },
+              {
+                "type": "local",
+                "operation": 89
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 94
+              },
+              {
+                "type": "local",
+                "operation": 77
+              }
+            ]
+          }
+        ],
+        "yield": 95
+      }
+    },
+    {
+      "id": "A8",
+      "proposal": {
+        "schema": "agentir.elementwise_graph.v1",
+        "operations": [
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x0"
+              },
+              {
+                "type": "scalar",
+                "name": "a0"
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x1"
+              },
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "tensor",
+                "name": "x2"
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 1
+              },
+              {
+                "type": "local",
+                "operation": 0
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 2
+              },
+              {
+                "type": "tensor",
+                "name": "x3"
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x4"
+              },
+              {
+                "type": "local",
+                "operation": 0
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 4
+              },
+              {
+                "type": "scalar",
+                "name": "a4"
+              },
+              {
+                "type": "local",
+                "operation": 2
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 5
+              },
+              {
+                "type": "local",
+                "operation": 3
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 6
+              },
+              {
+                "type": "local",
+                "operation": 2
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x9"
+              },
+              {
+                "type": "local",
+                "operation": 7
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "local",
+                "operation": 8
+              },
+              {
+                "type": "local",
+                "operation": 1
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 9
+              },
+              {
+                "type": "tensor",
+                "name": "x3"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a3"
+              },
+              {
+                "type": "local",
+                "operation": 10
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 11
+              },
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "local",
+                "operation": 9
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 12
+              },
+              {
+                "type": "local",
+                "operation": 6
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 13
+              },
+              {
+                "type": "local",
+                "operation": 9
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x6"
+              },
+              {
+                "type": "local",
+                "operation": 14
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a2"
+              },
+              {
+                "type": "local",
+                "operation": 15
+              },
+              {
+                "type": "local",
+                "operation": 8
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 16
+              },
+              {
+                "type": "tensor",
+                "name": "x1"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a2"
+              },
+              {
+                "type": "local",
+                "operation": 17
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 18
+              },
+              {
+                "type": "scalar",
+                "name": "a3"
+              },
+              {
+                "type": "local",
+                "operation": 16
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 19
+              },
+              {
+                "type": "local",
+                "operation": 10
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 20
+              },
+              {
+                "type": "local",
+                "operation": 16
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x3"
+              },
+              {
+                "type": "local",
+                "operation": 21
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a3"
+              },
+              {
+                "type": "local",
+                "operation": 22
+              },
+              {
+                "type": "local",
+                "operation": 15
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 23
+              },
+              {
+                "type": "tensor",
+                "name": "x9"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "local",
+                "operation": 24
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 25
+              },
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "local",
+                "operation": 23
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 26
+              },
+              {
+                "type": "local",
+                "operation": 13
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 27
+              },
+              {
+                "type": "local",
+                "operation": 23
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x0"
+              },
+              {
+                "type": "local",
+                "operation": 28
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a4"
+              },
+              {
+                "type": "local",
+                "operation": 29
+              },
+              {
+                "type": "local",
+                "operation": 22
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 30
+              },
+              {
+                "type": "tensor",
+                "name": "x7"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "local",
+                "operation": 31
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 32
+              },
+              {
+                "type": "scalar",
+                "name": "a2"
+              },
+              {
+                "type": "local",
+                "operation": 30
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 33
+              },
+              {
+                "type": "local",
+                "operation": 17
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 34
+              },
+              {
+                "type": "local",
+                "operation": 30
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x7"
+              },
+              {
+                "type": "local",
+                "operation": 35
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "local",
+                "operation": 36
+              },
+              {
+                "type": "local",
+                "operation": 29
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 37
+              },
+              {
+                "type": "tensor",
+                "name": "x5"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a4"
+              },
+              {
+                "type": "local",
+                "operation": 38
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 39
+              },
+              {
+                "type": "scalar",
+                "name": "a4"
+              },
+              {
+                "type": "local",
+                "operation": 37
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 40
+              },
+              {
+                "type": "local",
+                "operation": 20
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 41
+              },
+              {
+                "type": "local",
+                "operation": 37
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x4"
+              },
+              {
+                "type": "local",
+                "operation": 42
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "local",
+                "operation": 43
+              },
+              {
+                "type": "local",
+                "operation": 36
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 44
+              },
+              {
+                "type": "tensor",
+                "name": "x3"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a3"
+              },
+              {
+                "type": "local",
+                "operation": 45
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 46
+              },
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "local",
+                "operation": 44
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 47
+              },
+              {
+                "type": "local",
+                "operation": 24
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 48
+              },
+              {
+                "type": "local",
+                "operation": 44
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x1"
+              },
+              {
+                "type": "local",
+                "operation": 49
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a2"
+              },
+              {
+                "type": "local",
+                "operation": 50
+              },
+              {
+                "type": "local",
+                "operation": 43
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 51
+              },
+              {
+                "type": "tensor",
+                "name": "x1"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a2"
+              },
+              {
+                "type": "local",
+                "operation": 52
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 53
+              },
+              {
+                "type": "scalar",
+                "name": "a3"
+              },
+              {
+                "type": "local",
+                "operation": 51
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 54
+              },
+              {
+                "type": "local",
+                "operation": 27
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 55
+              },
+              {
+                "type": "local",
+                "operation": 51
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x8"
+              },
+              {
+                "type": "local",
+                "operation": 56
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a3"
+              },
+              {
+                "type": "local",
+                "operation": 57
+              },
+              {
+                "type": "local",
+                "operation": 50
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 58
+              },
+              {
+                "type": "tensor",
+                "name": "x9"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "local",
+                "operation": 59
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 60
+              },
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "local",
+                "operation": 58
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 61
+              },
+              {
+                "type": "local",
+                "operation": 31
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 62
+              },
+              {
+                "type": "local",
+                "operation": 58
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x5"
+              },
+              {
+                "type": "local",
+                "operation": 63
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a4"
+              },
+              {
+                "type": "local",
+                "operation": 64
+              },
+              {
+                "type": "local",
+                "operation": 57
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 65
+              },
+              {
+                "type": "tensor",
+                "name": "x7"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "local",
+                "operation": 66
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 67
+              },
+              {
+                "type": "scalar",
+                "name": "a2"
+              },
+              {
+                "type": "local",
+                "operation": 65
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 68
+              },
+              {
+                "type": "local",
+                "operation": 34
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 69
+              },
+              {
+                "type": "local",
+                "operation": 65
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x2"
+              },
+              {
+                "type": "local",
+                "operation": 70
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "local",
+                "operation": 71
+              },
+              {
+                "type": "local",
+                "operation": 64
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 72
+              },
+              {
+                "type": "tensor",
+                "name": "x5"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a4"
+              },
+              {
+                "type": "local",
+                "operation": 73
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 74
+              },
+              {
+                "type": "scalar",
+                "name": "a4"
+              },
+              {
+                "type": "local",
+                "operation": 72
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 75
+              },
+              {
+                "type": "local",
+                "operation": 38
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 76
+              },
+              {
+                "type": "local",
+                "operation": 72
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x9"
+              },
+              {
+                "type": "local",
+                "operation": 77
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "local",
+                "operation": 78
+              },
+              {
+                "type": "local",
+                "operation": 71
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 79
+              },
+              {
+                "type": "tensor",
+                "name": "x3"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a3"
+              },
+              {
+                "type": "local",
+                "operation": 80
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 81
+              },
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "local",
+                "operation": 79
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 82
+              },
+              {
+                "type": "local",
+                "operation": 41
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 83
+              },
+              {
+                "type": "local",
+                "operation": 79
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x6"
+              },
+              {
+                "type": "local",
+                "operation": 84
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a2"
+              },
+              {
+                "type": "local",
+                "operation": 85
+              },
+              {
+                "type": "local",
+                "operation": 78
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 86
+              },
+              {
+                "type": "tensor",
+                "name": "x1"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a2"
+              },
+              {
+                "type": "local",
+                "operation": 87
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 88
+              },
+              {
+                "type": "scalar",
+                "name": "a3"
+              },
+              {
+                "type": "local",
+                "operation": 86
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 89
+              },
+              {
+                "type": "local",
+                "operation": 45
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 90
+              },
+              {
+                "type": "local",
+                "operation": 86
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x3"
+              },
+              {
+                "type": "local",
+                "operation": 91
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a3"
+              },
+              {
+                "type": "local",
+                "operation": 92
+              },
+              {
+                "type": "local",
+                "operation": 85
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 93
+              },
+              {
+                "type": "tensor",
+                "name": "x9"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "local",
+                "operation": 94
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 95
+              },
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "local",
+                "operation": 93
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 96
+              },
+              {
+                "type": "local",
+                "operation": 48
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 97
+              },
+              {
+                "type": "local",
+                "operation": 93
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x0"
+              },
+              {
+                "type": "local",
+                "operation": 98
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a4"
+              },
+              {
+                "type": "local",
+                "operation": 99
+              },
+              {
+                "type": "local",
+                "operation": 92
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 100
+              },
+              {
+                "type": "tensor",
+                "name": "x7"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "local",
+                "operation": 101
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 102
+              },
+              {
+                "type": "scalar",
+                "name": "a2"
+              },
+              {
+                "type": "local",
+                "operation": 100
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 103
+              },
+              {
+                "type": "local",
+                "operation": 52
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 104
+              },
+              {
+                "type": "local",
+                "operation": 100
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x7"
+              },
+              {
+                "type": "local",
+                "operation": 105
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a0"
+              },
+              {
+                "type": "local",
+                "operation": 106
+              },
+              {
+                "type": "local",
+                "operation": 99
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 107
+              },
+              {
+                "type": "tensor",
+                "name": "x5"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a4"
+              },
+              {
+                "type": "local",
+                "operation": 108
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 109
+              },
+              {
+                "type": "scalar",
+                "name": "a4"
+              },
+              {
+                "type": "local",
+                "operation": 107
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 110
+              },
+              {
+                "type": "local",
+                "operation": 55
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 111
+              },
+              {
+                "type": "local",
+                "operation": 107
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x4"
+              },
+              {
+                "type": "local",
+                "operation": 112
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "local",
+                "operation": 113
+              },
+              {
+                "type": "local",
+                "operation": 106
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 114
+              },
+              {
+                "type": "tensor",
+                "name": "x3"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a3"
+              },
+              {
+                "type": "local",
+                "operation": 115
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 116
+              },
+              {
+                "type": "scalar",
+                "name": "a1"
+              },
+              {
+                "type": "local",
+                "operation": 114
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 117
+              },
+              {
+                "type": "local",
+                "operation": 59
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 118
+              },
+              {
+                "type": "local",
+                "operation": 114
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x1"
+              },
+              {
+                "type": "local",
+                "operation": 119
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a2"
+              },
+              {
+                "type": "local",
+                "operation": 120
+              },
+              {
+                "type": "local",
+                "operation": 113
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 121
+              },
+              {
+                "type": "tensor",
+                "name": "x1"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "scalar",
+                "name": "a2"
+              },
+              {
+                "type": "local",
+                "operation": 122
+              }
+            ]
+          },
+          {
+            "op": "fma",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 123
+              },
+              {
+                "type": "scalar",
+                "name": "a3"
+              },
+              {
+                "type": "local",
+                "operation": 121
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 124
+              },
+              {
+                "type": "local",
+                "operation": 62
+              }
+            ]
+          },
+          {
+            "op": "add",
+            "operands": [
+              {
+                "type": "local",
+                "operation": 125
+              },
+              {
+                "type": "local",
+                "operation": 121
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "operands": [
+              {
+                "type": "tensor",
+                "name": "x8"
+              },
+              {
+                "type": "local",
+                "operation": 126
+              }
+            ]
+          }
+        ],
+        "yield": 127
+      }
+    }
+  ]
+}

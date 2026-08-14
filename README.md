@@ -22,6 +22,7 @@ AgentIR — экспериментальная агентно-нативная �
 - централизованные resource budgets для core, evaluator, store, protocol и CLI;
 - fixed-seed soundness/mutation corpora и statistical benchmark schema v2;
 - stateful JSONL CLI с одним ответом на каждый запрос;
+- отдельный graph/incremental/staged-v1/framed-staged-v2 authoring SDK: compiler-owned frames, server-owned envelope/intent, typed references и автоматический перенос compiler IDs/hashes;
 - отдельный typed ImplIR и deterministic identity lowering frozen SpecIR;
 - immutable candidate revision DAG с fork, atomic rewrite transactions и seal;
 - exact known rewrites: unreachable pruning, identical cast elimination и defined scalar constant folding;
@@ -71,6 +72,9 @@ cargo run -p agentir-cli --bin agentir < examples/schedule_fused.jsonl
 cargo run -p agentir-cli --bin agentir < examples/schedule_vectorized.jsonl
 cargo run -p agentir-cli --bin agentir < examples/schedule_guarded_memory.jsonl
 cargo run -p agentir-cli --bin agentir < examples/equality_to_schedule.jsonl
+cargo run -p agentir-authoring --bin agentir-authoring -- --task examples/authoring_task_two_term.json --surface graph < examples/authoring_proposal_two_term.json
+cargo run -p agentir-authoring --bin agentir-authoring -- --task examples/authoring_task_two_term.json --surface incremental-batch < examples/authoring_incremental_two_term.json
+cargo run -p agentir-authoring --bin agentir-authoring -- --task examples/authoring_task_two_term.json --surface staged < examples/authoring_staged_two_term.json
 ```
 
 Последний ответ SAXPY содержит:
@@ -104,7 +108,8 @@ cargo run -p agentir-cli --bin agentir < examples/equality_to_schedule.jsonl
 - `agentir-runtime-cpu` — bounded warmup/timing orchestration над неизменными Stage 8A packages; единственная CPU clock boundary;
 - `agentir-store` — atomic file persistence, archive integrity и deterministic replay;
 - `agentir-protocol` — wire types и stateful command engine;
-- `agentir-cli` — тонкий JSONL stdin/stdout frontend.
+- `agentir-cli` — тонкий JSONL stdin/stdout frontend;
+- `agentir-authoring` — локальный graph/incremental/staged-v1/framed-staged-v2 адаптер с compiler-owned frames, server-owned task intent и автоматическим переносом compiler identities;
 - `agentir-policy-eval` — immutable corpus, ranking/search, explicit measurement acquisition, durable recovery/reconciliation, integrated campaigns, replay, metrics, fairness и evaluation archive v8;
 - `agentir-eval` CLI — bounded JSONL transport для scripted и внешних agent policies.
 

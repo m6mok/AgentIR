@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agentir-elementwise-graph-v1.schema.json",
+  "title": "AgentIR elementwise graph authoring payload v1",
+  "additionalProperties": false,
+  "properties": {
+    "operations": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "op": {
+            "enum": ["add", "mul", "fma"],
+            "type": "string"
+          },
+          "operands": {
+            "items": {
+              "anyOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {"const": "scalar", "type": "string"},
+                    "name": {"minLength": 1, "type": "string"}
+                  },
+                  "required": ["kind", "name"],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {"const": "tensor", "type": "string"},
+                    "name": {"minLength": 1, "type": "string"}
+                  },
+                  "required": ["kind", "name"],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {"const": "local", "type": "string"},
+                    "operation": {"minimum": 0, "type": "integer"}
+                  },
+                  "required": ["kind", "operation"],
+                  "type": "object"
+                }
+              ]
+            },
+            "maxItems": 3,
+            "minItems": 2,
+            "type": "array"
+          }
+        },
+        "required": ["op", "operands"],
+        "type": "object"
+      },
+      "maxItems": 128,
+      "minItems": 1,
+      "type": "array"
+    },
+    "schema": {
+      "const": "agentir.elementwise_graph.v1",
+      "type": "string"
+    },
+    "yield": {
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": ["schema", "operations", "yield"],
+  "type": "object"
+}

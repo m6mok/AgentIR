@@ -13,6 +13,7 @@ members = [
     "crates/agentir-runtime-wgpu",
     "crates/agentir-policy-eval",
     "crates/agentir-eval-cli",
+    "crates/agentir-authoring",
 ]
 resolver = "2"
 

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agentir-elementwise-incremental-batch-v1.schema.json",
+  "title": "AgentIR elementwise incremental batch v1",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "agentir.elementwise_incremental_batch.v1",
+      "type": "string"
+    },
+    "transactions": {
+      "items": {"$ref": "agentir-elementwise-transaction-v1.schema.json"},
+      "maxItems": 128,
+      "minItems": 1,
+      "type": "array"
+    },
+    "yield": {
+      "pattern": "^\\$[A-Za-z_][A-Za-z0-9_]*$",
+      "type": "string"
+    }
+  },
+  "required": ["schema", "transactions", "yield"],
+  "type": "object"
+}

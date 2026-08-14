@@ -1,0 +1,130 @@
+{
+  "schema": "agentir.elementwise_staged.v1",
+  "stages": 16,
+  "seed": {
+    "kind": "tensor",
+    "name": "x0"
+  },
+  "body": [
+    {
+      "bind": "$affine",
+      "op": "fma",
+      "operands": [
+        {
+          "kind": "scalar_cycle",
+          "prefix": "a",
+          "count": 5,
+          "stride": 1,
+          "offset": 0
+        },
+        {
+          "kind": "state_prev"
+        },
+        {
+          "kind": "tensor_cycle",
+          "prefix": "x",
+          "count": 10,
+          "stride": 2,
+          "offset": 1
+        }
+      ]
+    },
+    {
+      "bind": "$masked",
+      "op": "mul",
+      "operands": [
+        {
+          "kind": "tensor_cycle",
+          "prefix": "x",
+          "count": 10,
+          "stride": 3,
+          "offset": 2
+        },
+        {
+          "kind": "stage_local",
+          "name": "$affine"
+        }
+      ]
+    },
+    {
+      "bind": "$shifted",
+      "op": "add",
+      "operands": [
+        {
+          "kind": "tensor_cycle",
+          "prefix": "x",
+          "count": 10,
+          "stride": 5,
+          "offset": 3
+        },
+        {
+          "kind": "stage_local",
+          "name": "$affine"
+        }
+      ]
+    },
+    {
+      "bind": "$mixed",
+      "op": "add",
+      "operands": [
+        {
+          "kind": "stage_local",
+          "name": "$masked"
+        },
+        {
+          "kind": "stage_local",
+          "name": "$shifted"
+        }
+      ]
+    },
+    {
+      "bind": "$feedback",
+      "op": "fma",
+      "operands": [
+        {
+          "kind": "stage_local",
+          "name": "$mixed"
+        },
+        {
+          "kind": "scalar_cycle",
+          "prefix": "a",
+          "count": 5,
+          "stride": 1,
+          "offset": 2
+        },
+        {
+          "kind": "state_prev"
+        }
+      ]
+    },
+    {
+      "bind": "$state",
+      "op": "add",
+      "operands": [
+        {
+          "kind": "stage_local",
+          "name": "$feedback"
+        },
+        {
+          "kind": "state_lag",
+          "stages": 3,
+          "initial": [
+            {
+              "kind": "tensor",
+              "name": "x9"
+            },
+            {
+              "kind": "tensor",
+              "name": "x8"
+            },
+            {
+              "kind": "tensor",
+              "name": "x7"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "state": "$state"
+}

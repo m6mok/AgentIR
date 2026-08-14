@@ -1,0 +1,40 @@
+{
+  "schema": "agentir.elementwise_authoring_task.v1",
+  "task_id": "two-term-v1",
+  "dimension": "N",
+  "scalars": ["a", "b"],
+  "tensors": ["x", "y"],
+  "inputs": {
+    "a": 2.0,
+    "b": 3.0,
+    "x": [1.0, 2.0, 3.0, 4.0],
+    "y": [10.0, 20.0, 30.0, 40.0]
+  },
+  "intent": {
+    "schema": "agentir.elementwise_graph.v1",
+    "operations": [
+      {
+        "op": "mul",
+        "operands": [
+          {"kind": "scalar", "name": "a"},
+          {"kind": "tensor", "name": "x"}
+        ]
+      },
+      {
+        "op": "mul",
+        "operands": [
+          {"kind": "scalar", "name": "b"},
+          {"kind": "tensor", "name": "y"}
+        ]
+      },
+      {
+        "op": "add",
+        "operands": [
+          {"kind": "local", "operation": 0},
+          {"kind": "local", "operation": 1}
+        ]
+      }
+    ],
+    "yield": 2
+  }
+}

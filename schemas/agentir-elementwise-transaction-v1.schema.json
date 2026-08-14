@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agentir-elementwise-transaction-v1.schema.json",
+  "title": "AgentIR elementwise incremental transaction v1",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "agentir.elementwise_transaction.v1",
+      "type": "string"
+    },
+    "base_operations": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "operations": {
+      "items": {"$ref": "#/$defs/operation"},
+      "maxItems": 8,
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": ["schema", "base_operations", "operations"],
+  "type": "object",
+  "$defs": {
+    "operand": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {"const": "scalar", "type": "string"},
+            "name": {"minLength": 1, "type": "string"}
+          },
+          "required": ["kind", "name"],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {"const": "tensor", "type": "string"},
+            "name": {"minLength": 1, "type": "string"}
+          },
+          "required": ["kind", "name"],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {"const": "local", "type": "string"},
+            "name": {
+              "pattern": "^\\$[A-Za-z_][A-Za-z0-9_]*$",
+              "type": "string"
+            }
+          },
+          "required": ["kind", "name"],
+          "type": "object"
+        }
+      ]
+    },
+    "operation": {
+      "additionalProperties": false,
+      "properties": {
+        "bind": {
+          "pattern": "^\\$[A-Za-z_][A-Za-z0-9_]*$",
+          "type": "string"
+        },
+        "op": {
+          "enum": ["add", "mul", "fma"],
+          "type": "string"
+        },
+        "operands": {
+          "items": {"$ref": "#/$defs/operand"},
+          "maxItems": 3,
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": ["bind", "op", "operands"],
+      "type": "object"
+    }
+  }
+}

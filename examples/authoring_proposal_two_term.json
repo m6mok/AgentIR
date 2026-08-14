@@ -1,0 +1,27 @@
+{
+  "schema": "agentir.elementwise_graph.v1",
+  "operations": [
+    {
+      "op": "mul",
+      "operands": [
+        {"kind": "scalar", "name": "a"},
+        {"kind": "tensor", "name": "x"}
+      ]
+    },
+    {
+      "op": "mul",
+      "operands": [
+        {"kind": "scalar", "name": "b"},
+        {"kind": "tensor", "name": "y"}
+      ]
+    },
+    {
+      "op": "add",
+      "operands": [
+        {"kind": "local", "operation": 0},
+        {"kind": "local", "operation": 1}
+      ]
+    }
+  ],
+  "yield": 2
+}

@@ -15,6 +15,14 @@ plans, results, equivalence flags or certificates. Unsupported types, ranks,
 operations, regions or schedules reject atomically before a package is
 published.
 
+The exact typed graph fixes floating-point operation boundaries. Explicit
+`fma(a,b,c)` performs one fused operation with one rounding; an `add` consuming
+a `mul` result performs two separate operations and roundings. They are not
+interchangeable for arbitrary `f32`, and agreement on one input is not an
+equivalence proof. The [CPU authoring quickstart](protocol.md#cpu-jsonl-authoring-quickstart)
+shows how static fixtures preserve this graph and obtain compiler-owned IDs and
+hashes through successful prefix runs.
+
 The trusted chain remains compiler owned:
 
 ```text

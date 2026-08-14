@@ -3,6 +3,19 @@
 version = 4
 
 [[package]]
+name = "agentir-authoring"
+version = "0.1.0"
+dependencies = [
+ "agentir-core",
+ "agentir-native-cpu-worker",
+ "agentir-protocol",
+ "agentir-runtime-native-cpu",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "agentir-backend-cpu"
 version = "0.1.0"
 dependencies = [
